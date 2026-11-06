@@ -18,20 +18,24 @@ pub struct PostPath {
     pub post_id: PostId,
 }
 
+/// The query of `GET /post/{author_id}/{post_id}`, with `include_attachment_metadata` as
+/// version `V` reads it: a flag on `/v0`, nothing on `/v1`, which has no file details. Every
+/// other parameter is the same on both.
 #[derive(Default, Deserialize, Debug)]
-pub struct PostViewQuery {
+#[serde(bound(deserialize = ""))]
+pub struct PostViewQuery<V: ApiVersion> {
     pub viewer_id: Option<PubkyId>,
     pub limit_tags: Option<BoundedLimit<5, 100>>,
     pub limit_taggers: Option<BoundedLimit<5, 100>>,
     #[serde(default)]
-    pub include_attachment_metadata: bool,
+    pub include_attachment_metadata: V::IncludeAttachmentMetadata,
 }
 
 /// The one body behind `post_view_handler_v0` and `post_view_handler_v1`: the view in the
 /// version's shape.
 pub async fn post_view<V: ApiVersion>(
     Path(PostPath { author_id, post_id }): Path<PostPath>,
-    Query(query): Query<PostViewQuery>,
+    Query(query): Query<PostViewQuery<V>>,
 ) -> Result<Json<V::PostView>> {
     debug!(
         "GET {POST_ROUTE} author_id:{}, post_id:{}, viewer_id:{:?}, limit_tags:{:?}, limit_taggers:{:?}",
@@ -48,7 +52,7 @@ pub async fn post_view<V: ApiVersion>(
         query.viewer_id.as_deref(),
         query.limit_tags.map(|l| l.value()),
         query.limit_taggers.map(|l| l.value()),
-        query.include_attachment_metadata,
+        query.include_attachment_metadata.into(),
     )
     .await?
     {
@@ -58,7 +62,7 @@ pub async fn post_view<V: ApiVersion>(
 }
 
 versioned_handlers! {
-    post_view_handler_v0 / post_view_handler_v1 => post_view(path: Path<PostPath>, query: Query<PostViewQuery>) -> shapes::PostView;
+    post_view_handler_v0 / post_view_handler_v1 => post_view(path: Path<PostPath>, query: Query<shapes::PostViewQuery>) -> shapes::PostView;
     #[utoipa::path(
         get,
         path = POST_ROUTE,
@@ -71,7 +75,7 @@ versioned_handlers! {
             ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
             ("limit_tags" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of tags for the post (1–100, **default** 5)"),
             ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of taggers per tag (1–100, **default** 5)"),
-            ("include_attachment_metadata" = Option<bool>, Query, description = "Include file metadata for post attachments"),
+            shapes::IncludeAttachmentMetadata,
         )
     )]
     responses(

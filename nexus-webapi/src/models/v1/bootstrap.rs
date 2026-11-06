@@ -4,25 +4,23 @@
 //! The lists it embeds are the ones the user stream, the post stream and the notification
 //! route serve, so a client reads one shape for a user and one for a post wherever they
 //! appear: no `bookmarks` in a user's counts, no `bookmark` on a post, the post kinds under
-//! their `social/v1` names. `files` stays as `/v0` lists it until its own ticket.
+//! their `social/v1` names. There is no `files` list: a `social/v1` file is bytes behind
+//! `/v1/static` with no `File` node, so `/v1` promises no metadata for an attachment.
 
 use nexus_common::models::bootstrap::{self, BootstrapIds};
-use nexus_common::models::file::FileDetails;
 use serde::Serialize;
 use utoipa::ToSchema;
 
 use super::{Notification, PostStream, UserStream};
 
 /// Everything the client app loads at sign-in, as `/v0`'s [`bootstrap::Bootstrap`] with
-/// each embedded list in its `/v1` shape.
+/// each embedded list in its `/v1` shape and without `files`.
 #[derive(Serialize, ToSchema, Debug, Default)]
 pub struct Bootstrap {
     /// The user objects shown to the given user ID
     pub users: UserStream,
     /// The posts objects shown to the given user ID
     pub posts: PostStream,
-    /// File metadata for all attachments referenced in posts and replies
-    pub files: Vec<FileDetails>,
     /// IDs of objects shown to this user on the home page of the FE
     pub ids: BootstrapIds,
     /// Whether or not this user is already indexed
@@ -31,12 +29,13 @@ pub struct Bootstrap {
     pub notifications: Vec<Notification>,
 }
 
+/// The stored payload's `files`, the `File` nodes of the posts' attachments, are dropped.
 impl From<bootstrap::Bootstrap> for Bootstrap {
     fn from(bootstrap: bootstrap::Bootstrap) -> Self {
         let bootstrap::Bootstrap {
             users,
             posts,
-            files,
+            files: _,
             ids,
             indexed,
             notifications,
@@ -44,7 +43,6 @@ impl From<bootstrap::Bootstrap> for Bootstrap {
         Self {
             users: users.into(),
             posts: posts.into(),
-            files,
             ids,
             indexed,
             notifications: notifications.into_iter().map(Notification::from).collect(),
@@ -72,9 +70,10 @@ mod tests {
         }
     }
 
-    /// The `/v1` bootstrap is the stored one with each list converted: the users' counts lose
-    /// `bookmarks`, the posts lose `bookmark` and name their kind the `/v1` way, the
-    /// notifications name `post_kind` the `/v1` way; `files`, `ids` and `indexed` are as stored.
+    /// The `/v1` bootstrap is the stored one with each list converted and `files` dropped:
+    /// the users' counts lose `bookmarks`, the posts lose `bookmark` and name their kind the
+    /// `/v1` way, the notifications name `post_kind` the `/v1` way; `ids` and `indexed` are
+    /// as stored.
     #[test]
     fn lists_take_their_v1_shape_and_the_rest_is_as_stored() {
         let stored_user: user::UserView = serde_json::from_value(json!({
@@ -107,7 +106,11 @@ mod tests {
                 }),
                 ..Default::default()
             }]),
-            files: Vec::new(),
+            files: vec![nexus_common::models::file::FileDetails {
+                id: "2ZK3A1B2C3D40".into(),
+                owner_id: "owner".into(),
+                ..Default::default()
+            }],
             ids: BootstrapIds {
                 stream: vec!["author:post".into()],
                 ..Default::default()
@@ -133,9 +136,12 @@ mod tests {
         assert_eq!(v1["notifications"][0]["body"]["post_kind"], "article");
         assert_eq!(v1["ids"]["stream"], json!(["author:post"]));
         assert_eq!(v1["indexed"], true);
-        assert_eq!(v1["files"], json!([]));
+        assert_eq!(v0["files"][0]["id"], "2ZK3A1B2C3D40", "{v0}");
+        assert!(v1.get("files").is_none(), "{v1}");
+        assert_eq!(keys_named(&v1, "files"), 0, "{v1}");
 
         // Written the `/v1` way, the stored payload is the same document.
+        v0.as_object_mut().unwrap().remove("files");
         v0["users"][0]["counts"]
             .as_object_mut()
             .unwrap()

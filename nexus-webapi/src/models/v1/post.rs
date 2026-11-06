@@ -1,13 +1,13 @@
 use std::borrow::Cow;
 
-use nexus_common::models::file::FileDetails;
 use nexus_common::models::post::{self, PostCounts, PostRelationships};
 use nexus_common::models::tag::TagDetails;
-use serde::de::{self, Deserializer};
+use serde::de::{self, Deserializer, IgnoredAny};
 use serde::{Deserialize, Serialize, Serializer};
+use utoipa::openapi::path::{Parameter, ParameterIn};
 use utoipa::openapi::schema::{ObjectBuilder, Type};
 use utoipa::openapi::{RefOr, Schema};
-use utoipa::{PartialSchema, ToSchema};
+use utoipa::{IntoParams, PartialSchema, ToSchema};
 
 use crate::models::{PostStreamDetailed, PostViewDetailed};
 
@@ -136,23 +136,25 @@ impl From<post::PostDetails> for PostDetails {
 }
 
 /// A post with its counts, tags and relationships, as `/v0`'s [`PostViewDetailed`] with the
-/// kind under its `/v1` name and without the viewer's `bookmark`: `social/v1` bookmarks live
-/// under `/priv/`, which Nexus never sees.
+/// kind under its `/v1` name, without the viewer's `bookmark` and without
+/// `attachments_metadata`. `social/v1` bookmarks live under `/priv/`, which Nexus never sees;
+/// a `social/v1` file is bytes behind `/v1/static` with no `File` node, so a `/v1` view never
+/// promises metadata that does not exist for it.
 #[derive(Serialize, ToSchema, Debug)]
 pub struct PostView {
     pub details: PostDetails,
     pub counts: PostCounts,
     pub tags: Vec<TagDetails>,
     pub relationships: PostRelationships,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub attachments_metadata: Vec<FileDetails>,
 }
 
+/// The detailed view's metadata is dropped, never fetched: `/v1` reads
+/// [`NoAttachmentMetadata`], so the body fetches none.
 impl From<PostViewDetailed> for PostView {
     fn from(detailed: PostViewDetailed) -> Self {
         let PostViewDetailed {
             view,
-            attachments_metadata,
+            attachments_metadata: _,
         } = detailed;
         let post::PostView {
             details,
@@ -166,8 +168,29 @@ impl From<PostViewDetailed> for PostView {
             counts,
             tags,
             relationships,
-            attachments_metadata,
         }
+    }
+}
+
+/// What `/v1` reads where `/v0` reads `include_attachment_metadata`: nothing. The post view,
+/// the post stream and its `by_ids` body take the flag through the version, so a `/v1` query
+/// has no such parameter and documents none. A client that sends it anyway is read as any
+/// unknown parameter is, whatever the value: ignored, with no 400 of its own.
+#[derive(Deserialize, Debug, Clone, Copy, Default, PartialEq)]
+#[serde(transparent)]
+pub struct NoAttachmentMetadata(IgnoredAny);
+
+/// Never fetch: there is no `File` node behind a `social/v1` file.
+impl From<NoAttachmentMetadata> for bool {
+    fn from(_: NoAttachmentMetadata) -> Self {
+        false
+    }
+}
+
+/// No parameter to document.
+impl IntoParams for NoAttachmentMetadata {
+    fn into_params(_: impl Fn() -> Option<ParameterIn>) -> Vec<Parameter> {
+        Vec::new()
     }
 }
 
@@ -354,6 +377,94 @@ mod tests {
             assert_eq!(json["details"]["kind"], "note");
             assert_eq!(json["details"]["attachments"], json!([]));
         }
+    }
+
+    /// A detailed view that did fetch metadata converts without it: `/v0` writes
+    /// `attachments_metadata`, the `/v1` view has no such key and no such property, and is
+    /// otherwise the `/v0` view.
+    #[test]
+    fn view_drops_fetched_attachment_metadata() {
+        let file = nexus_common::models::file::FileDetails {
+            id: "2ZK3A1B2C3D40".into(),
+            owner_id: "owner".into(),
+            name: "file1".into(),
+            content_type: "image/png".into(),
+            ..Default::default()
+        };
+        let detailed = PostViewDetailed::new(post::PostView::default(), vec![file]);
+        let mut v0 = serde_json::to_value(&detailed).unwrap();
+        assert_eq!(
+            v0["attachments_metadata"].as_array().map(Vec::len),
+            Some(1),
+            "{v0}"
+        );
+        let v1 = serde_json::to_value(PostView::from(detailed)).unwrap();
+        assert!(v1.get("attachments_metadata").is_none(), "{v1}");
+        for field in ["details", "counts", "tags", "relationships"] {
+            assert!(v1.get(field).is_some(), "{field}: {v1}");
+        }
+        v0.as_object_mut().unwrap().remove("attachments_metadata");
+        v0.as_object_mut().unwrap().remove("bookmark");
+        v0["details"]["kind"] = json!("note");
+        assert_eq!(v1, v0);
+
+        let schema = serde_json::to_value(PostView::schema()).unwrap();
+        let properties = schema["properties"].as_object().unwrap();
+        assert!(!properties.contains_key("attachments_metadata"), "{schema}");
+        assert!(!properties.contains_key("bookmark"), "{schema}");
+    }
+
+    /// `NoAttachmentMetadata` reads whatever a client sends under the flag's name and never
+    /// asks for a fetch, where `/v0`'s flag reads `true` and `false` and rejects the rest; it
+    /// documents no parameter, where `/v0`'s documents the one.
+    #[test]
+    fn no_attachment_metadata_ignores_the_flag_and_documents_nothing() {
+        use crate::models::IncludeAttachmentMetadata;
+
+        #[derive(Deserialize)]
+        struct Query<F> {
+            #[serde(default)]
+            include_attachment_metadata: F,
+        }
+        for query in [
+            "",
+            "include_attachment_metadata=true",
+            "include_attachment_metadata=false",
+            "include_attachment_metadata=1",
+            "include_attachment_metadata=maybe",
+            "include_attachment_metadata=",
+        ] {
+            let parsed: Query<NoAttachmentMetadata> =
+                serde_urlencoded::from_str(query).expect(query);
+            assert!(!bool::from(parsed.include_attachment_metadata), "{query}");
+        }
+        let fetch = |query: &str| {
+            serde_urlencoded::from_str::<Query<IncludeAttachmentMetadata>>(query)
+                .map(|parsed| bool::from(parsed.include_attachment_metadata))
+        };
+        assert!(!fetch("").unwrap());
+        assert!(fetch("include_attachment_metadata=true").unwrap());
+        assert!(!fetch("include_attachment_metadata=false").unwrap());
+        for query in [
+            "include_attachment_metadata=1",
+            "include_attachment_metadata=maybe",
+        ] {
+            assert!(fetch(query).is_err(), "{query}");
+        }
+
+        assert!(NoAttachmentMetadata::into_params(|| None).is_empty());
+        let documented = IncludeAttachmentMetadata::into_params(|| None);
+        assert_eq!(documented.len(), 1);
+        assert_eq!(
+            serde_json::to_value(&documented[0]).unwrap(),
+            json!({
+                "name": "include_attachment_metadata",
+                "in": "query",
+                "description": "Include file metadata for post attachments",
+                "required": false,
+                "schema": { "type": "boolean" }
+            })
+        );
     }
 
     /// A stored view and a stored stream, as the bootstrap lists them, convert like the

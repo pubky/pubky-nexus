@@ -49,14 +49,17 @@ pub fn routes(app_state: AppState) -> (Router<AppState>, Router<AppState>) {
     )
 }
 
-/// The buckets as the modules declare them for version `V`, with paths relative to its prefix.
+/// The buckets as the modules declare them for version `V`, with paths relative to its prefix,
+/// each with the routes only `V` serves.
 fn relative_routes<V: ApiVersion>(app_state: AppState) -> (Router<AppState>, Router<AppState>) {
+    let (own_expensive, own_default) = V::own_routes();
+
     let expensive = Router::new()
         .merge(stream::expensive_routes::<V>())
         .merge(tag::expensive_routes())
         .merge(search::expensive_routes::<V>())
-        .merge(file::expensive_routes())
-        .merge(bootstrap::expensive_routes::<V>());
+        .merge(bootstrap::expensive_routes::<V>())
+        .merge(own_expensive);
 
     let default = Router::new()
         .merge(info::routes(app_state.clone()))
@@ -64,13 +67,12 @@ fn relative_routes<V: ApiVersion>(app_state: AppState) -> (Router<AppState>, Rou
         .merge(user::routes::<V>())
         .merge(stream::routes::<V>())
         .merge(search::routes())
-        .merge(file::routes())
         .merge(tag::routes())
         .merge(resource::routes())
         .merge(notification::routes::<V>())
         .merge(bootstrap::routes())
         .merge(events::routes())
-        .merge(V::own_routes());
+        .merge(own_default);
 
     (expensive, default)
 }
@@ -105,9 +107,12 @@ impl ApiDoc {
     }
 
     /// Version `V`'s document, with every path under its prefix as [`routes`] mounts them.
-    /// Nesting prefixes the paths and carries the schemas over.
+    /// Nesting prefixes the paths and carries the schemas over; the routes the version
+    /// documents from outside its mount ([`ApiVersion::absolute_docs`]) are merged as they are.
     fn docs_of<V: ApiVersion>() -> utoipa::openapi::OpenApi {
-        Self::openapi().nest(V::PREFIX, Self::relative_docs::<V>())
+        Self::openapi()
+            .nest(V::PREFIX, Self::relative_docs::<V>())
+            .merge_from(V::absolute_docs())
     }
 
     /// Every module's document merged for version `V`, with paths relative to its prefix. The
@@ -122,7 +127,6 @@ impl ApiDoc {
         combined.merge(user::UserApiDoc::merge_docs());
         combined.merge(stream::StreamApiDoc::merge_docs());
         combined.merge(search::SearchApiDoc::merge_docs());
-        combined.merge(file::FileApiDoc::merge_docs());
         combined.merge(tag::TagApiDoc::merge_docs());
         combined.merge(resource::ResourceApiDoc::openapi());
         combined.merge(notification::NotificationApiDoc::merge_docs());

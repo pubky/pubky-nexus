@@ -5,7 +5,9 @@
 //! differently. A handler whose shape differs is one generic body over the version's types;
 //! the router builder is generic too and runs once per version, so a route is declared once and
 //! a fix lands in both versions at once. A route only one version serves is listed with that
-//! version ([`ApiVersion::own_routes`]), never behind an `if` in a shared builder.
+//! version ([`ApiVersion::own_routes`]), never behind an `if` in a shared builder, and a route
+//! served outside the version's mount but documented with it is listed there too
+//! ([`ApiVersion::absolute_docs`]).
 //!
 //! utoipa's path annotation does not take a generic function: the path struct it generates has
 //! no type parameter, so a `V::PostView` body does not resolve (checked against utoipa 5.5).
@@ -20,17 +22,20 @@ use std::fmt;
 use axum::routing::MethodRouter;
 use axum::Router;
 use nexus_common::models::bootstrap::Bootstrap;
+use nexus_common::models::file::{FileDetails, FileUrls};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::{Bookmark, PostDetails, PostKind};
 use nexus_common::models::user::{UserCounts, UserStream, UserView};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use utoipa::{OpenApi, ToSchema};
+use utoipa::{IntoParams, OpenApi, ToSchema};
 
 use super::endpoints::{POST_BOOKMARK_ROUTE, V0_PREFIX, V1_PREFIX};
-use super::stream::posts::StreamSourceKind;
-use super::{bootstrap, notification, post, search, stream, user};
-use crate::models::{v1, PostKinds, PostStreamDetailed, PostViewDetailed};
+use super::stream::posts::{PostStreamByIdsRequest, StreamSourceKind};
+use super::{bootstrap, file, notification, post, search, stream, user};
+use crate::models::{
+    v1, IncludeAttachmentMetadata, PostKinds, PostStreamDetailed, PostViewDetailed,
+};
 use crate::routes::AppState;
 
 /// One API version: its mount prefix, the shapes that are its own, and the annotated handlers
@@ -44,6 +49,7 @@ pub trait ApiVersion: Send + Sync + 'static {
     const PREFIX: &'static str;
 
     /// A post with its counts, tags and relationships, `GET /post/{author_id}/{post_id}`.
+    /// `/v1` has no `bookmark` and no `attachments_metadata`.
     type PostView: Serialize + ToSchema + From<PostViewDetailed> + Send;
     /// A post's own fields, `GET /post/{author_id}/{post_id}/details`.
     type PostDetails: Serialize + ToSchema + From<PostDetails> + Send;
@@ -60,8 +66,23 @@ pub trait ApiVersion: Send + Sync + 'static {
     /// `POST /stream/users/by_ids`.
     type UserStream: Serialize + ToSchema + From<UserStream> + Send;
     /// The sign-in payload, `GET /bootstrap/{user_id}`; it embeds [`Self::UserStream`],
-    /// [`Self::PostStream`]'s views and [`Self::Notification`]s.
+    /// [`Self::PostStream`]'s views and [`Self::Notification`]s. `/v1` has no `files`.
     type Bootstrap: Serialize + ToSchema + From<Bootstrap> + Send;
+
+    /// Whether a post's `attachments_metadata` is fetched, as a client asks in
+    /// `include_attachment_metadata=` on the post view and the post stream. `/v0` reads a
+    /// flag and documents the parameter; `/v1` has no file details, reads nothing under that
+    /// name, as it reads any unknown parameter, and documents no parameter.
+    type IncludeAttachmentMetadata: DeserializeOwned
+        + IntoParams
+        + Into<bool>
+        + Default
+        + Copy
+        + fmt::Debug
+        + Send;
+    /// The body of `POST /stream/posts/by_ids`, converted into the one the shared body reads.
+    /// `/v0`'s carries `include_attachment_metadata`; `/v1`'s has no such field.
+    type PostStreamByIdsRequest: DeserializeOwned + ToSchema + Into<PostStreamByIdsRequest> + Send;
 
     /// The source of a post stream as a client writes it in `source=`. `/v0` reads every
     /// source, `/v1` every source but `bookmarks`, which is an unknown name there.
@@ -115,15 +136,23 @@ pub trait ApiVersion: Send + Sync + 'static {
     fn stream_users_by_ids() -> MethodRouter<AppState>;
     fn bootstrap() -> MethodRouter<AppState>;
 
-    /// The default-bucket routes only this version serves, mounted next to the shared ones:
-    /// `/v0` keeps the bookmark route until R1, `/v1` has none. A route leaves a version by
-    /// moving from the shared builders into the other version's list here, and its path into
-    /// that version's [`Self::docs`], so the compiler and the path parity test both see it.
-    fn own_routes() -> Router<AppState>;
+    /// The routes only this version serves, as `(expensive, default)` buckets mounted next to
+    /// the shared ones: `/v0` keeps the bookmark route until R1 and the file details routes
+    /// for as long as it lives, `/v1` has none. A route leaves a version by moving from the
+    /// shared builders into the other version's list here, and its path into that version's
+    /// [`Self::docs`], so the compiler and the path parity test both see it.
+    fn own_routes() -> (Router<AppState>, Router<AppState>);
 
     /// The document of those routes with this version's schemas. The version's document is
     /// built on it, so these schemas win over a same-named one a shared route nests.
     fn docs() -> utoipa::openapi::OpenApi;
+
+    /// The routes this version documents from outside its mount, at the absolute paths they
+    /// are served at, merged into the version's document after the nesting that prefixes the
+    /// rest. `/v1` documents the two `/v1/static` routes the static router serves, so a v1
+    /// client reads one document; `/v0` documents none, the `/static` routes go with the
+    /// static document.
+    fn absolute_docs() -> utoipa::openapi::OpenApi;
 }
 
 /// The frozen API: fixes only, every new feature lands in v1.
@@ -145,6 +174,9 @@ impl ApiVersion for V0 {
     type UserView = UserView;
     type UserStream = UserStream;
     type Bootstrap = Bootstrap;
+
+    type IncludeAttachmentMetadata = IncludeAttachmentMetadata;
+    type PostStreamByIdsRequest = PostStreamByIdsRequest;
 
     type StreamSource = StreamSourceKind;
     const SOURCE_NAMES: &'static str = "following, followers, friends, bookmarks, post_replies, author, author_replies, collection, post_collections, wot, wot_domain, all";
@@ -200,16 +232,22 @@ impl ApiVersion for V0 {
         axum::routing::get(bootstrap::bootstrap_handler_v0)
     }
 
-    /// The bookmark route, until R1.
-    fn own_routes() -> Router<AppState> {
-        Router::new().route(
+    /// The file details routes, and the bookmark route until R1.
+    fn own_routes() -> (Router<AppState>, Router<AppState>) {
+        let default = file::routes().route(
             POST_BOOKMARK_ROUTE,
             axum::routing::get(post::bookmark::post_bookmark_handler),
-        )
+        );
+        (file::expensive_routes(), default)
     }
 
     fn docs() -> utoipa::openapi::OpenApi {
         V0Doc::openapi()
+    }
+
+    /// None: the `/static` routes are the static document's.
+    fn absolute_docs() -> utoipa::openapi::OpenApi {
+        utoipa::openapi::OpenApi::default()
     }
 }
 
@@ -224,6 +262,9 @@ impl ApiVersion for V1 {
     type UserView = v1::UserView;
     type UserStream = v1::UserStream;
     type Bootstrap = v1::Bootstrap;
+
+    type IncludeAttachmentMetadata = v1::NoAttachmentMetadata;
+    type PostStreamByIdsRequest = v1::PostStreamByIdsRequest;
 
     type StreamSource = v1::StreamSourceKind;
     const SOURCE_NAMES: &'static str = v1::SOURCE_NAMES;
@@ -279,13 +320,19 @@ impl ApiVersion for V1 {
         axum::routing::get(bootstrap::bootstrap_handler_v1)
     }
 
-    /// None: `/v1` serves no route of its own yet, and no bookmark route at all.
-    fn own_routes() -> Router<AppState> {
-        Router::new()
+    /// None: `/v1` serves no route of its own yet, and no bookmark or file details route at
+    /// all.
+    fn own_routes() -> (Router<AppState>, Router<AppState>) {
+        (Router::new(), Router::new())
     }
 
     fn docs() -> utoipa::openapi::OpenApi {
         V1Doc::openapi()
+    }
+
+    /// The two `/v1/static` routes, served by the static router.
+    fn absolute_docs() -> utoipa::openapi::OpenApi {
+        crate::routes::r#static::V1StaticApiDoc::openapi()
     }
 }
 
@@ -310,8 +357,14 @@ pub mod shapes {
             pub type StreamSource = <$version as ApiVersion>::StreamSource;
             pub type PostKind = <$version as ApiVersion>::PostKind;
             pub type PostKinds = <$version as ApiVersion>::PostKinds;
+            pub type IncludeAttachmentMetadata =
+                <$version as ApiVersion>::IncludeAttachmentMetadata;
+            pub type PostStreamByIdsRequest = <$version as ApiVersion>::PostStreamByIdsRequest;
 
-            /// The post stream query with `kind` and `exclude_kinds` in this version's names.
+            /// The post view query with `include_attachment_metadata` as this version reads it.
+            pub type PostViewQuery = super::super::post::view::PostViewQuery<$version>;
+            /// The post stream query with `kind` and `exclude_kinds` in this version's names,
+            /// and `include_attachment_metadata` as this version reads it.
             pub type PostStreamQuery = super::super::stream::posts::PostStreamQuery<$version>;
             /// The content search query with `kind` in this version's names.
             pub type ContentSearchQuery =
@@ -391,13 +444,15 @@ macro_rules! versioned_handlers {
 pub(crate) use versioned_handlers;
 
 /// The `/v0` routes whose shape is the version's, with the stored models' schemas, and the
-/// bookmark route `/v0` alone serves.
+/// bookmark and file details routes `/v0` alone serves.
 #[derive(OpenApi)]
 #[openapi(
     paths(
         post::view::post_view_handler_v0,
         post::details::post_details_handler_v0,
         post::bookmark::post_bookmark_handler,
+        file::details::file_details_handler,
+        file::list::file_details_by_uris_handler,
         stream::posts::stream_posts_handler_v0,
         stream::posts::stream_post_keys_handler_v0,
         stream::posts::stream_posts_by_ids_handler_v0,
@@ -414,7 +469,11 @@ pub(crate) use versioned_handlers;
         PostViewDetailed,
         PostDetails,
         PostStreamDetailed,
+        PostStreamByIdsRequest,
         Bookmark,
+        FileDetails,
+        FileUrls,
+        file::list::FilesByIdsBody,
         Notification,
         nexus_common::models::notification::NotificationBody,
         UserCounts,
@@ -428,7 +487,8 @@ pub(crate) use versioned_handlers;
 )]
 struct V0Doc;
 
-/// The same routes on `/v1`, the bookmark route left out, with the `social/v1` schemas.
+/// The same routes on `/v1`, the bookmark and file details routes left out, with the
+/// `social/v1` schemas.
 #[derive(OpenApi)]
 #[openapi(
     paths(
@@ -450,6 +510,7 @@ struct V0Doc;
         v1::PostView,
         v1::PostDetails,
         v1::PostStream,
+        v1::PostStreamByIdsRequest,
         v1::Notification,
         v1::NotificationBody,
         v1::UserCounts,

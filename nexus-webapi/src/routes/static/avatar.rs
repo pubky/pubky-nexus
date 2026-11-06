@@ -174,9 +174,8 @@ fn is_image(file: &MediaFile) -> bool {
     MediaKind::from_content_type(&file.content_type) == Some(MediaKind::Image)
 }
 
+/// The `/static/avatar` route; the `/v1/static/avatar` one is documented with `/v1`
+/// (`V1StaticApiDoc`).
 #[derive(OpenApi)]
-#[openapi(
-    paths(user_avatar_handler, v1_user_avatar_handler),
-    components(schemas(PubkyId))
-)]
+#[openapi(paths(user_avatar_handler), components(schemas(PubkyId)))]
 pub struct UserAvatarApiDoc;

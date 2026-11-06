@@ -73,13 +73,25 @@ fn paths_under(spec: &Value, prefix: &str) -> BTreeMap<String, Value> {
         .collect()
 }
 
-/// The paths only v0 serves, relative to the prefix: the bookmark route, until R1. The tickets
-/// that take a route off v1 add theirs here.
-const V0_ONLY_PATHS: &[&str] = &["/post/{author_id}/{post_id}/bookmark"];
+/// The paths only v0 serves, relative to the prefix: the bookmark route, until R1, and the
+/// file details routes, which have no v1 counterpart. The tickets that take a route off v1
+/// add theirs here.
+const V0_ONLY_PATHS: &[&str] = &[
+    "/post/{author_id}/{post_id}/bookmark",
+    "/files/by_ids",
+    "/files/file/{file_id}",
+];
+
+/// The paths only v1 documents, relative to the prefix: the two `/v1/static` routes, served
+/// by the static router and documented with v1 so a v1 client reads one document.
+const V1_ONLY_PATHS: &[&str] = &[
+    "/static/avatar/{user_id}",
+    "/static/files/{owner_id}/{file_id}/{variant}",
+];
 
 /// Both documents come from one route declaration, so every v0 path is in the v1 document
 /// and vice versa, with the same operations under each, except the paths one version alone
-/// serves ([`V0_ONLY_PATHS`]).
+/// serves ([`V0_ONLY_PATHS`]) or documents ([`V1_ONLY_PATHS`]).
 ///
 /// A versioned route documents its own 200 body: `PostViewDetailed` on v0 is `PostView` on
 /// v1, `PostStreamDetailed` is `PostStream`. Those operations are compared without the body
@@ -87,7 +99,9 @@ const V0_ONLY_PATHS: &[&str] = &["/post/{author_id}/{post_id}/bookmark"];
 /// `kind` and `exclude_kinds` in its version's names: those descriptions are compared to the
 /// version's names and the operations without them. The post streams describe `source` and
 /// `locked`, and themselves, with the bookmark stream on v0 and without it on v1: those
-/// descriptions are compared the same way.
+/// descriptions are compared the same way. The post view and the post stream take
+/// `include_attachment_metadata` on v0 and no such parameter on v1: the operations are
+/// compared without it.
 #[test]
 fn test_v0_and_v1_documents_list_the_same_paths() {
     let v0 = paths_under(&serde_json::to_value(ApiDoc::v0_docs()).unwrap(), "/v0");
@@ -97,11 +111,19 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
         assert!(v0.contains_key(path), "{path} missing from the v0 document");
         assert!(!v1.contains_key(path), "{path} listed in the v1 document");
     }
-    let shared: Vec<_> = v0
+    for &path in V1_ONLY_PATHS {
+        assert!(v1.contains_key(path), "{path} missing from the v1 document");
+        assert!(!v0.contains_key(path), "{path} listed in the v0 document");
+    }
+    let v0_shared: Vec<_> = v0
         .keys()
         .filter(|path| !V0_ONLY_PATHS.contains(&path.as_str()))
         .collect();
-    assert_eq!(shared, v1.keys().collect::<Vec<_>>());
+    let v1_shared: Vec<_> = v1
+        .keys()
+        .filter(|path| !V1_ONLY_PATHS.contains(&path.as_str()))
+        .collect();
+    assert_eq!(v0_shared, v1_shared);
 
     // Method, path and each version's 200 body schema of the routes whose body is versioned.
     let renamed_bodies = [
@@ -128,12 +150,30 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
     // Method and path of the routes that describe the bookmark stream: in `source`, in
     // `locked` and in the operation's own description.
     let bookmark_sourced = [("get", "/stream/posts"), ("get", "/stream/posts/keys")];
+    // Method and path of the routes that take `include_attachment_metadata` on v0.
+    let metadata_flagged = [
+        ("get", "/post/{author_id}/{post_id}"),
+        ("get", "/stream/posts"),
+    ];
     for (path, operations) in v0
         .iter()
         .filter(|(path, _)| !V0_ONLY_PATHS.contains(&path.as_str()))
     {
         let mut v0_operations = operations.clone();
         let mut v1_operations = v1[path].clone();
+        for (method, _) in metadata_flagged.iter().filter(|(_, p)| p == path) {
+            let operation = format!("{method} {path}");
+            let flag = take_parameter(&mut v0_operations[method], "include_attachment_metadata");
+            assert_eq!(
+                flag["schema"]["type"], "boolean",
+                "{operation} on v0: {flag}"
+            );
+            assert_eq!(flag["required"], false, "{operation} on v0: {flag}");
+            assert!(
+                !has_parameter(&v1_operations[method], "include_attachment_metadata"),
+                "{operation} on v1 lists `include_attachment_metadata`"
+            );
+        }
         for (method, _, v0_body, v1_body) in renamed_bodies.iter().filter(|(_, p, ..)| p == path) {
             let operation = format!("{method} {path}");
             take_200_body(&mut v0_operations[method], v0_body, &operation);
@@ -187,6 +227,25 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
         }
         assert_eq!(v0_operations, v1_operations, "{path}");
     }
+}
+
+/// Whether `operation` lists a parameter named `name`.
+fn has_parameter(operation: &Value, name: &str) -> bool {
+    operation["parameters"]
+        .as_array()
+        .expect("parameters")
+        .iter()
+        .any(|parameter| parameter["name"] == name)
+}
+
+/// Takes the parameter `name` out of `operation`'s list and returns it.
+fn take_parameter(operation: &mut Value, name: &str) -> Value {
+    let parameters = operation["parameters"].as_array_mut().expect("parameters");
+    let position = parameters
+        .iter()
+        .position(|parameter| parameter["name"] == name)
+        .unwrap_or_else(|| panic!("no `{name}` parameter"));
+    parameters.remove(position)
 }
 
 /// Takes the description of the query parameter `name` out of `operation` and returns it.
@@ -591,25 +650,135 @@ fn test_static_openapi_spec_valid() {
     assert_valid_document(StaticApiDoc::merge_docs());
 }
 
-/// The v1 files route sits in the static document, next to the v0 route it extends, until
-/// API1 moves it to the v1 one; a missing v1 file is a 404 there, so the route lists one.
+/// The static document lists the `/static` routes and nothing else: the file bytes by
+/// variant, the legacy redirect to them and the avatar. The two `/v1/static` routes the same
+/// router serves are the v1 document's, so a `/v1` path here is a route documented twice.
 #[test]
-fn test_static_openapi_lists_both_files_routes() {
+fn test_static_document_lists_only_the_static_routes() {
     let spec = serde_json::to_value(StaticApiDoc::merge_docs()).expect("serializable spec");
-    let paths = spec["paths"].as_object().expect("paths");
-    for path in [
-        "/static/files/{owner_id}/{file_id}/{variant}",
-        "/v1/static/files/{owner_id}/{file_id}/{variant}",
-    ] {
+    let paths: Vec<&String> = spec["paths"].as_object().expect("paths").keys().collect();
+    assert_eq!(
+        paths,
+        [
+            "/static/avatar/{user_id}",
+            "/static/files/{owner_id}/{file_id}",
+            "/static/files/{owner_id}/{file_id}/{variant}",
+        ]
+    );
+}
+
+/// The v1 document lists the two `/v1/static` routes, file bytes and avatar, at the absolute
+/// paths the static router serves them, so one generated client covers everything a v1 client
+/// calls. Each lists the 404 a client falls back from, and the files route the 400 of an id of
+/// neither form; the v0 document lists neither route.
+#[test]
+fn test_v1_document_lists_the_v1_static_routes() {
+    let v1 = serde_json::to_value(ApiDoc::v1_docs()).expect("serializable spec");
+    let v0 = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
+    let files = "/v1/static/files/{owner_id}/{file_id}/{variant}";
+    let avatar = "/v1/static/avatar/{user_id}";
+    for path in [files, avatar] {
+        let operation = v1["paths"][path].get("get").unwrap_or_else(|| {
+            panic!(
+                "{path} missing from {:?}",
+                v1["paths"].as_object().unwrap().keys().collect::<Vec<_>>()
+            )
+        });
         assert!(
-            paths.contains_key(path),
-            "{path} missing from {:?}",
-            paths.keys().collect::<Vec<_>>()
+            operation["responses"].get("404").is_some(),
+            "{path}: {operation}"
+        );
+        assert!(v0["paths"].get(path).is_none(), "{path} in the v0 document");
+    }
+    let files = &v1["paths"][files]["get"];
+    assert!(files["responses"].get("400").is_some(), "{files}");
+    assert_eq!(
+        files["parameters"][2]["schema"]["$ref"], "#/components/schemas/FileVariant",
+        "{files}"
+    );
+    assert!(
+        v1.pointer("/components/schemas/FileVariant/enum").is_some(),
+        "FileVariant missing from the v1 document"
+    );
+    // No other path of the v1 document lies outside its mount.
+    for path in v1["paths"].as_object().expect("paths").keys() {
+        assert!(path.starts_with("/v1/"), "{path}");
+    }
+}
+
+/// File details are v0's alone: a `social/v1` file is bytes behind `/v1/static` with no `File`
+/// node. The v1 post view has no `attachments_metadata`, the v1 bootstrap no `files`, the v1
+/// `by_ids` body no `include_attachment_metadata`, and no v1 schema is or refers to
+/// `FileDetails`; v0 keeps all four.
+#[test]
+fn test_file_details_are_documented_on_v0_only() {
+    let v0 = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
+    let v1 = serde_json::to_value(ApiDoc::v1_docs()).expect("serializable spec");
+
+    // v0's `PostViewDetailed` adds `attachments_metadata` to the stored view through `allOf`.
+    let v0_metadata = v0
+        .pointer("/components/schemas/PostViewDetailed/allOf/1/properties/attachments_metadata")
+        .expect("PostViewDetailed.attachments_metadata");
+    assert_eq!(
+        v0_metadata["items"]["$ref"],
+        "#/components/schemas/FileDetails"
+    );
+    let v1_view = v1
+        .pointer("/components/schemas/PostView/properties")
+        .expect("PostView properties");
+    assert!(v1_view.get("attachments_metadata").is_none(), "{v1_view}");
+    assert!(
+        v1.pointer("/components/schemas/PostViewDetailed").is_none(),
+        "PostViewDetailed in the v1 document"
+    );
+
+    assert_eq!(
+        v0.pointer("/components/schemas/Bootstrap/properties/files/items/$ref"),
+        Some(&Value::from("#/components/schemas/FileDetails"))
+    );
+    let v1_bootstrap = v1
+        .pointer("/components/schemas/Bootstrap/properties")
+        .expect("Bootstrap properties");
+    assert!(v1_bootstrap.get("files").is_none(), "{v1_bootstrap}");
+    for field in ["users", "posts", "ids", "indexed", "notifications"] {
+        assert!(v1_bootstrap.get(field).is_some(), "Bootstrap.{field}");
+    }
+    assert!(!v1["components"]["schemas"]["Bootstrap"]["required"]
+        .as_array()
+        .expect("required")
+        .contains(&Value::from("files")));
+
+    assert_eq!(
+        v0.pointer("/components/schemas/PostStreamByIdsRequest/properties/include_attachment_metadata/type"),
+        Some(&Value::from("boolean"))
+    );
+    let v1_body = v1
+        .pointer("/components/schemas/PostStreamByIdsRequest/properties")
+        .expect("PostStreamByIdsRequest properties");
+    assert!(
+        v1_body.get("include_attachment_metadata").is_none(),
+        "{v1_body}"
+    );
+    for field in ["post_ids", "viewer_id"] {
+        assert!(
+            v1_body.get(field).is_some(),
+            "PostStreamByIdsRequest.{field}"
         );
     }
-    let v1 = &spec["paths"]["/v1/static/files/{owner_id}/{file_id}/{variant}"]["get"];
-    assert!(v1["responses"].get("404").is_some(), "{v1}");
-    assert!(v1["responses"].get("400").is_some(), "{v1}");
+
+    let v0_schemas = v0["components"]["schemas"].as_object().expect("schemas");
+    let v1_schemas = v1["components"]["schemas"].as_object().expect("schemas");
+    for file_schema in ["FileDetails", "FileUrls", "FilesByIdsBody", "FileUris"] {
+        assert!(v0_schemas.contains_key(file_schema), "{file_schema} on v0");
+        assert!(
+            !v1_schemas.contains_key(file_schema),
+            "{file_schema} in the v1 document"
+        );
+    }
+    let file_refs: Vec<&str> = collect_refs(&v1)
+        .filter(|reference| reference.contains("File") && !reference.ends_with("FileVariant"))
+        .collect();
+    assert_eq!(file_refs, Vec::<&str>::new());
 }
 
 /// The `Path`, `Query` and `Json` extractors turn every rejection into a 400, so every
@@ -695,22 +864,28 @@ fn test_resource_stream_routes_take_no_app_parameter() {
     }
 }
 
-/// The avatar is one handler mounted twice: under `/static` for v0 clients and under the v1
-/// base path, so a v1 client reads an avatar where it reads every other file. Both mounts sit in
-/// the static document until API1 moves the v1 one, and each lists the 404 a client falls back
-/// from when the profile image is not an image file Nexus holds.
+/// The avatar is one handler mounted twice: under `/static` for v0 clients, documented in the
+/// static document, and under the v1 base path, documented with v1, so a v1 client reads an
+/// avatar where it reads every other file. Each lists the 404 a client falls back from when
+/// the profile image is not an image file Nexus holds, and both describe the same operation.
 #[test]
-fn test_static_openapi_lists_both_avatar_mounts() {
-    let spec = serde_json::to_value(StaticApiDoc::merge_docs()).expect("serializable spec");
-    let paths = spec["paths"].as_object().expect("paths");
-    for path in ["/static/avatar/{user_id}", "/v1/static/avatar/{user_id}"] {
-        let item = paths.get(path).unwrap_or_else(|| {
-            panic!("{path} missing from {:?}", paths.keys().collect::<Vec<_>>())
-        });
-        let operation = &item["get"];
+fn test_avatar_mounts_are_documented_with_their_version() {
+    let static_doc = serde_json::to_value(StaticApiDoc::merge_docs()).expect("serializable spec");
+    let v1 = serde_json::to_value(ApiDoc::v1_docs()).expect("serializable spec");
+    let v0_avatar = &static_doc["paths"]["/static/avatar/{user_id}"]["get"];
+    let v1_avatar = &v1["paths"]["/v1/static/avatar/{user_id}"]["get"];
+    for (name, operation) in [("static", v0_avatar), ("v1", v1_avatar)] {
         assert!(
             operation["responses"].get("404").is_some(),
-            "{path}: {operation}"
+            "{name}: {operation}"
         );
     }
+    assert_eq!(v0_avatar["parameters"], v1_avatar["parameters"]);
+    assert_eq!(v0_avatar["responses"], v1_avatar["responses"]);
+    assert!(
+        static_doc["paths"]
+            .get("/v1/static/avatar/{user_id}")
+            .is_none(),
+        "the v1 avatar mount is in the static document"
+    );
 }

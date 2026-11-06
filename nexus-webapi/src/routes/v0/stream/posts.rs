@@ -212,8 +212,9 @@ pub struct PostStreamQuery<V: ApiVersion> {
     pub exclude_kinds: Option<V::PostKinds>,
     #[serde(default)]
     pub locked: bool,
+    /// A flag on `/v0`, nothing on `/v1`, which has no file details.
     #[serde(default)]
-    pub include_attachment_metadata: bool,
+    pub include_attachment_metadata: V::IncludeAttachmentMetadata,
 }
 
 impl<V: ApiVersion> PostStreamQuery<V> {
@@ -324,7 +325,7 @@ pub async fn stream_posts<V: ApiVersion>(
     query.initialize_defaults();
     let pagination = query.pagination.to_pagination(query.start, query.end);
     let (source, sorting, order) = query.extract_stream_params()?;
-    let include_attachment_metadata = query.include_attachment_metadata;
+    let include_attachment_metadata = query.include_attachment_metadata.into();
     let tags = query.tags.as_ref().map(Tags::to_string_vec);
 
     let stream = match PostStream::get_posts(
@@ -371,7 +372,7 @@ versioned_handlers! {
             ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
             ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
             ("end" = Option<f64>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
-            ("include_attachment_metadata" = Option<bool>, Query, description = "Include file metadata for post attachments"),
+            shapes::IncludeAttachmentMetadata,
         ),
         description = concatcp!(r#"Stream Posts: Retrieve a stream of posts.
 
@@ -475,6 +476,10 @@ Ensure that you provide the necessary parameters based on the selected `source`.
     )
 }
 
+// The body of `POST /stream/posts/by_ids` as `/v0` reads it and as the one handler body reads
+// it: `/v1` reads `v1::PostStreamByIdsRequest`, the same body without
+// `include_attachment_metadata`, and converts into this. Not a doc comment: that would become
+// the frozen `/v0` schema's description.
 #[derive(ToSchema, Deserialize)]
 pub struct PostStreamByIdsRequest {
     pub post_ids: GlobalPostIds,
@@ -482,11 +487,13 @@ pub struct PostStreamByIdsRequest {
     #[serde(default)]
     pub include_attachment_metadata: bool,
 }
+
 /// The one body behind `stream_posts_by_ids_handler_v0` and `stream_posts_by_ids_handler_v1`:
-/// the listed posts in the version's shape.
+/// the listed posts in the version's shape, from the body in the version's shape.
 pub async fn stream_posts_by_ids<V: ApiVersion>(
-    RequestJson(request): RequestJson<PostStreamByIdsRequest>,
+    RequestJson(request): RequestJson<V::PostStreamByIdsRequest>,
 ) -> AppResult<Json<V::PostStream>> {
+    let request: PostStreamByIdsRequest = request.into();
     debug!(
         "POST {} post_ids size {:?}",
         STREAM_POSTS_BY_IDS_ROUTE,
@@ -507,14 +514,14 @@ pub async fn stream_posts_by_ids<V: ApiVersion>(
 }
 
 versioned_handlers! {
-    stream_posts_by_ids_handler_v0 / stream_posts_by_ids_handler_v1 => stream_posts_by_ids(request: RequestJson<PostStreamByIdsRequest>) -> shapes::PostStream;
+    stream_posts_by_ids_handler_v0 / stream_posts_by_ids_handler_v1 => stream_posts_by_ids(request: RequestJson<shapes::PostStreamByIdsRequest>) -> shapes::PostStream;
     #[utoipa::path(
         post,
         path = STREAM_POSTS_BY_IDS_ROUTE,
         operation_id = "stream_posts_by_ids_handler",
         tag = "Stream",
         description = "Stream post by ID. This is a POST request because we're passing a potentially large list of post IDs in the request body",
-        request_body = PostStreamByIdsRequest
+        request_body = shapes::PostStreamByIdsRequest
     )]
     responses(
         (status = 200, description = "Post stream"),

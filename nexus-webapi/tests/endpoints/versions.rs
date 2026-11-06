@@ -1,8 +1,9 @@
 //! The API answers under `/v0` and `/v1` from one route declaration, so the same request
 //! gets the same answer on both, up to what `/v1` names differently, a post's kind, in the
 //! responses and in the `kind` and `exclude_kinds` filters, and what `/v1` leaves out, the
-//! bookmarks. One representative route per module, against the mock data, plus the kind names
-//! on every route that carries one and the bookmarks on every route that carries them.
+//! bookmarks and the file details. One representative route per module, against the mock
+//! data, plus the kind names on every route that carries one, the bookmarks on every route
+//! that carries them and the file details on every route that carries them.
 
 use crate::utils::{get_request, host_url, invalid_get_request, post_request};
 
@@ -25,13 +26,19 @@ const TAGGER: &str = "78guxwtzgtgpskij51om7t66awmqxznr6p7ogonfohoags6ahc5y";
 const TAG_ID: &str = "2Z1N8QBQK9EG0";
 const RESOURCE_ID: &str = "450a72e3da164bfc3ac5f4056f9e5c7c"; // https://example.com/article
 
-/// One route per module, relative to the version prefix. Every one of them is a 200 on the
-/// mock data, so a difference in the answer is a difference between the mounts.
-fn representative_routes() -> Vec<String> {
+/// The `/files/file/{file_id}` path of the mock file, its URI form-encoded.
+fn file_details_route() -> String {
     let file_uri = url::form_urlencoded::byte_serialize(
         format!("pubky://{PUBKY_USER}/pub/pubky.app/files/{PUBKY_FILE}").as_bytes(),
     )
     .collect::<String>();
+    format!("/files/file/{file_uri}")
+}
+
+/// One route per module both versions serve, relative to the version prefix. Every one of
+/// them is a 200 on the mock data, so a difference in the answer is a difference between the
+/// mounts. The file module is `/v0`'s alone: `test_file_routes_are_v0_only`.
+fn representative_routes() -> Vec<String> {
     vec![
         // info
         "/info".to_string(),
@@ -53,8 +60,6 @@ fn representative_routes() -> Vec<String> {
         format!("/bootstrap/{AMSTERDAM}"),
         // events
         "/events?cursor=0&limit=5".to_string(),
-        // file
-        format!("/files/file/{file_uri}"),
     ]
 }
 
@@ -67,18 +72,14 @@ fn body(response: &httpc_test::Response) -> Result<Value> {
 }
 
 /// The bootstrap's `influencers` is a random window of the ranking on every call, the
-/// `users` list carries their views, and its `posts` and `files` come back in no fixed
-/// order, so two answers never match whole: compare the rest, with the posts in id order
-/// and the files in uri order.
+/// `users` list carries their views, and its `posts` come back in no fixed order, so two
+/// answers never match whole: compare the rest, with the posts in id order.
 fn deterministic_part(route: &str, mut body: Value) -> Value {
     if route.starts_with("/bootstrap/") {
         body["ids"]["influencers"].take();
         body["users"].take();
         if let Some(posts) = body["posts"].as_array_mut() {
             posts.sort_by_key(|post| post["details"]["id"].to_string());
-        }
-        if let Some(files) = body["files"].as_array_mut() {
-            files.sort_by_key(|file| file["uri"].to_string());
         }
     }
     body
@@ -107,30 +108,33 @@ fn with_stored_kind_names(body: Value) -> Value {
     }
 }
 
-/// `body` without the `bookmark` of a post view and the `bookmarks` of a user's counts: the
-/// fields `/v1` has no counterpart for, taken out of `/v0`'s answer so the rest is compared.
-/// `/v1` never writes them, so on that side this changes nothing, which
-/// `test_bootstrap_has_no_bookmarks_on_v1` and its siblings assert on their own.
-fn without_bookmarks(body: Value) -> Value {
+/// `body` without the `bookmark` of a post view, the `bookmarks` of a user's counts and the
+/// `files` of the bootstrap: the fields `/v1` has no counterpart for, taken out of `/v0`'s
+/// answer so the rest is compared. `/v1` never writes them, so on that side this changes
+/// nothing, which `test_bootstrap_has_no_bookmarks_on_v1`, `test_bootstrap_has_no_files_on_v1`
+/// and their siblings assert on their own.
+fn without_v0_only_fields(body: Value) -> Value {
     match body {
         Value::Object(fields) => Value::Object(
             fields
                 .into_iter()
-                .filter(|(key, _)| key != "bookmark" && key != "bookmarks")
-                .map(|(key, value)| (key, without_bookmarks(value)))
+                .filter(|(key, _)| key != "bookmark" && key != "bookmarks" && key != "files")
+                .map(|(key, value)| (key, without_v0_only_fields(value)))
                 .collect(),
         ),
-        Value::Array(items) => Value::Array(items.into_iter().map(without_bookmarks).collect()),
+        Value::Array(items) => {
+            Value::Array(items.into_iter().map(without_v0_only_fields).collect())
+        }
         other => other,
     }
 }
 
-/// A `/v1` answer as `/v0` would give it: the stored kind names, and no bookmark fields on
-/// either side.
+/// A `/v1` answer as `/v0` would give it: the stored kind names, and no bookmark or file
+/// fields on either side.
 fn comparable(v1: Value, v0: Value) -> (Value, Value) {
     (
-        without_bookmarks(with_stored_kind_names(v1)),
-        without_bookmarks(v0),
+        without_v0_only_fields(with_stored_kind_names(v1)),
+        without_v0_only_fields(v0),
     )
 }
 
@@ -646,7 +650,7 @@ async fn test_user_streams_have_no_bookmarks_count_on_v1() -> Result<()> {
     assert!(users[1]["counts"]["bookmarks"].is_number(), "{v0}");
     assert_eq!(v1.as_array().map(Vec::len), Some(2), "{v1}");
     assert_eq!(keys_named(&v1, "bookmarks"), 0, "{v1}");
-    assert_eq!(v1, without_bookmarks(v0));
+    assert_eq!(v1, without_v0_only_fields(v0));
 
     let pages = [
         "/stream/users/username?username=Jo".to_string(),
@@ -669,7 +673,7 @@ async fn test_user_streams_have_no_bookmarks_count_on_v1() -> Result<()> {
         assert_eq!(keys_named(&v1, "bookmarks"), 0, "{route}: {v1}");
         // The username search lists one order; a `source=` page may not.
         if route.contains("username") {
-            assert_eq!(v1, without_bookmarks(v0), "{route}");
+            assert_eq!(v1, without_v0_only_fields(v0), "{route}");
         }
     }
     Ok(())
@@ -708,8 +712,8 @@ async fn test_bootstrap_has_no_bookmarks_on_v1() -> Result<()> {
     }
     assert_eq!(keys_named(&v1, "bookmarks"), 0, "{v1}");
     assert_eq!(keys_named(&v1, "bookmark"), 0, "{v1}");
-    // The rest of the payload is there as on `/v0`; `files` stays until its own ticket.
-    for field in ["ids", "indexed", "notifications", "files"] {
+    // The rest of the payload is there as on `/v0`.
+    for field in ["ids", "indexed", "notifications"] {
         assert!(v1.get(field).is_some(), "{field}: {v1}");
     }
     Ok(())
@@ -749,5 +753,180 @@ async fn test_bookmarks_source_is_unknown_on_v1() -> Result<()> {
             assert_eq!(v1, v0, "{route}?{source}");
         }
     }
+    Ok(())
+}
+
+// Cairo's post with two attachments whose `File` nodes the mock graph holds, from
+// docker/test-graph/mocks/posts.cypher and files.cypher.
+const CAIRO: &str = "f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o";
+const POST_WITH_ATTACHMENTS: &str = "00000039YD9DP";
+const ATTACHMENT_FILE_IDS: [&str; 2] = ["2ZK3A1B2C3D40", "2ZK3E5F6G7H80"];
+// A second mock file, for the `by_ids` list.
+const OTHER_FILE_OWNER: &str = "sfgetccnq7s3h57a7imf6n7k5fqxus33yg85f1ndhnrnofjdmhjy";
+const OTHER_FILE: &str = "2ZK1VCJN4YE00";
+
+/// `/v0` serves the two file details routes; `/v1` has no such routes, so they are a 404
+/// there like any path the API does not know, with or without a body a `/v0` client would
+/// send.
+#[tokio_shared_rt::test(shared)]
+async fn test_file_routes_are_v0_only() -> Result<()> {
+    let client = httpc_test::new_client(host_url().await)?;
+
+    let details = file_details_route();
+    let v0 = client.do_get(&format!("{V0_PREFIX}{details}")).await?;
+    assert_eq!(v0.status(), 200, "{V0_PREFIX}{details}");
+    let file = v0.json_body()?;
+    assert_eq!(file["id"], PUBKY_FILE, "{file}");
+    assert_eq!(file["owner_id"], PUBKY_USER, "{file}");
+    let v1 = client.do_get(&format!("{V1_PREFIX}{details}")).await?;
+    assert_eq!(v1.status(), 404, "{V1_PREFIX}{details}");
+
+    let uris = json!({ "uris": [
+        format!("pubky://{PUBKY_USER}/pub/pubky.app/files/{PUBKY_FILE}"),
+        format!("pubky://{OTHER_FILE_OWNER}/pub/pubky.app/files/{OTHER_FILE}"),
+    ] });
+    let v0 = client
+        .do_post(&format!("{V0_PREFIX}/files/by_ids"), uris.clone())
+        .await?;
+    assert_eq!(v0.status(), 200, "{V0_PREFIX}/files/by_ids");
+    let files = v0.json_body()?;
+    assert_eq!(files.as_array().map(Vec::len), Some(2), "{files}");
+    let v1 = client
+        .do_post(&format!("{V1_PREFIX}/files/by_ids"), uris)
+        .await?;
+    assert_eq!(v1.status(), 404, "{V1_PREFIX}/files/by_ids");
+    // Without a body too: the route itself is gone, not one answer of it.
+    let v1 = client
+        .do_post(&format!("{V1_PREFIX}/files/by_ids"), Value::Null)
+        .await?;
+    assert_eq!(v1.status(), 404);
+    Ok(())
+}
+
+/// A `/v0` post view, stream and `by_ids` stream carry `attachments_metadata` when asked with
+/// `include_attachment_metadata`; the `/v1` ones never do, asked or not, and the flag is read
+/// as any unknown parameter is: a value `/v0` rejects with 400 leaves `/v1` at 200, and the
+/// answer is the same as without it.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_views_have_no_attachments_metadata_on_v1() -> Result<()> {
+    let view = format!("/post/{CAIRO}/{POST_WITH_ATTACHMENTS}");
+    let flagged = format!("{view}?include_attachment_metadata=true");
+
+    let v0 = get_request(&format!("{V0_PREFIX}{flagged}")).await?;
+    let ids: Vec<&str> = v0["attachments_metadata"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{v0}"))
+        .iter()
+        .map(|file| file["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ATTACHMENT_FILE_IDS, "{v0}");
+    let v0_plain = get_request(&format!("{V0_PREFIX}{view}")).await?;
+    assert!(v0_plain.get("attachments_metadata").is_none(), "{v0_plain}");
+
+    let v1_flagged = get_request(&format!("{V1_PREFIX}{flagged}")).await?;
+    let v1_plain = get_request(&format!("{V1_PREFIX}{view}")).await?;
+    for body in [&v1_flagged, &v1_plain] {
+        assert!(body.get("attachments_metadata").is_none(), "{body}");
+        assert_eq!(keys_named(body, "attachments_metadata"), 0, "{body}");
+        assert_eq!(
+            body["details"]["attachments"].as_array().map(Vec::len),
+            Some(2),
+            "{body}"
+        );
+        for field in ["details", "counts", "tags", "relationships"] {
+            assert!(body.get(field).is_some(), "{field}: {body}");
+        }
+    }
+    assert_eq!(v1_flagged, v1_plain);
+    assert_eq!(
+        with_stored_kind_names(v1_plain.clone()),
+        without_v0_only_fields(v0_plain)
+    );
+
+    // A value that is not a boolean: `/v0` reads a flag and rejects it, `/v1` reads nothing.
+    let junk = format!("{view}?include_attachment_metadata=maybe");
+    invalid_get_request(&format!("{V0_PREFIX}{junk}"), StatusCode::BAD_REQUEST).await?;
+    let v1_junk = get_request(&format!("{V1_PREFIX}{junk}")).await?;
+    assert_eq!(v1_junk, v1_plain);
+
+    // The streams serve the same view.
+    let stream = format!("/stream/posts?author_id={CAIRO}&source=author&sorting=timeline&limit=20&include_attachment_metadata=true");
+    let v0 = get_request(&format!("{V0_PREFIX}{stream}")).await?;
+    let v0_post = v0
+        .as_array()
+        .expect("a post stream is an array")
+        .iter()
+        .find(|post| post["details"]["id"] == POST_WITH_ATTACHMENTS)
+        .unwrap_or_else(|| panic!("{v0}"));
+    assert_eq!(
+        v0_post["attachments_metadata"].as_array().map(Vec::len),
+        Some(2),
+        "{v0_post}"
+    );
+    let v1 = get_request(&format!("{V1_PREFIX}{stream}")).await?;
+    let posts = v1.as_array().expect("a post stream is an array");
+    assert!(
+        posts
+            .iter()
+            .any(|post| post["details"]["id"] == POST_WITH_ATTACHMENTS),
+        "{v1}"
+    );
+    assert_eq!(keys_named(&v1, "attachments_metadata"), 0, "{v1}");
+    let v1_unflagged = get_request(&format!(
+        "{V1_PREFIX}/stream/posts?author_id={CAIRO}&source=author&sorting=timeline&limit=20"
+    ))
+    .await?;
+    assert_eq!(v1, v1_unflagged);
+
+    let by_ids = json!({
+        "post_ids": [format!("{CAIRO}:{POST_WITH_ATTACHMENTS}")],
+        "include_attachment_metadata": true
+    });
+    let v0 = post_request(&format!("{V0_PREFIX}/stream/posts/by_ids"), by_ids.clone()).await?;
+    assert_eq!(
+        v0[0]["attachments_metadata"].as_array().map(Vec::len),
+        Some(2),
+        "{v0}"
+    );
+    let v1 = post_request(&format!("{V1_PREFIX}/stream/posts/by_ids"), by_ids).await?;
+    assert_eq!(v1.as_array().map(Vec::len), Some(1), "{v1}");
+    assert_eq!(v1[0]["details"]["id"], POST_WITH_ATTACHMENTS, "{v1}");
+    assert_eq!(keys_named(&v1, "attachments_metadata"), 0, "{v1}");
+    Ok(())
+}
+
+/// A `/v0` bootstrap carries `files`, the `File` nodes of the posts' attachments; the `/v1`
+/// bootstrap of the same user has no `files` key, or any key so named, and the rest of the
+/// payload as on `/v0`.
+#[tokio_shared_rt::test(shared)]
+async fn test_bootstrap_has_no_files_on_v1() -> Result<()> {
+    // The user whose bootstrap the user suite pins: its stream holds a post whose two
+    // attachments are Cairo's files, so `/v0` lists both.
+    let user = "zdbg13k5gh4tfz9qz11quohrxetgqxs7awandu8h57147xddcuhy";
+    let route = format!("/bootstrap/{user}");
+    let v0 = get_request(&format!("{V0_PREFIX}{route}")).await?;
+    let v1 = get_request(&format!("{V1_PREFIX}{route}")).await?;
+
+    let mut files: Vec<&str> = v0["files"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{v0}"))
+        .iter()
+        .map(|file| file["id"].as_str().unwrap())
+        .collect();
+    files.sort_unstable();
+    assert_eq!(files, ATTACHMENT_FILE_IDS, "{v0}");
+
+    assert!(v1.get("files").is_none(), "{v1}");
+    assert_eq!(keys_named(&v1, "files"), 0, "{v1}");
+    assert_eq!(keys_named(&v1, "attachments_metadata"), 0, "{v1}");
+    for field in ["users", "posts", "ids", "indexed", "notifications"] {
+        assert!(v1.get(field).is_some(), "{field}: {v1}");
+    }
+    assert_eq!(v1["indexed"], true, "{v1}");
+    assert_eq!(
+        v1["ids"]["stream"].as_array().map(Vec::len),
+        v0["ids"]["stream"].as_array().map(Vec::len),
+        "{v1}"
+    );
     Ok(())
 }

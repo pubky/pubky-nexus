@@ -33,7 +33,7 @@ pub use global_post_id::{GlobalPostId, GlobalPostIds};
 pub use info::ServerInfo;
 pub use nexus_common::models::post::PostKind;
 pub use notification_types::NotificationTypes;
-pub use post::{PostStreamDetailed, PostViewDetailed};
+pub use post::{IncludeAttachmentMetadata, PostStreamDetailed, PostViewDetailed};
 pub use post_kinds::PostKinds;
 pub use post_search_query::PostSearchQuery;
 pub use pubky_social_specs::PubkyId;
