@@ -258,7 +258,11 @@ pub async fn remove_if_taken_down(
     }
     let target = resolve_reference(uri).target;
     // Boxed: the delete handlers' futures would otherwise nest inside every PUT's.
-    match Box::pin(Moderation::remove_taken_down(target, files_path, ingestor)).await {
+    match Box::pin(Moderation::remove_taken_down(
+        target, uri, files_path, ingestor,
+    ))
+    .await
+    {
         Ok(()) | Err(EventProcessorError::SkipIndexing) => Ok(true),
         Err(e) => Err(e),
     }
@@ -277,7 +281,7 @@ pub async fn handle_del_event(
             user_id,
             followee_id,
         } => handlers::follow::del(user_id, followee_id).await,
-        TranslatedDel::Tag(key) => handlers::tag::del(key).await,
+        TranslatedDel::Tag(key) => handlers::tag::del_at(key, &event.uri).await,
         TranslatedDel::Bookmark(key) => handlers::bookmark::del(key).await,
         TranslatedDel::File(key) => handlers::file::del(key, files_path).await,
     }

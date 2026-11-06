@@ -40,10 +40,29 @@
 //! rows than were read is fine, another loop may have rewritten or deleted some. Each batch is
 //! its own transaction. The stop, continue or fail decision is [`drain`]'s, apart from the two
 //! graph calls, so it is tested on canned pages.
+//!
+//! The write marks each `Resource` edge it moves with the address it moves from, `v0_uri`,
+//! and the time, `moved_at`: the resource changes feed published the edge under that address,
+//! and publishes the move after the flip's epoch write, never failing the flip (see
+//! [`super::resource_changes`]).
+//!
+//! A batch holds the locks of its `Resource` edges' tag files, the ones their handlers take
+//! (see [`tag::lock_tags`]), from its read to its write: the edge's id, and the new id the
+//! flip gives it, which a takedown of the migrator's copy locks. So no handler of those files
+//! runs between a read of the edge and its append while the edge moves: a handler that runs
+//! after the write finds the edge at its `social/v1` address. A batch holds at most two locks
+//! per edge. The write keeps a changed id as `v0_id`, so a takedown at the edge's `pubky.app`
+//! address, in the window before a failed flip's retry, still finds and deletes it. So does a
+//! `pubky.app` `DEL` handled in that window, which happens only with no flip queued: the gate
+//! holds the user's `pubky.app` `DEL`s while the failed flip waits in the retry queue, and
+//! ignores them once it lands. No flip is queued when the retry processor handles such a `DEL`
+//! while the flip's first attempt is in flight, or once the flip's entry is gone.
 
 use super::attachments;
 use super::files::FileMap;
+use crate::events::handlers::tag;
 use crate::events::EventProcessorError;
+use chrono::Utc;
 use nexus_common::db::{fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphError};
 use pubky_social_specs::legacy_v0::traits::HashId as _;
 use pubky_social_specs::legacy_v0::{
@@ -54,7 +73,9 @@ use pubky_social_specs::traits::HashId;
 use pubky_social_specs::{
     post_uri_builder, tag_uri_builder, user_uri_builder, PubkyId, PubkySocialTag, PROTOCOL,
 };
+use std::collections::BTreeSet;
 use std::future::Future;
+use tokio::sync::MutexGuard;
 use tracing::{debug, warn};
 
 /// Edges per batch: one graph read and one graph write each.
@@ -109,7 +130,7 @@ pub async fn migrate(
     let prefix = v0_tag_uri_builder(tagger_id.to_string(), String::new());
     let prefix = prefix.as_str();
     drain(prefix, move || async move {
-        let tags = read_page(tagger_id, prefix, batch_size).await?;
+        let (tags, _locks) = read_locked_page(user_id, files, prefix, batch_size).await?;
         if tags.is_empty() {
             return Ok((0, 0));
         }
@@ -120,8 +141,9 @@ pub async fn migrate(
                 (tag.edge.clone(), id, uri)
             })
             .collect();
+        let moved_at = Utc::now().timestamp_millis();
         let changed = fetch_key_from_graph::<i64>(
-            queries::migration::set_tag_addresses(tagger_id, &rows),
+            queries::migration::set_tag_addresses(tagger_id, &rows, moved_at),
             "changed",
         )
         .await?
@@ -151,6 +173,39 @@ where
                 "none of the {read} tag edges read under {prefix} were rewritten"
             )));
         }
+    }
+}
+
+/// A page as [`read_page`] reads it, read while the tag files of its `Resource` edges are
+/// locked, by their ids and the ids the rewrite gives them, with those locks. The page is read
+/// again under the locks, and the locks taken again if it names a file they do not cover: a
+/// handler may have changed the page between the read that chose the locks and their grant.
+async fn read_locked_page(
+    user_id: &PubkyId,
+    files: &FileMap,
+    prefix: &str,
+    batch_size: usize,
+) -> Result<(Vec<StoredTag>, Vec<MutexGuard<'static, ()>>), EventProcessorError> {
+    let tagger_id: &str = user_id.as_ref();
+    let mut locked = BTreeSet::new();
+    let mut locks = Vec::new();
+    loop {
+        let page = read_page(tagger_id, prefix, batch_size).await?;
+        let ids: BTreeSet<String> = page
+            .iter()
+            .filter(|tag| matches!(tag.target, Target::Resource(_)))
+            .flat_map(|tag| match new_id(user_id, files, tag) {
+                NewId::Computed(id) => vec![tag.id.clone(), id],
+                NewId::Kept | NewId::Unmatched(_) => vec![tag.id.clone()],
+            })
+            .collect();
+        if ids.is_subset(&locked) {
+            return Ok((page, locks));
+        }
+        // Released before the next locks, which are taken in their own order
+        drop(locks);
+        locks = tag::lock_tags(tagger_id, ids.iter().map(String::as_str)).await;
+        locked = ids;
     }
 }
 

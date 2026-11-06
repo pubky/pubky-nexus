@@ -36,6 +36,9 @@ async fn setup_graph_inner() -> GraphResult<()> {
         "CREATE INDEX postLockIndex IF NOT EXISTS FOR (p:Post) ON (p.lock)",
         "CREATE INDEX taggedLabelIndex IF NOT EXISTS FOR ()-[r:TAGGED]-() ON (r.label)",
         "CREATE INDEX taggedTimestampIndex IF NOT EXISTS FOR ()-[r:TAGGED]-() ON (r.indexed_at)",
+        // Set only on the resource tags whose move the resource changes feed has not published
+        // yet, so the watcher's sweep of them reads the index, not every tag
+        "CREATE INDEX taggedMovedAtIndex IF NOT EXISTS FOR ()-[r:TAGGED]-() ON (r.moved_at)",
         "CREATE INDEX resourceSchemeIndex IF NOT EXISTS FOR (r:Resource) ON (r.scheme)",
     ];
 
