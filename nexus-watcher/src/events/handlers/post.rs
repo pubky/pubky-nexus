@@ -607,8 +607,11 @@ fn find_mentioned_ids(content: &str, prefix: &str) -> Vec<PubkyId> {
 
 /// The post keys a stored Collection curates, parsed from its content; none for any other kind.
 ///
-/// Recovery only: it has no input, so it reads the envelope the graph holds, which may have been
-/// written under an older spec. A PUT takes its items from [`PostInput::collected_posts`].
+/// Recovery only. It reads the envelope the graph holds, which is the one this PUT wrote in
+/// `put_to_graph` before the index writes failed: recovery rebuilds every index from graph truth,
+/// the mention edges included, and `collection_item_keys` keys the items as the translator did
+/// (pinned by the drift test in `translation/social_v1.rs`). A PUT takes its items from
+/// [`PostInput::collected_posts`].
 fn stored_curated_items(
     author_id: &PubkyId,
     post_id: &str,
