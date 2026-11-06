@@ -264,8 +264,8 @@ async fn test_exclude_kinds_rejects_invalid_values() -> Result<()> {
         format!("{ROOT_PATH}?source=author_replies&author_id={BOGOTA}&kind=short"),
         // Empty list.
         format!("{ROOT_PATH}?exclude_kinds="),
-        // Over the 7-item bound.
-        format!("{ROOT_PATH}?exclude_kinds=short,long,image,video,link,file,collection,short"),
+        // Over the 10-item bound (the legacy kinds plus event, rsvp and rating).
+        format!("{ROOT_PATH}?exclude_kinds=short,long,image,video,link,file,collection,event,rsvp,rating,availability,short"),
     ] {
         invalid_get_request(&path, StatusCode::BAD_REQUEST).await?;
     }
@@ -277,7 +277,7 @@ async fn test_exclude_kinds_rejects_invalid_values() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_exclude_all_kinds_returns_empty() -> Result<()> {
     let body = get_request(&format!(
-        "{ROOT_PATH}?source=all&exclude_kinds=short,long,image,video,link,file,collection&limit=10"
+        "{ROOT_PATH}?source=all&exclude_kinds=short,long,image,video,link,file,collection,event,rsvp,rating,availability&limit=10"
     ))
     .await?;
     assert!(ids_in(&body).is_empty());

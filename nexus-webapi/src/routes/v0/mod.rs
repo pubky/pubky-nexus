@@ -12,6 +12,7 @@ pub mod post;
 pub mod resource;
 pub mod resource_changes;
 pub mod search;
+pub mod social_events;
 pub mod stream;
 pub mod tag;
 mod types;
@@ -29,7 +30,9 @@ pub fn routes(app_state: AppState) -> (Router<AppState>, Router<AppState>) {
         .merge(tag::expensive_routes())
         .merge(search::expensive_routes())
         .merge(file::expensive_routes())
-        .merge(bootstrap::expensive_routes());
+        .merge(bootstrap::expensive_routes())
+        // Graph queries over up to 100 authors or locations per request
+        .merge(social_events::routes());
 
     let default = Router::new()
         .merge(info::routes(app_state.clone()))
@@ -80,6 +83,7 @@ impl ApiDoc {
         combined.merge(notification::NotificationApiDoc::merge_docs());
         combined.merge(events::EventsApiDoc::openapi());
         combined.merge(resource_changes::ResourceChangesApiDoc::openapi());
+        combined.merge(social_events::SocialEventsApiDoc::openapi());
         combined.merge(ApiDoc::openapi());
 
         combined

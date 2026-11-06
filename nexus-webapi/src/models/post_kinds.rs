@@ -2,11 +2,11 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 use crate::models::bounded_vec;
-use pubky_social_specs::legacy_v0::PubkyAppPostKind;
+use nexus_common::models::post::PostKind as PubkyAppPostKind;
 
-/// Comma-separated list of post kinds (min=1, max=7 tokens; duplicates are
+/// Comma-separated list of post kinds (min=1, max=11 tokens; duplicates are
 /// dropped, order preserved). Parsing is strict: values outside the known
-/// kinds (short, long, image, video, link, file, collection) are rejected,
+/// kinds (short, long, image, video, link, file, collection, event, rsvp, rating, availability) are rejected,
 /// unlike the lenient single `kind` param which falls back to `Unknown`.
 #[derive(Debug, ToSchema)]
 #[schema(value_type = String, example = "collection,link")]
@@ -25,7 +25,7 @@ impl TryFrom<String> for KindToken {
 
 impl<'de> Deserialize<'de> for PostKinds {
     fn deserialize<D: serde::de::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let tokens = bounded_vec::deserialize_csv::<KindToken, D, 1, 7>(d)?;
+        let tokens = bounded_vec::deserialize_csv::<KindToken, D, 1, 11>(d)?;
         let mut kinds: Vec<PubkyAppPostKind> = Vec::with_capacity(tokens.len());
         for KindToken(kind) in tokens {
             if !kinds.contains(&kind) {
@@ -93,12 +93,17 @@ mod tests {
 
     #[test]
     fn rejects_over_max() {
-        assert!(parse("short,long,image,video,link,file,collection,short").is_err());
+        assert!(parse(
+            "short,long,image,video,link,file,collection,event,rsvp,rating,availability,short"
+        )
+        .is_err());
     }
 
     #[test]
-    fn accepts_all_seven_kinds() {
-        let kinds = parse("short,long,image,video,link,file,collection").unwrap();
-        assert_eq!(kinds.0.len(), 7);
+    fn accepts_all_known_kinds() {
+        let kinds =
+            parse("short,long,image,video,link,file,collection,event,rsvp,rating,availability")
+                .unwrap();
+        assert_eq!(kinds.0.len(), 11);
     }
 }

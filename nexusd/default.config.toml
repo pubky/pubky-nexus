@@ -225,6 +225,14 @@ slow_query_logging_threshold_ms = 100
 #[jobs.most-followed-cache]
 #cron = "0 6 4 * * *"    # daily at 04:06 UTC
 
+# Native social calendar projections. These jobs run by default when their sections
+# are absent. An empty uncommented section disables that schedule; `jobs run` still works.
+#[jobs.event-occurrences]
+#cron = "0 20 4 * * *"    # daily at 04:20 UTC, roll twelve months ahead
+
+#[jobs.orphan-rsvps]
+#cron = "0 40 4 * * SUN"  # Sundays at 04:40 UTC, prune invalid occurrence attendance
+
 # Scheduling for the trust-rank recompute job. Set a cron for automatic
 # recomputes; omit it to leave the job on-demand only (`nexusd jobs run
 # trust-recompute` always works).

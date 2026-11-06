@@ -11,6 +11,8 @@ use crate::models::tag::TagDetails;
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct ResourceView {
+    #[serde(flatten, default)]
+    pub rating: crate::models::social_event::RatingSummary,
     pub details: ResourceDetails,
     pub tags: Vec<TagDetails>,
     pub taggers_count: usize,
@@ -54,6 +56,10 @@ impl ResourceView {
         let tags = tag_details_from_row(row)?;
         let taggers_count = tags.iter().map(|tag| tag.taggers_count).sum();
         Ok(Some(Self {
+            rating: crate::models::social_event::RatingSummary {
+                rating_avg: row.get("rating_avg").unwrap_or(0.0),
+                rating_count: row.get("rating_count").unwrap_or(0),
+            },
             details,
             tags,
             taggers_count,

@@ -1,3 +1,5 @@
+mod kind;
+pub use kind::PostKind;
 mod bookmark;
 mod collection;
 mod counts;

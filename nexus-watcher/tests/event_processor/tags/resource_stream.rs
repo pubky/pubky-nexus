@@ -97,7 +97,7 @@ async fn test_resource_stream_timeline_follows_latest_tag() -> Result<()> {
 
     let keys = labels_timeline(labels, page(10)).await?;
     assert_eq!(keys.resource_ids, vec![y.clone(), x.clone()]);
-    assert_eq!(keys.last_score, Some(x_first_tag as u64));
+    assert_eq!(keys.last_score, Some(x_first_tag as f64));
 
     // A newer tag on X (another label) moves X ahead of Y
     let path_x2 = put_tag(&mut test, &kp, &uri_x, newer_label).await?;
@@ -106,14 +106,14 @@ async fn test_resource_stream_timeline_follows_latest_tag() -> Result<()> {
 
     let keys = labels_timeline(labels, page(10)).await?;
     assert_eq!(keys.resource_ids, vec![x.clone(), y.clone()]);
-    assert_eq!(keys.last_score, Some(y_tag as u64));
+    assert_eq!(keys.last_score, Some(y_tag as f64));
 
     // Removing the newer tag recomputes X from its remaining tag: Y leads again
     test.del(&kp, &path_x2).await?;
     assert_eq!(latest_tag_indexed_at(&x).await?, Some(x_first_tag));
     let keys = labels_timeline(labels, page(10)).await?;
     assert_eq!(keys.resource_ids, vec![y.clone(), x.clone()]);
-    assert_eq!(keys.last_score, Some(x_first_tag as u64));
+    assert_eq!(keys.last_score, Some(x_first_tag as f64));
 
     // Removing the last tag removes the resource from the stream
     test.del(&kp, &path_x1).await?;
