@@ -1,5 +1,5 @@
 use crate::event_processor::{
-    posts::utils::{find_post_details, short_post, test_user},
+    posts::utils::{find_post_details, short_post, test_user, v1_note, v1_test_user},
     tags::utils::check_member_post_tag_global_timeline,
     users::utils::find_user_counts,
     utils::default_moderation_tests,
@@ -12,18 +12,31 @@ use nexus_common::models::post::PostCounts;
 use nexus_common::models::takedown::record_takedown;
 use nexus_common::types::Pagination;
 use nexus_common::utils::test_utils::default_ingestor_tests;
+use nexus_watcher::events::inputs::{Reference, ReferenceTarget, ResourceKey};
 use nexus_watcher::events::remove_if_taken_down;
 use nexus_watcher::EventProcessorError;
 use pubky::ResourcePath;
 use pubky::{recovery_file, Keypair};
-use pubky_app_specs::traits::HasIdPath;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::traits::HasIdPath;
+use pubky_social_specs::legacy_v0::{
     post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
+use pubky_social_specs::{post_uri_builder as v1_post_uri_builder, PubkyId};
 use std::path::Path;
 use tokio::fs;
 
 const MODERATION_LABEL: &str = "label_to_moderate";
+
+/// The reference a moderator tag written as `uri` resolves to: the post `post_id` by `owner_id`.
+fn post_reference(uri: &str, owner_id: &str, post_id: &str) -> Reference {
+    Reference {
+        uri: uri.to_string(),
+        target: ReferenceTarget::Post(ResourceKey {
+            owner_id: PubkyId::try_from(owner_id).expect("a valid user id"),
+            resource_id: post_id.to_string(),
+        }),
+    }
+}
 /// The address of a moderator tag applied directly in a test, kept with its takedown.
 const MODERATOR_TAG_URI: &str =
     "pubky://uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko/pub/pubky.app/tags/MODERATORTAG";
@@ -231,13 +244,127 @@ async fn moderate_post(
     author_id: &str,
     post_id: &str,
 ) -> Result<()> {
+    let uri = post_uri_builder(author_id.to_string(), post_id.to_string());
+    moderate_address(test, moderator_kp, &uri).await
+}
+
+/// The moderator tags `uri`, through their own `pubky.app` tag folder: the moderator never flips.
+async fn moderate_address(test: &mut WatcherTest, moderator_kp: &Keypair, uri: &str) -> Result<()> {
     let tag = PubkyAppTag {
-        uri: post_uri_builder(author_id.to_string(), post_id.to_string()),
+        uri: uri.to_string(),
         label: MODERATION_LABEL.to_string(),
         created_at: Utc::now().timestamp_millis(),
     };
     let tag_path = tag.hs_path();
     test.put(moderator_kp, &tag_path, tag).await
+}
+
+/// A user at `v1`: registered, with a `social/v1` profile as their first write. Returns the
+/// profile's path, whose DEL removes the user at the end of a test.
+async fn create_v1_author(
+    test: &mut WatcherTest,
+    name: &str,
+) -> Result<(Keypair, String, ResourcePath)> {
+    let author_kp = Keypair::random();
+    let author_id = author_kp.public_key().to_z32();
+    test.register_user(&author_kp).await?;
+    let profile_path = test
+        .put_v1_profile(&author_kp, &v1_test_user(name, "moderated"))
+        .await?;
+    Ok((author_kp, author_id, profile_path))
+}
+
+/// A takedown of a `social/v1` post, recorded at the post's address before any version of it
+/// is read, keeps the post out: a version PUT is keyed by its post's address.
+#[tokio_shared_rt::test(shared)]
+async fn test_v1_post_taken_down_before_it_is_read_stays_out() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let (author_kp, author_id, profile_path) =
+        create_v1_author(&mut test, "Watcher:PostModerate:V1Early").await?;
+
+    let post_id = generate_post_id();
+    let post_uri = v1_post_uri_builder(author_id.clone(), post_id.clone());
+
+    // The moderator's tag is read first, while there is no post to delete.
+    let result = default_moderation_tests()
+        .apply_moderation(
+            MODERATION_LABEL,
+            post_reference(&post_uri, &author_id, &post_id),
+            MODERATOR_TAG_URI,
+            Path::new("/tmp/nexus-watcher-test"),
+            &default_ingestor_tests(),
+        )
+        .await;
+    assert!(
+        matches!(result, Err(EventProcessorError::SkipIndexing)),
+        "{result:?}"
+    );
+
+    test.put_v1_post_version(
+        &author_kp,
+        &post_id,
+        &post_id,
+        &v1_note("Watcher:PostModerate:V1Early:Post"),
+    )
+    .await?;
+    assert!(
+        find_post_details(&author_id, &post_id).await.is_err(),
+        "the taken-down v1 post stays out when its version comes later"
+    );
+
+    test.del(&author_kp, &profile_path).await
+}
+
+/// A moderator tag on a `social/v1` post, at its address, takes the post down and keeps it
+/// down: a new version by its author and a replay of the moderated version are both keyed by
+/// the post's address.
+#[tokio_shared_rt::test(shared)]
+async fn test_v1_post_stays_down_after_an_edit_and_a_replay() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let moderator_kp = create_moderator(&mut test).await?;
+    let (author_kp, author_id, profile_path) =
+        create_v1_author(&mut test, "Watcher:PostModerate:V1Edit").await?;
+
+    let post_id = generate_post_id();
+    let first = v1_note("Watcher:PostModerate:V1Edit:Post");
+    test.put_v1_post_version(&author_kp, &post_id, &post_id, &first)
+        .await?;
+    assert!(find_post_details(&author_id, &post_id).await.is_ok());
+
+    moderate_address(
+        &mut test,
+        &moderator_kp,
+        &v1_post_uri_builder(author_id.clone(), post_id.clone()),
+    )
+    .await?;
+    assert!(
+        find_post_details(&author_id, &post_id).await.is_err(),
+        "the moderator's tag takes the v1 post down"
+    );
+
+    // The author's next edit: a new version path
+    let edit_id = generate_post_id();
+    test.put_v1_post_version(
+        &author_kp,
+        &post_id,
+        &edit_id,
+        &v1_note("Watcher:PostModerate:V1Edit:Post:Edited"),
+    )
+    .await?;
+    assert!(
+        find_post_details(&author_id, &post_id).await.is_err(),
+        "an edit of a taken-down v1 post stays out"
+    );
+
+    // The moderated version read again: at-least-once delivery, or a reindex
+    test.put_v1_post_version(&author_kp, &post_id, &post_id, &first)
+        .await?;
+    assert!(
+        find_post_details(&author_id, &post_id).await.is_err(),
+        "a replay of the moderated version stays out"
+    );
+
+    test.del(&author_kp, &profile_path).await
 }
 
 /// A takedown read before the post it targets keeps that post out: a new Nexus reads
@@ -268,7 +395,8 @@ async fn test_post_taken_down_before_it_is_read_stays_out() -> Result<()> {
     // reports the post as unindexed, as it did before takedowns were remembered.
     let result = default_moderation_tests()
         .apply_moderation(
-            tag,
+            &tag.label,
+            post_reference(&tag.uri, &user_id, &post_id),
             MODERATOR_TAG_URI,
             Path::new("/tmp/nexus-watcher-test"),
             &default_ingestor_tests(),
@@ -361,7 +489,8 @@ async fn test_post_taken_down_with_a_trailing_slash_stays_out() -> Result<()> {
     };
     let _ = default_moderation_tests()
         .apply_moderation(
-            tag,
+            &tag.label,
+            post_reference(&tag.uri, &user_id, &post_id),
             MODERATOR_TAG_URI,
             Path::new("/tmp/nexus-watcher-test"),
             &default_ingestor_tests(),
@@ -408,7 +537,8 @@ async fn test_reply_taken_down_before_it_is_read_notifies_no_one() -> Result<()>
     };
     let _ = default_moderation_tests()
         .apply_moderation(
-            tag,
+            &tag.label,
+            post_reference(&tag.uri, &replier_id, &reply_id),
             MODERATOR_TAG_URI,
             Path::new("/tmp/nexus-watcher-test"),
             &default_ingestor_tests(),

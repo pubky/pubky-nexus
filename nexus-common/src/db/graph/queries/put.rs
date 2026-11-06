@@ -1,13 +1,14 @@
 use crate::db::graph::error::{GraphError, GraphResult};
 use crate::db::graph::Query;
-use crate::models::post::PostRelationships;
+use crate::models::ResourceKey;
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
-use pubky_app_specs::{ParsedUri, PubkyId, Resource};
+use pubky_social_specs::PubkyId;
 
 /// Creates or overwrites a `User` node.
 ///
 /// `uri` is the address the profile was read from (its event path). `None` keeps the stored
-/// `uri`, so a tombstone retains it and a stub node gets none.
+/// `uri`, so a tombstone retains it and a stub node gets none. The stored `epoch` is never
+/// written here; the query returns it as `epoch`, `v0` when the node has none.
 pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> {
     let links = serde_json::to_string(&user.links)
         .map_err(|e| GraphError::SerializationFailed(Box::new(e)))?;
@@ -16,7 +17,8 @@ pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> 
         "create_user",
         "MERGE (u:User {id: $id})
          SET u.name = $name, u.bio = $bio, u.status = $status, u.links = $links, u.image = $image, u.indexed_at = $indexed_at, u.deleted = $deleted,
-             u.uri = coalesce($uri, u.uri);",
+             u.uri = coalesce($uri, u.uri)
+         RETURN coalesce(u.epoch, 'v0') AS epoch;",
     )
     .param("id", user.id.to_string())
     .param("uri", uri.map(str::to_string))
@@ -31,26 +33,45 @@ pub fn create_user(user: &UserDetails, uri: Option<&str>) -> GraphResult<Query> 
     Ok(query)
 }
 
+/// Moves a user to epoch `v1`. There is no write of `v0`, so the epoch only moves up. A
+/// missing node is created from `stub`, a [`UserDetails::from_pubky`] of the user, with no
+/// `uri`: the flip writes the epoch before the profile, so a user whose first event is their
+/// `social/v1` profile has no node yet. The profile write that follows fills it in. Its links are
+/// `'[]'`, as [`create_user`] stores a stub's empty list.
+pub fn set_user_epoch_v1(stub: &UserDetails) -> Query {
+    Query::new(
+        "set_user_epoch_v1",
+        "MERGE (u:User {id: $id})
+         ON CREATE SET u.name = $name, u.indexed_at = $indexed_at, u.deleted = $deleted, u.links = '[]'
+         SET u.epoch = 'v1'",
+    )
+    .param("id", stub.id.to_string())
+    .param("name", stub.name.clone())
+    .param("indexed_at", stub.indexed_at)
+    .param("deleted", stub.deleted)
+}
+
 /// Creates a Cypher query to add or edit a post to the graph database and handles its relationships.
 /// # Arguments
 /// * `post` - A reference to a `PostDetails` struct containing information about the post to be created or edited
-/// * `post_relationships` - A reference to a PostRelationships struct that define relationships
-///   for the post (e.g., replies or reposts).
+/// * `replied` - The key of the post this one replies to, if any
+/// * `reposted` - The key of the post this one reposts, if any
 pub fn create_post(
     post: &PostDetails,
-    post_relationships: &PostRelationships,
+    replied: Option<&ResourceKey>,
+    reposted: Option<&ResourceKey>,
 ) -> GraphResult<Query> {
     let mut cypher = String::new();
     let mut new_relationships = Vec::new();
 
     // Check if all the dependencies are consistent in the graph
-    if post_relationships.replied.is_some() {
+    if replied.is_some() {
         cypher.push_str("
             MATCH (reply_parent_author:User {id: $reply_parent_author_id})-[:AUTHORED]->(reply_parent_post:Post {id: $reply_parent_post_id})
         ");
         new_relationships.push("MERGE (new_post)-[:REPLIED]->(reply_parent_post)");
     };
-    if post_relationships.reposted.is_some() {
+    if reposted.is_some() {
         cypher.push_str("
             MATCH (repost_parent_author:User {id: $repost_parent_author_id})-[:AUTHORED]->(repost_parent_post:Post {id: $repost_parent_post_id})
         ");
@@ -92,58 +113,22 @@ pub fn create_post(
         .param("content", post.content.to_string())
         .param("indexed_at", post.indexed_at)
         .param("kind", kind.trim_matches('"'))
-        .param("attachments", post.attachments.clone().unwrap_or_default())
+        .param("attachments", post.attachments.clone())
         // Pass Option directly so None clears the property; "" would read back as Some("").
         .param("lock", post.lock.clone())
         .param("deleted", post.deleted);
 
-    // Handle "replied" relationship
-    cypher_query = add_relationship_params(
-        cypher_query,
-        &post_relationships
-            .replied
-            .clone()
-            .and_then(|uri| uri.try_to_uri_str().ok()),
-        "reply_parent_author_id",
-        "reply_parent_post_id",
-    )?;
-
-    // Handle "reposted" relationship
-    cypher_query = add_relationship_params(
-        cypher_query,
-        &post_relationships
-            .reposted
-            .clone()
-            .and_then(|uri| uri.try_to_uri_str().ok()),
-        "repost_parent_author_id",
-        "repost_parent_post_id",
-    )?;
-
-    Ok(cypher_query)
-}
-
-fn add_relationship_params(
-    cypher_query: Query,
-    uri: &Option<String>,
-    author_param: &str,
-    post_param: &str,
-) -> GraphResult<Query> {
-    if let Some(uri) = uri {
-        let parsed_uri = ParsedUri::try_from(uri.as_str()).map_err(GraphError::UriParseError)?;
-        let parent_author_id = parsed_uri.user_id;
-        let parent_post_id = match parsed_uri.resource {
-            Resource::Post(id) => id,
-            _ => {
-                return Err(GraphError::InvalidResourceType(
-                    "Reposted uri is not a Post resource".into(),
-                ))
-            }
-        };
-
-        return Ok(cypher_query
-            .param(author_param, parent_author_id.as_ref())
-            .param(post_param, parent_post_id.as_str()));
+    if let Some(parent) = replied {
+        cypher_query = cypher_query
+            .param("reply_parent_author_id", parent.owner_id.as_ref())
+            .param("reply_parent_post_id", parent.resource_id.as_str());
     }
+    if let Some(parent) = reposted {
+        cypher_query = cypher_query
+            .param("repost_parent_author_id", parent.owner_id.as_ref())
+            .param("repost_parent_post_id", parent.resource_id.as_str());
+    }
+
     Ok(cypher_query)
 }
 
@@ -369,12 +354,15 @@ pub fn create_user_tag(
 
 /// Creates a `TAGGED` relationship between a user and a generic Resource node.
 /// The Resource is created (MERGE) if it does not already exist.
+///
+/// A resource tag is one edge per tagger, target and label, whichever app's folder wrote it,
+/// as post and user tags are. Edges written before that still carry an `app` property: nothing
+/// reads it, and the `MERGE` on `{label}` matches such an edge too, so a replay reuses it.
 /// # Arguments
 /// * `tagger_id` - The user creating the tag.
 /// * `resource_id` - The deterministic 32-char hex Resource ID.
 /// * `uri` - The normalized URI of the resource.
 /// * `scheme` - The URI scheme (https, pubky, nostr, etc.)
-/// * `app` - The app namespace the tag was created from (e.g., "mapky", "eventky").
 /// * `tag_id` - A unique identifier for the tagging relationship.
 /// * `tag_uri` - The address of the tag file (its event path), stored as the edge `uri`.
 /// * `label` - The tag label.
@@ -385,7 +373,6 @@ pub fn create_resource_tag(
     resource_id: &str,
     uri: &str,
     scheme: &str,
-    app: &str,
     tag_id: &str,
     tag_uri: &str,
     label: &str,
@@ -400,8 +387,8 @@ pub fn create_resource_tag(
             resource.scheme = $scheme,
             resource.indexed_at = $indexed_at
         WITH tagger, resource
-        OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label, app: $app}]->(resource)
-        MERGE (tagger)-[t:TAGGED {label: $label, app: $app}]->(resource)
+        OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label}]->(resource)
+        MERGE (tagger)-[t:TAGGED {label: $label}]->(resource)
         ON CREATE SET t.id = $tag_id, t.indexed_at = $indexed_at
         SET t.uri = $tag_uri
         RETURN existing IS NOT NULL AS flag;",
@@ -410,7 +397,6 @@ pub fn create_resource_tag(
     .param("resource_id", resource_id)
     .param("uri", uri)
     .param("scheme", scheme)
-    .param("app", app)
     .param("tag_id", tag_id)
     .param("tag_uri", tag_uri)
     .param("label", label)

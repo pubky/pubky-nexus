@@ -3,8 +3,8 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::event::EventLine;
 use pubky::Keypair;
-use pubky_app_specs::traits::{HasIdPath, HashId};
-use pubky_app_specs::{blob_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppUser};
+use pubky_social_specs::legacy_v0::traits::{HasIdPath, HashId};
+use pubky_social_specs::legacy_v0::{blob_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_put_pubkyapp_file() -> Result<()> {

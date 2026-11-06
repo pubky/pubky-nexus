@@ -553,7 +553,7 @@ mod tests {
     use crate::{types::DynError, StackConfig, StackManager};
     use deadpool_redis::redis;
     use pubky::Keypair;
-    use pubky_app_specs::PubkyId;
+    use pubky_social_specs::PubkyId;
     use std::collections::HashMap;
     use std::time::Duration;
 

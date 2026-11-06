@@ -7,7 +7,7 @@ use std::sync::Arc;
 use pubky::pkarr::dns::{rdata::SVCB, Name};
 use pubky::pkarr::{SignedPacket, Timestamp};
 use pubky::{Keypair, PublicKey};
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::PubkyId;
 
 use crate::models::user::{PubkyConnectorResolver, UserIngestor};
 

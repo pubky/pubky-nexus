@@ -4,9 +4,13 @@ use crate::utils::search_reach::{
 use crate::utils::{get_request, invalid_get_request};
 use anyhow::Result;
 use axum::http::StatusCode;
-use nexus_webapi::routes::v0::endpoints::SEARCH_USERS_BY_TAGS_ROUTE;
+use const_format::concatcp;
+use nexus_webapi::routes::v0::endpoints::{self, V0_PREFIX};
 use serde_json::Value;
 use std::collections::HashMap;
+
+const SEARCH_USERS_BY_TAGS_ROUTE: &str =
+    concatcp!(V0_PREFIX, endpoints::SEARCH_USERS_BY_TAGS_ROUTE);
 
 // User-profile tag fixtures from docker/test-graph/mocks/tags.cypher
 const AURELIO: &str = "c4yotzcb76d31y44jsymtdcowqg7oyqej46jty3yy7ybtzt9x41o";

@@ -11,16 +11,6 @@ use utoipa::ToSchema;
 
 use super::view::ResourceView;
 
-#[derive(ToSchema, Deserialize, Debug, Clone, PartialEq, Default)]
-#[serde(tag = "source", rename_all = "snake_case")]
-pub enum ResourceStreamSource {
-    #[default]
-    All,
-    App {
-        app: String,
-    },
-}
-
 #[derive(Debug, Serialize, Deserialize, Default, Clone, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceSorting {
@@ -64,7 +54,7 @@ impl ResourceKeyStream {
 pub struct ResourceStream(pub Vec<ResourceView>);
 
 impl ResourceStream {
-    /// Get a page of resource IDs for the given source, filters and sorting.
+    /// Get a page of resource IDs for the given label filter and sorting.
     ///
     /// # Errors
     /// Returns [`ModelError::GraphOperationFailed`] on graph failures, including
@@ -72,18 +62,12 @@ impl ResourceStream {
     ///
     /// [`ModelError::GraphOperationFailed`]: crate::models::error::ModelError::GraphOperationFailed
     pub async fn get_resource_keys(
-        source: &ResourceStreamSource,
         pagination: Pagination,
         order: SortOrder,
         sorting: &ResourceSorting,
         tags: Option<&[String]>,
     ) -> ModelResult<ResourceKeyStream> {
-        let app = match source {
-            ResourceStreamSource::App { app } => Some(app.as_str()),
-            ResourceStreamSource::All => None,
-        };
-
-        let query = queries::get::resource_stream(app, tags, sorting, &order, &pagination);
+        let query = queries::get::resource_stream(tags, sorting, &order, &pagination);
 
         let graph = crate::db::get_neo4j_graph()?;
 

@@ -1,11 +1,12 @@
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
+use nexus_common::models::post::PostKind;
 use nexus_common::{
     models::notification::{Notification, NotificationBody},
     types::Pagination,
 };
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_mentions_notifications() -> Result<()> {
@@ -83,7 +84,7 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
     {
         assert_eq!(
             post_kind,
-            &PubkyAppPostKind::Short,
+            &PostKind::Short,
             "A mention from a note should report post_kind = Short"
         );
         assert_eq!(
@@ -118,7 +119,7 @@ async fn test_homeserver_mentions_notifications() -> Result<()> {
     {
         assert_eq!(
             post_kind,
-            &PubkyAppPostKind::Short,
+            &PostKind::Short,
             "A mention from a note should report post_kind = Short"
         );
         assert_eq!(

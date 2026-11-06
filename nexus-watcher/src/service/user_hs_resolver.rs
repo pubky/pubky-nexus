@@ -680,7 +680,7 @@ mod tests {
     use nexus_common::utils::test_utils::{random_pk, random_pubky_id, signed_packet_naming};
     use nexus_common::{StackConfig, StackManager};
     use pubky::Keypair;
-    use pubky_app_specs::PubkyId;
+    use pubky_social_specs::PubkyId;
 
     async fn setup() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await
@@ -763,6 +763,17 @@ mod tests {
         Ok(packet
             .zip(timestamp)
             .map(|(packet, timestamp)| StoredRecord { packet, timestamp }))
+    }
+
+    /// Helper: backdate a user's mapping (2 hours ago) so the user is due for resolution
+    async fn backdate_hs_mapping(user_id: &str) -> GraphResult<()> {
+        let query = Query::new(
+            "backdate_hs_mapping",
+            "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(:Homeserver)
+             SET r.resolved_at = timestamp() - 7200000",
+        )
+        .param("user_id", user_id);
+        exec_single_row(query).await
     }
 
     #[tokio_shared_rt::test(shared)]
@@ -1490,14 +1501,7 @@ mod tests {
         create_test_user(&user_id).await?;
         set_user_homeserver(&user_id, &stored_hs).await?;
 
-        // Backdate the mapping (2 hours ago) so the user is due for resolution
-        let backdate_query = Query::new(
-            "backdate_hs_mapping",
-            "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(:Homeserver)
-             SET r.resolved_at = timestamp() - 7200000",
-        )
-        .param("user_id", user_id.as_str());
-        exec_single_row(backdate_query).await?;
+        backdate_hs_mapping(&user_id).await?;
 
         let outcome = resolve_user(&FailingResolver, &user_pk).await?;
         assert_eq!(

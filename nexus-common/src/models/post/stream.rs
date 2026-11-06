@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use super::trust_filter::{self, AuthorPost};
-use super::{collection_item_keys, Bookmark, PostCounts, PostDetails, PostView};
+use super::{collection_item_keys, Bookmark, PostCounts, PostDetails, PostKind, PostView};
 use crate::db::kv::{RedisResult, ScoreAction, SortOrder};
 use crate::db::queries::get::TrustRule;
 use crate::db::{get_neo4j_graph, queries, GraphError, GraphResult, RedisOps};
@@ -14,7 +14,6 @@ use crate::models::{
 use crate::types::{DomainTrust, Pagination, StreamReach, StreamSorting, WotDepth};
 use futures::stream::{self, StreamExt};
 use futures::TryStreamExt;
-use pubky_app_specs::PubkyAppPostKind;
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn;
 use tokio::time::{timeout, Duration};
@@ -163,10 +162,12 @@ impl StreamSource {
 #[derive(Debug, Clone, PartialEq)]
 pub enum KindFilter {
     /// Only posts of exactly this kind.
-    Kind(PubkyAppPostKind),
-    /// Posts of any kind except the listed ones. Posts with a missing (NULL)
-    /// or unrecognized ("unknown") kind are never excluded.
-    Exclude(Vec<PubkyAppPostKind>),
+    Kind(PostKind),
+    /// Posts of any kind except the listed ones. A post with a missing (NULL)
+    /// kind is never excluded. One stored as `unknown` is excluded only when
+    /// [`PostKind::Unknown`] is listed; which callers can list it is the API's
+    /// rule, not this filter's.
+    Exclude(Vec<PostKind>),
     /// Only posts with a lock attached, of any kind. Lives here rather than as
     /// a separate filter because the sidebar picks one content filter at a time.
     Locked,
@@ -516,7 +517,7 @@ impl PostStream {
         let Some(details) = PostDetails::get_by_id(author_id, post_id).await? else {
             return Ok(PostKeyStream::default());
         };
-        if !matches!(details.kind, PubkyAppPostKind::Collection) {
+        if !matches!(details.kind, PostKind::Collection) {
             return Ok(PostKeyStream::default());
         }
         let items = match collection_item_keys(&details.content) {
@@ -1151,13 +1152,13 @@ mod tests {
     #[test]
     fn test_can_use_index_returns_false_for_any_kind_filter() {
         let kinds_to_test = [
-            PubkyAppPostKind::Short,
-            PubkyAppPostKind::Long,
-            PubkyAppPostKind::Image,
-            PubkyAppPostKind::Video,
-            PubkyAppPostKind::Link,
-            PubkyAppPostKind::File,
-            PubkyAppPostKind::Collection,
+            PostKind::Short,
+            PostKind::Long,
+            PostKind::Image,
+            PostKind::Video,
+            PostKind::Link,
+            PostKind::File,
+            PostKind::Collection,
         ];
 
         // Combinations that would normally return `true` when kind is None.
@@ -1181,8 +1182,8 @@ mod tests {
         for kind in &kinds_to_test {
             for (sorting, source) in &index_eligible_combos {
                 for filter in [
-                    KindFilter::Kind(kind.clone()),
-                    KindFilter::Exclude(vec![kind.clone()]),
+                    KindFilter::Kind(*kind),
+                    KindFilter::Exclude(vec![*kind]),
                     KindFilter::Locked,
                 ] {
                     assert!(

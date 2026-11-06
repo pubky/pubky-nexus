@@ -12,121 +12,102 @@ use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use nexus_common::models::tag::user::TagUser;
 use nexus_common::models::user::{UserIngestor, UsersByTagSearch};
 use nexus_common::types::Pagination;
-use nexus_common::universal_tag::normalize::{
-    classify_uri, normalize_uri, resource_id, UriCategory,
-};
-use pubky_app_specs::{ExtendedParsedUri, ParsedUri, PubkyAppTag, PubkyId, Resource};
+use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
+use pubky_social_specs::PubkyId;
 use tracing::{debug, Instrument};
 
-use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
+use super::utils::{
+    bounded, fail_on_permanent_ingest_error, post_kind, post_relationships_is_reply,
+};
+use crate::events::inputs::{Reference, ReferenceTarget, ResourceKey, TagInput};
 
-#[derive(Debug)]
-struct TagStorageUri {
-    user_id: PubkyId,
-    tag_id: String,
-    app: Option<String>,
-}
-
-/// `event_uri` is the address of the tag file, stored as the edge `uri`; `tag.uri` is its target.
-#[tracing::instrument(name = "tag.put", skip_all, fields(user_id = %tagger_id, tag_id = %tag_id))]
+/// `tag.uri` is the address the tag is stored under, kept as the edge `uri`; `tag.tagged` is
+/// what it tags. Only a post or a user can be tagged here; any other target is
+/// [`EventProcessorError::UnsupportedTarget`].
+#[tracing::instrument(
+    name = "tag.put",
+    skip_all,
+    fields(user_id = %key.owner_id, tag_id = %key.resource_id)
+)]
 pub async fn sync_put(
-    tag: PubkyAppTag,
-    event_uri: String,
-    tagger_id: PubkyId,
-    tag_id: String,
+    tag: TagInput,
+    key: ResourceKey,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing tag");
-
-    let target = tag_target(&tag.uri)?;
+    let ResourceKey {
+        owner_id: tagger_id,
+        resource_id: tag_id,
+    } = key;
+    let TagInput {
+        uri: tag_uri,
+        tagged: Reference {
+            uri: tagged_uri,
+            target,
+        },
+        label,
+    } = tag;
     let indexed_at = Utc::now().timestamp_millis();
 
     match target {
-        TagTarget::Post { author_id, post_id } => {
+        ReferenceTarget::Post(ResourceKey {
+            owner_id: author_id,
+            resource_id: post_id,
+        }) => {
             put_sync_post(
-                tagger_id, author_id, &post_id, &tag_id, &event_uri, &tag.label, &tag.uri,
-                indexed_at, ingestor,
+                tagger_id,
+                author_id,
+                &post_id,
+                &tag_id,
+                &tag_uri,
+                &label,
+                &tagged_uri,
+                indexed_at,
+                ingestor,
             )
             .await
         }
-        TagTarget::User(user_id) => {
+        ReferenceTarget::User(user_id) => {
             put_sync_user(
-                tagger_id, user_id, &tag_id, &event_uri, &tag.label, indexed_at, ingestor,
+                tagger_id, user_id, &tag_id, &tag_uri, &label, indexed_at, ingestor,
             )
             .await
         }
-    }
-}
-
-/// What a pubky.app tag points at.
-#[derive(Debug, PartialEq)]
-enum TagTarget {
-    Post { author_id: PubkyId, post_id: String },
-    User(PubkyId),
-}
-
-/// Classifies the target URI of a pubky.app tag.
-///
-/// Anything that is not a pubky.app Post or User URI (another scheme, another app's path,
-/// an invalid user id, an unknown resource kind) can never become indexable by retrying,
-/// so it is rejected with [`EventProcessorError::UnsupportedTarget`], which is not retried.
-fn tag_target(uri: &str) -> Result<TagTarget, EventProcessorError> {
-    let parsed_uri = ParsedUri::try_from(uri).map_err(|e| {
-        EventProcessorError::UnsupportedTarget(format!(
-            "The tagged URI is not a pubky.app URI: {e}"
-        ))
-    })?;
-
-    match parsed_uri.resource {
-        Resource::Post(post_id) => Ok(TagTarget::Post {
-            author_id: parsed_uri.user_id,
-            post_id,
-        }),
-        Resource::User => Ok(TagTarget::User(parsed_uri.user_id)),
-        other => Err(EventProcessorError::UnsupportedTarget(format!(
-            "The tagged resource is not Post or User, instead is: {other:?}"
+        other @ (ReferenceTarget::File(_)
+        | ReferenceTarget::Tag { .. }
+        | ReferenceTarget::Foreign
+        | ReferenceTarget::Other) => Err(EventProcessorError::UnsupportedTarget(format!(
+            "The tagged resource {} is not Post or User, instead is: {}",
+            bounded(&tagged_uri),
+            bounded(&format!("{other:?}"))
         ))),
     }
 }
 
-/// Handles a tag event from an app-specific path (e.g., /pub/mapky/tags/TAG_ID).
-/// Classifies the tagged URI: if it's an Internal-Known resource (Post/User), delegates
-/// to the existing flow. Otherwise creates/updates a generic Resource node.
-pub async fn sync_put_resource(
-    tag: PubkyAppTag,
-    event_uri: String,
-    tagger_id: PubkyId,
-    tag_id: String,
-    app: String,
-    ingestor: &UserIngestor,
-) -> Result<(), EventProcessorError> {
-    debug!(%app, "Indexing resource tag");
+/// Indexes a tag on a foreign resource or a file (at either epoch's address) as a generic
+/// `Resource` tag, keyed by the target's normalized address: a file is never waited for, and a
+/// v0 file and its v1 copy are two targets.
+#[tracing::instrument(
+    name = "tag.put_resource",
+    skip_all,
+    fields(user_id = %key.owner_id, tag_id = %key.resource_id)
+)]
+pub async fn sync_put_resource(tag: TagInput, key: ResourceKey) -> Result<(), EventProcessorError> {
+    debug!("Indexing resource tag");
+    let (normalized, scheme) =
+        normalize_uri(&tag.tagged.uri).map_err(EventProcessorError::generic)?;
 
-    match classify_uri(&tag.uri) {
-        UriCategory::InternalKnown => {
-            // The tagged URI is a known Post/User — delegate to existing flow
-            sync_put(tag, event_uri, tagger_id, tag_id, ingestor).await
-        }
-        UriCategory::InternalUnknown | UriCategory::External => {
-            let (normalized, scheme) =
-                normalize_uri(&tag.uri).map_err(EventProcessorError::generic)?;
-            let res_id = resource_id(&normalized);
-            let indexed_at = Utc::now().timestamp_millis();
-
-            put_sync_resource(
-                tagger_id,
-                &res_id,
-                &normalized,
-                &scheme,
-                &app,
-                &tag_id,
-                &event_uri,
-                &tag.label,
-                indexed_at,
-            )
-            .await
-        }
-    }
+    put_sync_resource(
+        key.owner_id,
+        &resource_id(&normalized),
+        &normalized,
+        &scheme,
+        &key.resource_id,
+        &tag.uri,
+        &tag.label,
+        Utc::now().timestamp_millis(),
+    )
+    .await
 }
 
 /// Creates a Resource tag in the graph and adds its label to the tag search index.
@@ -136,7 +117,6 @@ async fn put_sync_resource(
     resource_id: &str,
     uri: &str,
     scheme: &str,
-    app: &str,
     tag_id: &str,
     tag_uri: &str,
     tag_label: &str,
@@ -147,7 +127,6 @@ async fn put_sync_resource(
         resource_id,
         uri,
         scheme,
-        app,
         tag_id,
         tag_uri,
         tag_label,
@@ -214,10 +193,8 @@ async fn put_sync_post(
             Ok(())
         }
         OperationOutcome::MissingDependency => {
-            if let Ok(post_uri) = ParsedUri::try_from(post_uri_str) {
-                // Drop the tag (non-retryable) if the tagged post's author is on a blacklisted HS.
-                fail_on_blacklisted_hs(ingestor.maybe_ingest_author_of_post(&post_uri).await)?;
-            }
+            // Drop the tag (non-retryable) if the tagged post's author is on a blacklisted HS.
+            fail_on_permanent_ingest_error(ingestor.maybe_ingest_user(&author_id).await)?;
             Err(EventProcessorError::MissingDependency {
                 dependency: vec![post_uri_str.to_owned()],
             })
@@ -332,13 +309,9 @@ async fn put_sync_user(
         }
         OperationOutcome::MissingDependency => {
             // Drop the tag (non-retryable) if the tagged user is on a blacklisted HS.
-            fail_on_blacklisted_hs(ingestor.maybe_ingest_user(&tagged_user_id).await)?;
+            fail_on_permanent_ingest_error(ingestor.maybe_ingest_user(&tagged_user_id).await)?;
 
-            let tagged_uri = tagged_user_id
-                .to_uri()
-                .try_to_uri_str()
-                .map_err(EventProcessorError::generic)?;
-            let dependency = vec![tagged_uri];
+            let dependency = vec![tagged_user_id.to_string()];
             Err(EventProcessorError::MissingDependency { dependency })
         }
         OperationOutcome::CreatedOrDeleted => {
@@ -371,51 +344,29 @@ async fn put_sync_user(
     }
 }
 
-#[tracing::instrument(name = "tag.del", skip_all, fields(tag_uri = %tag_uri))]
-pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
-    let tag_storage_uri = parse_tag_storage_uri(tag_uri)?;
-    // Prefix these vars with arg_ to indicate they were extracted from the argument tag URI
+/// Deletes the tag `key` names, whichever folder wrote it: a tag is one edge per tagger,
+/// target and label, found by its id alone.
+#[tracing::instrument(
+    name = "tag.del",
+    skip_all,
+    fields(user_id = %key.owner_id, tag_id = %key.resource_id)
+)]
+pub async fn del(key: ResourceKey) -> Result<(), EventProcessorError> {
+    // Prefix these vars with arg_ to indicate they come from the argument key.
     // Similarly named vars will be used in Step 2 below, reading fields from the query result
-    let arg_user_id = tag_storage_uri.user_id;
-    let arg_tag_id = tag_storage_uri.tag_id;
-    let arg_app = tag_storage_uri.app;
+    let ResourceKey {
+        owner_id: arg_user_id,
+        resource_id: arg_tag_id,
+    } = key;
 
     debug!("Deleting tag");
 
     // 1. Read target from graph WITHOUT deleting the edge
-    let row = match fetch_row_from_graph(queries::get::get_tag_target(
-        &arg_user_id,
-        &arg_tag_id,
-        arg_app.as_deref(),
-    ))
-    .await?
-    {
-        Some(row) => row,
-        None if arg_app.is_some() => {
-            // App-specific tags that target known Pubky resources are indexed
-            // through the standard Post/User tag flow, where TAGGED has no app.
-            let Some(row) = fetch_row_from_graph(queries::get::get_tag_target(
-                &arg_user_id,
-                &arg_tag_id,
-                None,
-            ))
-            .await?
-            else {
-                // Edge already gone (fully completed on a prior attempt) - idempotent no-op
-                return Ok(());
-            };
-
-            let resource_id: Option<String> = row.get("resource_id").unwrap_or(None);
-            if resource_id.is_some() {
-                return Ok(());
-            }
-
-            row
-        }
-        None => {
-            // Edge already gone (fully completed on a prior attempt) - idempotent no-op
-            return Ok(());
-        }
+    let Some(row) =
+        fetch_row_from_graph(queries::get::get_tag_target(&arg_user_id, &arg_tag_id)).await?
+    else {
+        // Edge already gone (fully completed on a prior attempt) - idempotent no-op
+        return Ok(());
     };
 
     let tagged_user_id: Option<String> = row.get("user_id").unwrap_or(None);
@@ -426,7 +377,6 @@ pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
     let label: String = row
         .get("label")
         .map_err(|e| EventProcessorError::generic(format!("Missing label in delete_tag: {e}")))?;
-    let app: Option<String> = row.get("app").unwrap_or(None);
 
     // 2. Redis cleanup (guarded by tagger_in_index where non-idempotent)
     // Post-count cache to invalidate AFTER the graph edge is deleted (invalidating
@@ -469,12 +419,7 @@ pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
     }
 
     // 3. Graph deletion LAST — ensures data survives for retry if Redis ops fail
-    fetch_row_from_graph(queries::del::delete_tag(
-        &arg_user_id,
-        &arg_tag_id,
-        app.as_deref(),
-    ))
-    .await?;
+    fetch_row_from_graph(queries::del::delete_tag(&arg_user_id, &arg_tag_id)).await?;
 
     // Now that the TAGGED edge is gone, invalidate the cached post counts so the
     // next read recomputes the lower count instead of recaching the pre-delete one.
@@ -483,35 +428,6 @@ pub async fn del(tag_uri: &str) -> Result<(), EventProcessorError> {
     }
 
     Ok(())
-}
-
-pub fn is_tag_storage_uri(tag_uri: &str) -> bool {
-    parse_tag_storage_uri(tag_uri).is_ok()
-}
-
-fn parse_tag_storage_uri(tag_uri: &str) -> Result<TagStorageUri, EventProcessorError> {
-    match ExtendedParsedUri::try_from(tag_uri).map_err(EventProcessorError::generic)? {
-        ExtendedParsedUri::PubkyApp {
-            user_id,
-            resource: Resource::Tag(tag_id),
-        } => Ok(TagStorageUri {
-            user_id,
-            tag_id,
-            app: None,
-        }),
-        ExtendedParsedUri::UniversalTag {
-            user_id,
-            app,
-            resource: Resource::Tag(tag_id),
-        } => Ok(TagStorageUri {
-            user_id,
-            tag_id,
-            app: Some(app),
-        }),
-        other => Err(EventProcessorError::generic(format!(
-            "Expected tag URI, found: {other:?}"
-        ))),
-    }
 }
 
 async fn del_sync_user(
@@ -647,58 +563,4 @@ async fn del_sync_post(
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::events::retry::RetryScheduler;
-
-    const USER_ID: &str = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
-
-    #[test]
-    fn tag_target_rejects_unsupported_targets_without_retry() {
-        let cases = [
-            "https://example.com/album/123".to_string(),
-            format!("pubky://{USER_ID}/pub/mapky/places/1"),
-            "pubky://notakey/pub/pubky.app/profile.json".to_string(),
-            format!("pubky://{USER_ID}/pub/pubky.app/unknown_kind/0033SSE3B1FQ0"),
-        ];
-
-        for uri in cases {
-            let err = tag_target(&uri).expect_err(&format!("{uri} must be rejected"));
-            assert!(
-                matches!(err, EventProcessorError::UnsupportedTarget(_)),
-                "{uri}: unexpected error {err:?}"
-            );
-            assert!(
-                !err.to_string().contains("not a pubky resource"),
-                "{uri}: the message must not deny a pubky:// URI is pubky: {err}"
-            );
-            assert!(
-                !RetryScheduler::should_enqueue_related_event(&err),
-                "{uri}: a deterministic rejection must not be retried"
-            );
-        }
-    }
-
-    #[test]
-    fn tag_target_classifies_posts_and_users() {
-        let user_id = PubkyId::try_from(USER_ID).unwrap();
-
-        assert_eq!(
-            tag_target(&format!(
-                "pubky://{USER_ID}/pub/pubky.app/posts/0033SSE3B1FQ0"
-            ))
-            .unwrap(),
-            TagTarget::Post {
-                author_id: user_id.clone(),
-                post_id: "0033SSE3B1FQ0".to_string(),
-            }
-        );
-        assert_eq!(
-            tag_target(&format!("pubky://{USER_ID}/pub/pubky.app/profile.json")).unwrap(),
-            TagTarget::User(user_id)
-        );
-    }
 }

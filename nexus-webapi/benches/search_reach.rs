@@ -22,7 +22,7 @@ use nexus_common::{
     },
     types::{StreamReach, WotDepth},
 };
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::PubkyId;
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;

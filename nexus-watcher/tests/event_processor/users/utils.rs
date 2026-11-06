@@ -47,6 +47,14 @@ pub async fn find_user_details(user_id: &str) -> Result<UserDetails> {
     anyhow::bail!("User node not found in Nexus graph");
 }
 
+/// The user's details as cached for the API, read through `UserDetails::get_by_id`.
+pub async fn find_cached_user_details(user_id: &str) -> Result<UserDetails> {
+    let user = UserDetails::get_by_id(user_id)
+        .await?
+        .expect("the user's details are cached");
+    Ok(user)
+}
+
 /// The `uri` property stored on the `User` node, `None` when it is unset.
 pub async fn find_user_uri(user_id: &str) -> Option<String> {
     let query = Query::new(
@@ -95,4 +103,24 @@ pub async fn set_user_epoch(user_id: &str, epoch: &str) -> Result<()> {
     .param("epoch", epoch);
     exec_single_row(query).await?;
     Ok(())
+}
+
+/// The `social/v1` profile address of `user_id`: the one a flipped user's profile is indexed
+/// under.
+pub fn v1_profile_uri(user_id: &str) -> String {
+    format!("pubky://{user_id}/pub/social/v1/profile.json")
+}
+
+/// Asserts `user_id` has flipped: `v1` in the graph, with the `social/v1` profile indexed.
+pub async fn assert_flipped(user_id: &str) {
+    assert_eq!(
+        find_user_epoch(user_id).await.as_deref(),
+        Some("v1"),
+        "{user_id} must be at v1"
+    );
+    assert_eq!(
+        find_user_uri(user_id).await,
+        Some(v1_profile_uri(user_id)),
+        "{user_id}'s indexed profile must be the social/v1 one"
+    );
 }

@@ -3,8 +3,9 @@ use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use nexus_common::models::post::PostDetails;
+use nexus_common::models::post::PostKind;
 use pubky::Keypair;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     post_uri_builder, PubkyAppBookmark, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
 };
 
@@ -185,7 +186,7 @@ async fn test_soft_deleting_a_bookmarked_collection_decrements_collections_once(
     let details = PostDetails::get_by_id(&author_id, &col_id)
         .await?
         .expect("soft-deleted placeholder still present");
-    assert_eq!(details.kind, PubkyAppPostKind::Short);
+    assert_eq!(details.kind, PostKind::Short);
     assert!(details.deleted);
     assert_eq!(details.content, "");
 
