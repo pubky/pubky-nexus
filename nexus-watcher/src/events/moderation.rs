@@ -212,4 +212,50 @@ mod tests {
         assert!(v1_folder.join("main").exists(), "the v1 folder must stay");
         assert!(logs_contain("no v0 file id"));
     }
+
+    /// A moderator's takedown of a `social/v1` file removes the bytes under every extension,
+    /// `H.png` and `H.bin` alike, where a user's own DEL would remove the one folder its address
+    /// names; another blob's folder and the owner's legacy folder stay. No graph is touched.
+    #[tokio::test]
+    async fn remove_taken_down_removes_every_extension_of_a_v1_file() {
+        let files = tempfile::TempDir::new().unwrap();
+        let owner = PubkyId::try_from(USER_ID).unwrap();
+        let hash = "8Z8CWH8NVYQY39ZEBFGKQWWEKG";
+        let folders: Vec<std::path::PathBuf> = [
+            format!("{hash}.png"),
+            format!("{hash}.bin"),
+            "9Z8CWH8NVYQY39ZEBFGKQWWEKG.png".to_string(),
+            "0032SSN7Q4EVG".to_string(),
+        ]
+        .iter()
+        .map(|id| {
+            files
+                .path()
+                .join(nexus_common::media::file_folder(USER_ID, id))
+        })
+        .collect();
+        for folder in &folders {
+            std::fs::create_dir_all(folder).unwrap();
+            std::fs::write(folder.join("main"), b"bytes").unwrap();
+        }
+
+        Moderation::remove_taken_down(
+            ReferenceTarget::File(crate::events::inputs::ResourceKey {
+                owner_id: owner,
+                resource_id: format!("{hash}.png"),
+            }),
+            files.path(),
+            &nexus_common::utils::test_utils::default_ingestor_tests(),
+        )
+        .await
+        .unwrap();
+
+        assert!(!folders[0].exists(), "H.png must go");
+        assert!(
+            !folders[1].exists(),
+            "H.bin, the same bytes, must go with it"
+        );
+        assert!(folders[2].exists(), "another blob's folder stays");
+        assert!(folders[3].exists(), "the owner's legacy folder stays");
+    }
 }
