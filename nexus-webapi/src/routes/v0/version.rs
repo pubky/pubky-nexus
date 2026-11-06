@@ -39,7 +39,7 @@ use super::stream::posts::{PostStreamByIdsRequest, StreamSourceKind};
 use super::types::TaggersInfoResponse;
 use super::{bootstrap, file, notification, post, resource, search, stream, tag, user};
 use crate::models::{
-    v1, IncludeAttachmentMetadata, PostKinds, PostStreamDetailed, PostViewDetailed, TagLabel,
+    v1, IncludeAttachmentMetadata, PostStreamDetailed, PostViewDetailed, StoredPostKinds, TagLabel,
     TagLabels, Tags,
 };
 use crate::routes::AppState;
@@ -112,6 +112,11 @@ pub trait ApiVersion: Send + Sync + 'static {
         + Deref<Target = Vec<Self::TagLabel>>
         + fmt::Debug
         + Send;
+    /// What the tag search does with a `prefix` beyond the version's label fold, appended to
+    /// the parameter's description: nothing to say on `/v0`, whose fold already lowercases
+    /// every letter; on `/v1`, whose fold keeps a non-ASCII capital, that the search lowercases
+    /// the whole prefix with the Unicode rule anyway.
+    const TAG_PREFIX_RULE: &'static str;
 
     /// Whether a post's `attachments_metadata` is fetched, as a client asks in
     /// `include_attachment_metadata=` on the post view and the post stream. `/v0` reads a
@@ -241,6 +246,7 @@ impl ApiVersion for V0 {
 
     type TagLabel = TagLabel;
     type Tags = Tags<TagLabel>;
+    const TAG_PREFIX_RULE: &'static str = "";
 
     type IncludeAttachmentMetadata = IncludeAttachmentMetadata;
     type PostStreamByIdsRequest = PostStreamByIdsRequest;
@@ -251,7 +257,7 @@ impl ApiVersion for V0 {
     const LOCKED_REPLIES_RULE: &'static str = "Replies are left out, except on `source=bookmarks`.";
 
     type PostKind = PostKind;
-    type PostKinds = PostKinds;
+    type PostKinds = StoredPostKinds;
 
     const KIND_NAMES: &'static str = "short, long, image, video, link, file, collection";
     const KIND_RULE: &'static str = "";
@@ -380,6 +386,7 @@ impl ApiVersion for V1 {
 
     type TagLabel = v1::TagLabel;
     type Tags = v1::Tags;
+    const TAG_PREFIX_RULE: &'static str = ". The search then lowercases the whole prefix with the Unicode rule, so a non-ASCII capital, which the `/v1` fold keeps, is searched in lowercase";
 
     type IncludeAttachmentMetadata = v1::NoAttachmentMetadata;
     type PostStreamByIdsRequest = v1::PostStreamByIdsRequest;
@@ -548,6 +555,8 @@ pub mod shapes {
             pub type PostTaggersPath = super::super::post::tags::PostTaggersPath<$version>;
             pub type ResourceTaggersPath = super::super::resource::ResourceTaggersPath<$version>;
 
+            pub const PREFIX: &str = <$version as ApiVersion>::PREFIX;
+            pub const TAG_PREFIX_RULE: &str = <$version as ApiVersion>::TAG_PREFIX_RULE;
             pub const SOURCE_NAMES: &str = <$version as ApiVersion>::SOURCE_NAMES;
             pub const BOOKMARKS_SOURCE_LINE: &str = <$version as ApiVersion>::BOOKMARKS_SOURCE_LINE;
             pub const LOCKED_REPLIES_RULE: &str = <$version as ApiVersion>::LOCKED_REPLIES_RULE;
@@ -675,7 +684,7 @@ pub(crate) use versioned_handlers;
         Bootstrap,
         StreamSourceKind,
         PostKind,
-        PostKinds,
+        shapes::v0::PostKinds,
         TagDetails,
         TaggersInfoResponse,
         ResourceView,
@@ -746,28 +755,20 @@ struct V1Doc;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::test_helpers::enum_values;
 
     /// Each version's names are the ones its `PostKind` schema lists, in that order: a kind
     /// added to the stored enum without a name here fails this test, not the document.
     #[test]
     fn kind_names_match_each_versions_schema() {
-        fn listed<T: utoipa::PartialSchema>() -> Vec<String> {
-            let schema = serde_json::to_value(T::schema()).unwrap();
-            schema["enum"]
-                .as_array()
-                .unwrap_or_else(|| panic!("no enum in {schema}"))
-                .iter()
-                .map(|name| name.as_str().unwrap().to_string())
-                .collect()
-        }
         // `/v0` lists the stored names a strict filter parses: every kind but `unknown`.
-        let mut v0 = listed::<PostKind>();
+        let mut v0 = enum_values::<PostKind>();
         assert_eq!(v0.pop().as_deref(), Some("unknown"));
         assert_eq!(V0::KIND_NAMES.split(", ").collect::<Vec<_>>(), v0);
         // `/v1` lists `unknown` too, since its filters take it.
         assert_eq!(
             V1::KIND_NAMES.split(", ").collect::<Vec<_>>(),
-            listed::<v1::PostKind>()
+            enum_values::<v1::PostKind>()
         );
     }
 }

@@ -79,19 +79,9 @@ impl From<StreamSourceKind> for posts::StreamSourceKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::test_helpers::enum_values;
     use serde_json::Value;
     use utoipa::PartialSchema;
-
-    /// The `enum` values of a source's schema.
-    fn enum_values<T: PartialSchema>() -> Vec<String> {
-        let schema = serde_json::to_value(T::schema()).unwrap();
-        schema["enum"]
-            .as_array()
-            .unwrap_or_else(|| panic!("no enum in {schema}"))
-            .iter()
-            .map(|name| name.as_str().unwrap().to_string())
-            .collect()
-    }
 
     /// The `/v1` sources are the `/v0` sources without `bookmarks`, in the same order, and
     /// `SOURCE_NAMES` lists them as the `/v0` description does.

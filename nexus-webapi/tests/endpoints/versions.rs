@@ -73,12 +73,14 @@ fn body(response: &httpc_test::Response) -> Result<Value> {
         .or_else(|_| response.text_body().map(Value::String))?)
 }
 
-/// The bootstrap's `influencers` is a random window of the ranking on every call, the
-/// `users` list carries their views, and its `posts` come back in no fixed order, so two
-/// answers never match whole: compare the rest, with the posts in id order.
+/// The bootstrap's `influencers` is a random window of the ranking on every call, its
+/// `recommended` ids a random pick out of a Redis set, the `users` list carries their views,
+/// and its `posts` come back in no fixed order, so two answers never match whole: compare the
+/// rest, with the posts in id order.
 fn deterministic_part(route: &str, mut body: Value) -> Value {
     if route.starts_with("/bootstrap/") {
         body["ids"]["influencers"].take();
+        body["ids"]["recommended"].take();
         body["users"].take();
         if let Some(posts) = body["posts"].as_array_mut() {
             posts.sort_by_key(|post| post["details"]["id"].to_string());
@@ -325,7 +327,8 @@ async fn rejection(route: &str) -> Result<String> {
 
 /// `kind` and `exclude_kinds` take each version's names on the post stream, the post keys and
 /// the content search, and select the same posts: the keys line up with the stream, and the
-/// search under `kind=article` on `/v1` finds what `kind=long` finds on `/v0`.
+/// search under `kind=article` and `kind=note` on `/v1` finds what `kind=long` and `kind=short`
+/// find on `/v0`. The short posts hold `privacy`, never `post`, so each pair has its own query.
 #[tokio_shared_rt::test(shared)]
 async fn test_kind_filters_take_each_versions_names() -> Result<()> {
     let mut found_per_version = Vec::new();
@@ -368,7 +371,16 @@ async fn test_kind_filters_take_each_versions_names() -> Result<()> {
         .await?;
         let found = post_keys_of(&found);
         assert!(!found.is_empty(), "{prefix}: no `{long}` post holds `post`");
-        found_per_version.push(found);
+        let found_short = get_request(&format!(
+            "{prefix}/search/posts/by_content?q=privacy&kind={short}&limit=100"
+        ))
+        .await?;
+        let found_short = post_keys_of(&found_short);
+        assert!(
+            !found_short.is_empty(),
+            "{prefix}: no `{short}` post holds `privacy`"
+        );
+        found_per_version.push((found, found_short));
     }
     assert_eq!(found_per_version[0], found_per_version[1]);
     Ok(())
@@ -400,12 +412,13 @@ async fn test_v1_kind_filters_reject_other_names() -> Result<()> {
         assert!(error.contains("`kind`"), "{query}: {error}");
     }
 
-    // `/v0` reads any `kind` name, a `/v1` one included, and matches nothing with it.
+    // `/v0` reads any other `kind` name, a `/v1` one included, as `unknown`, so it selects the
+    // one post stored under that name and no `note`.
     let v0 = get_request(&format!(
         "{V0_PREFIX}/stream/posts?source=author&author_id={EIXAMPLE}&kind=note"
     ))
     .await?;
-    assert_eq!(v0, json!([]));
+    assert_eq!(ids_of(&v0), [UNKNOWN_KIND_POST], "{v0}");
     let v0 = get_request(&format!(
         "{V0_PREFIX}/search/posts/by_content?q=post&kind=article"
     ))
@@ -421,16 +434,32 @@ async fn test_v1_kind_filters_reject_other_names() -> Result<()> {
     Ok(())
 }
 
+// Eixample's post of a kind the spec reader did not recognise, from
+// docker/test-graph/mocks/posts.cypher: stored under the enum's own name, `unknown`, as the
+// watcher writes one.
+const UNKNOWN_KIND_POST: &str = "7VNK1TGW5BKG1";
+
 /// `unknown` is a kind a `/v1` client may filter by or exclude, so it can leave out the posts
-/// it cannot render; `/v0`'s `exclude_kinds` keeps rejecting it.
+/// it cannot render: the filter selects the one post of an unrecognised kind, whose view says
+/// `unknown` on both versions, and the exclusion leaves out that post alone; `/v0`'s
+/// `exclude_kinds` keeps rejecting the name.
 #[tokio_shared_rt::test(shared)]
 async fn test_unknown_is_a_filter_name_on_v1() -> Result<()> {
     let by_author = format!("source=author&author_id={EIXAMPLE}&limit=50");
     let all = ids_of(&get_request(&format!("{V1_PREFIX}/stream/posts?{by_author}")).await?);
-    assert!(!all.is_empty());
+    assert!(all.iter().any(|id| id == UNKNOWN_KIND_POST), "{all:?}");
+    let known: Vec<String> = all
+        .iter()
+        .filter(|id| *id != UNKNOWN_KIND_POST)
+        .cloned()
+        .collect();
+    assert!(!known.is_empty());
 
-    // The mock data holds no post of an unrecognised kind, so the filter selects none and
-    // the exclusion leaves every post in.
+    for prefix in [V0_PREFIX, V1_PREFIX] {
+        let view = get_request(&format!("{prefix}/post/{EIXAMPLE}/{UNKNOWN_KIND_POST}")).await?;
+        assert_eq!(view["details"]["kind"], "unknown", "{prefix}: {view}");
+    }
+
     for route in ["/stream/posts", "/stream/posts/keys"] {
         let only_unknown =
             get_request(&format!("{V1_PREFIX}{route}?{by_author}&kind=unknown")).await?;
@@ -439,19 +468,38 @@ async fn test_unknown_is_a_filter_name_on_v1() -> Result<()> {
         ))
         .await?;
         if route == "/stream/posts" {
-            assert_eq!(only_unknown, json!([]), "{route}");
-            assert_eq!(ids_of(&without_unknown), all, "{route}");
-        } else {
-            assert_eq!(only_unknown["post_keys"], json!([]), "{route}");
+            assert_eq!(ids_of(&only_unknown), [UNKNOWN_KIND_POST], "{route}");
             assert_eq!(
-                without_unknown["post_keys"].as_array().map(Vec::len),
-                Some(all.len()),
+                only_unknown[0]["details"]["kind"], "unknown",
+                "{route}: {only_unknown}"
+            );
+            assert_eq!(ids_of(&without_unknown), known, "{route}");
+        } else {
+            assert_eq!(
+                only_unknown["post_keys"],
+                json!([format!("{EIXAMPLE}:{UNKNOWN_KIND_POST}")]),
                 "{route}"
             );
+            let keys: Vec<String> = without_unknown["post_keys"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{route}: {without_unknown}"))
+                .iter()
+                .map(|key| key.as_str().unwrap().to_string())
+                .collect();
+            let expected: Vec<String> = known.iter().map(|id| format!("{EIXAMPLE}:{id}")).collect();
+            assert_eq!(keys, expected, "{route}");
         }
     }
     let found = get_request(&format!(
-        "{V1_PREFIX}/search/posts/by_content?q=post&kind=unknown"
+        "{V1_PREFIX}/search/posts/by_content?q=sondage&kind=unknown"
+    ))
+    .await?;
+    assert_eq!(
+        post_keys_of(&found),
+        [format!("{EIXAMPLE}:{UNKNOWN_KIND_POST}")]
+    );
+    let found = get_request(&format!(
+        "{V1_PREFIX}/search/posts/by_content?q=sondage&kind=note"
     ))
     .await?;
     assert_eq!(found, json!([]));

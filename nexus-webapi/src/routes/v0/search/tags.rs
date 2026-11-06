@@ -5,6 +5,7 @@ use crate::routes::Path;
 use crate::routes::Query;
 use crate::Result;
 use axum::Json;
+use const_format::concatcp;
 use nexus_common::models::tag::search::TagSearch;
 use serde::Deserialize;
 use tracing::debug;
@@ -44,7 +45,7 @@ versioned_handlers! {
         description = "Search tags by prefix",
         tag = "Search",
         params(
-            ("prefix" = shapes::TagLabel, Path, description = "Tag name prefix"),
+            ("prefix" = shapes::TagLabel, Path, description = concatcp!("Tag name prefix", shapes::TAG_PREFIX_RULE)),
             ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N results (max 10000)"),
             ("limit" = Option<BoundedLimit<20, 100>>, Query, description = "Limit the number of results (1–100, default 20)")
         )

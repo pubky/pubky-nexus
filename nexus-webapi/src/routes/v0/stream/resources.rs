@@ -4,6 +4,7 @@ use crate::routes::v0::version::{versioned_handlers, ApiVersion};
 use crate::routes::Query;
 use crate::{Error, Result};
 use axum::Json;
+use const_format::concatcp;
 use nexus_common::db::kv::SortOrder;
 use nexus_common::models::resource::stream::{ResourceKeyStream, ResourceSorting, ResourceStream};
 use serde::Deserialize;
@@ -146,7 +147,7 @@ versioned_handlers! {
             ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
             ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Pagination skip (max 10000)"),
             ("limit" = Option<BoundedLimit<10, 100>>, Query, description = "Pagination limit (1–100, default 10)"),
-            ("start" = Option<f64>, Query, description = "Inclusive score bound the page starts from, following `order`: the latest tag timestamp. This route returns no cursor: page it with `skip`/`limit`, or take `last_score` from `/v0/stream/resources/ids`. A view's `details.indexed_at` is the resource's creation time, not the latest tag timestamp the stream sorts on, so passing it here skips resources"),
+            ("start" = Option<f64>, Query, description = concatcp!("Inclusive score bound the page starts from, following `order`: the latest tag timestamp. This route returns no cursor: page it with `skip`/`limit`, or take `last_score` from `", shapes::PREFIX, "/stream/resources/ids`. A view's `details.indexed_at` is the resource's creation time, not the latest tag timestamp the stream sorts on, so passing it here skips resources")),
             ("end" = Option<f64>, Query, description = "Inclusive score bound the page stops at, following `order`. Resources scoring past it are excluded"),
             ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID for relationship checks"),
         )

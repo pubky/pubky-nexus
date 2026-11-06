@@ -6,9 +6,12 @@
 //! is left out. A label a `/v1` client queries is folded as the `social/v1` builder folds the
 //! label it stores, with the spec crate's own functions: the frozen trim and the ASCII-only
 //! lowercase, then its validator. `/v0` keeps the frozen `pubky.app` rule, Unicode lowercase
-//! and all; the two only disagree on a non-ASCII uppercase letter, which `/v1` keeps, and no
-//! stored label has one. There is no fallback to the `/v0` fold on a miss: ingest never
-//! produces such a label under `social/v1`.
+//! and all; the two only disagree on a non-ASCII uppercase letter. A `social/v1` label can
+//! hold one: the spec crate's sanitizer lowercases ASCII only and keeps a non-Latin label's
+//! case, so a client that publishes `Ärger` stores `Ärger`. Such a label is reachable on `/v1`
+//! only, which folds a query as the store folded the label; `/v0` folds the same spelling to
+//! `ärger` and misses it, its frozen rule kept on purpose. That is why neither version falls
+//! back to the other's fold on a miss.
 
 use std::fmt;
 use std::ops::Deref;

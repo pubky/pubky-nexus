@@ -37,13 +37,14 @@ async fn test_request_body_size_limit() -> Result<()> {
     // 10-byte limit; body well over it.
     let app = build_app(routes, state, 30, 10);
 
-    // The limit sits on the outer router, so every version's mount is behind it.
+    // The limit sits on the outer router, so every version's mount is behind it; the route is
+    // one both versions serve, so each 413 is answered through a mounted route.
     for prefix in VERSION_PREFIXES {
         let body = vec![0u8; 1000];
 
         let req = Request::builder()
             .method(Method::POST)
-            .uri(format!("{prefix}/files/by_ids"))
+            .uri(format!("{prefix}/stream/posts/by_ids"))
             .header(CONTENT_LENGTH, body.len().to_string())
             .body(Body::from(body))?;
 

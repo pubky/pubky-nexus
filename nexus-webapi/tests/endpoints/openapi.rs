@@ -155,6 +155,12 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
         ("get", "/post/{author_id}/{post_id}"),
         ("get", "/stream/posts"),
     ];
+    // Method and path of the route whose `prefix` description says, on v1 only, that the
+    // search lowercases the prefix past the v1 fold.
+    let prefix_searched = [("get", "/search/tags/by_prefix/{prefix}")];
+    // Method, path and parameter of the descriptions that name a route under the version's
+    // own prefix, besides `source` on the bookmark-sourced routes below.
+    let version_routed = [("get", "/stream/resources", "start")];
     for (path, operations) in v0
         .iter()
         .filter(|(path, _)| !V0_ONLY_PATHS.contains(&path.as_str()))
@@ -173,6 +179,24 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
                 !has_parameter(&v1_operations[method], "include_attachment_metadata"),
                 "{operation} on v1 lists `include_attachment_metadata`"
             );
+        }
+        for (method, _) in prefix_searched.iter().filter(|(_, p)| p == path) {
+            let operation = format!("{method} {path}");
+            let v0_text = take_parameter_description(&mut v0_operations[method], "prefix");
+            assert_eq!(v0_text, "Tag name prefix", "{operation} on v0");
+            let v1_text = take_parameter_description(&mut v1_operations[method], "prefix");
+            assert!(
+                v1_text.starts_with("Tag name prefix. ") && v1_text.contains("lowercases"),
+                "{operation} on v1: {v1_text}"
+            );
+        }
+        for (method, _, parameter) in version_routed.iter().filter(|(_, p, _)| p == path) {
+            let operation = format!("{method} {path}");
+            let v0_text = take_parameter_description(&mut v0_operations[method], parameter);
+            let v1_text = take_parameter_description(&mut v1_operations[method], parameter);
+            assert!(v0_text.contains("`/v0/"), "{operation} on v0: {v0_text}");
+            assert!(v1_text.contains("`/v1/"), "{operation} on v1: {v1_text}");
+            assert_eq!(v0_text.replace("/v0/", "/v1/"), v1_text, "{operation}");
         }
         for (method, _, v0_body, v1_body) in renamed_bodies.iter().filter(|(_, p, ..)| p == path) {
             let operation = format!("{method} {path}");
@@ -217,11 +241,13 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
                     !v1_text.contains("bookmark"),
                     "{operation} on v1: {v1_text}"
                 );
-                // The same text once the bookmark stream is written out of v0's.
+                // The same text once the bookmark stream is written out of v0's and the routes
+                // it names are read under v1's prefix.
                 let without_bookmarks = v0_text
                     .replace("- *bookmarks*: Requires **observer_id**.\n", "")
                     .replace("bookmarks, ", "")
-                    .replace(", except on `source=bookmarks`", "");
+                    .replace(", except on `source=bookmarks`", "")
+                    .replace("/v0/", "/v1/");
                 assert_eq!(without_bookmarks, v1_text, "{operation}");
             }
         }

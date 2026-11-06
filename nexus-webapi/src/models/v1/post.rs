@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::sync::LazyLock;
 
 use nexus_common::models::post::{self, PostCounts, PostRelationships};
 use serde::de::{self, Deserializer, IgnoredAny};
@@ -37,7 +38,8 @@ impl PostKind {
     /// or a differently cased one, is an error.
     pub fn parse(name: &str) -> Result<Self, String> {
         STORED_KINDS
-            .into_iter()
+            .iter()
+            .copied()
             .find(|kind| kind.v1_name() == name)
             .map(Self)
             .ok_or_else(|| format!("`{name}` is not a post kind; the kinds are {KIND_NAMES}"))
@@ -70,25 +72,29 @@ impl Serialize for PostKind {
     }
 }
 
-/// Every stored kind, so the schema can list each one's `/v1` name. A new variant has to be
-/// added here as well; `tests` compares this list with the one serde derives for the stored
-/// kind, so leaving it out fails a test rather than the document.
-const STORED_KINDS: [post::PostKind; 8] = [
-    post::PostKind::Short,
-    post::PostKind::Long,
-    post::PostKind::Image,
-    post::PostKind::Video,
-    post::PostKind::Link,
-    post::PostKind::File,
-    post::PostKind::Collection,
-    post::PostKind::Unknown,
-];
+/// Every stored kind, in the stored schema's order, so the schema can list each one's `/v1`
+/// name and the parser can find each one. Read from the names serde derives for the stored
+/// kind, its schema's `enum` list, each read back as the kind it names: a new variant is in
+/// the derive, and so here, with no list to keep in step; [`post::PostKind::v1_name`] is
+/// exhaustive, so the compiler asks for its `/v1` name.
+static STORED_KINDS: LazyLock<Vec<post::PostKind>> = LazyLock::new(|| {
+    let schema = serde_json::to_value(post::PostKind::schema()).expect("a schema serializes");
+    schema["enum"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the stored kind's schema lists no names: {schema}"))
+        .iter()
+        .map(|name| {
+            serde_json::from_value(name.clone())
+                .unwrap_or_else(|error| panic!("{name} is not a stored kind: {error}"))
+        })
+        .collect()
+});
 
 impl PartialSchema for PostKind {
     fn schema() -> RefOr<Schema> {
         ObjectBuilder::new()
             .schema_type(Type::String)
-            .enum_values(Some(STORED_KINDS.map(post::PostKind::v1_name)))
+            .enum_values(Some(STORED_KINDS.iter().map(|kind| kind.v1_name())))
             .into()
     }
 }
@@ -222,26 +228,18 @@ impl From<post::PostStream> for PostStream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, Value};
-
-    /// The `enum` values of a kind's schema.
-    fn enum_values<T: PartialSchema>() -> Vec<Value> {
-        let schema = serde_json::to_value(T::schema()).unwrap();
-        schema["enum"]
-            .as_array()
-            .unwrap_or_else(|| panic!("no enum in {schema}"))
-            .clone()
-    }
+    use crate::models::test_helpers::enum_values;
+    use serde_json::json;
 
     /// Every stored kind serializes under its `/v1` name, and the schema lists that name.
     #[test]
     fn kinds_serialize_under_their_v1_name() {
         let listed = enum_values::<PostKind>();
-        for kind in STORED_KINDS {
+        for kind in STORED_KINDS.iter().copied() {
             let name = kind.v1_name();
             assert_eq!(serde_json::to_value(PostKind(kind)).unwrap(), name);
             assert!(
-                listed.contains(&Value::from(name)),
+                listed.iter().any(|listed| listed == name),
                 "{name} not in {listed:?}"
             );
         }
@@ -262,7 +260,7 @@ mod tests {
     /// Every `/v1` name parses to its kind, `unknown` included, and round-trips.
     #[test]
     fn every_v1_name_parses_to_its_kind() {
-        for kind in STORED_KINDS {
+        for kind in STORED_KINDS.iter().copied() {
             let parsed = PostKind::parse(kind.v1_name()).unwrap();
             assert_eq!(parsed, PostKind(kind));
             assert_eq!(parsed.as_str(), kind.v1_name());
@@ -292,7 +290,8 @@ mod tests {
     #[test]
     fn kind_names_list_every_v1_name() {
         let listed: Vec<&str> = KIND_NAMES.split(", ").collect();
-        assert_eq!(listed, STORED_KINDS.map(post::PostKind::v1_name));
+        let stored: Vec<&str> = STORED_KINDS.iter().map(|kind| kind.v1_name()).collect();
+        assert_eq!(listed, stored);
     }
 
     /// Through serde, as a query string reads it: the error names the `kind` parameter.
@@ -319,16 +318,17 @@ mod tests {
         }
     }
 
-    /// `STORED_KINDS` names every variant serde knows: the derive on the stored kind is
-    /// exhaustive, so a variant added there and not here shows up as a name this list lacks.
+    /// `STORED_KINDS` is every variant serde knows, each read back as itself: the list is the
+    /// derive's, in its order, `Unknown` included.
     #[test]
-    fn stored_kinds_list_is_complete() {
+    fn stored_kinds_are_the_derived_names() {
         let derived = enum_values::<post::PostKind>();
-        let listed: Vec<Value> = STORED_KINDS
+        let listed: Vec<String> = STORED_KINDS
             .iter()
-            .map(|kind| Value::from(kind.as_str()))
+            .map(|kind| kind.as_str().to_string())
             .collect();
         assert_eq!(listed, derived);
+        assert!(STORED_KINDS.contains(&post::PostKind::Unknown));
     }
 
     /// The `/v1` details are the stored details with the kind renamed and nothing else.

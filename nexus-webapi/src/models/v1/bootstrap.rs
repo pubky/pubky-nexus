@@ -53,22 +53,11 @@ impl From<bootstrap::Bootstrap> for Bootstrap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::test_helpers::keys_named;
     use nexus_common::models::notification;
     use nexus_common::models::post::{self, PostKind};
     use nexus_common::models::user;
-    use serde_json::{json, Value};
-
-    /// Every key of `value` named `name`, at any depth.
-    fn keys_named(value: &Value, name: &str) -> usize {
-        match value {
-            Value::Object(fields) => fields
-                .iter()
-                .map(|(key, value)| usize::from(key == name) + keys_named(value, name))
-                .sum(),
-            Value::Array(items) => items.iter().map(|item| keys_named(item, name)).sum(),
-            _ => 0,
-        }
-    }
+    use serde_json::json;
 
     /// The `/v1` bootstrap is the stored one with each list converted and `files` dropped:
     /// the users' counts lose `bookmarks`, the posts lose `bookmark` and name their kind the

@@ -39,7 +39,7 @@ pub use info::ServerInfo;
 pub use nexus_common::models::post::PostKind;
 pub use notification_types::NotificationTypes;
 pub use post::{IncludeAttachmentMetadata, PostStreamDetailed, PostViewDetailed};
-pub use post_kinds::PostKinds;
+pub use post_kinds::{KindToken, PostKinds, StoredKindToken, StoredPostKinds};
 pub use post_search_query::PostSearchQuery;
 pub use pubky_social_specs::PubkyId;
 pub use resource_id::ResourceId;
@@ -126,6 +126,36 @@ impl UserIds {
 impl<'de> Deserialize<'de> for UserIds {
     fn deserialize<D: serde::de::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         bounded_vec::deserialize_json_array::<PubkyId, D, 1, 100>(d).map(Self)
+    }
+}
+
+/// What the unit tests of the versioned shapes share.
+#[cfg(test)]
+pub(crate) mod test_helpers {
+    use serde_json::Value;
+    use utoipa::PartialSchema;
+
+    /// The `enum` values of a schema, in the schema's order.
+    pub(crate) fn enum_values<T: PartialSchema>() -> Vec<String> {
+        let schema = serde_json::to_value(T::schema()).unwrap();
+        schema["enum"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no enum in {schema}"))
+            .iter()
+            .map(|name| name.as_str().unwrap().to_string())
+            .collect()
+    }
+
+    /// Every key of `value` named `name`, at any depth.
+    pub(crate) fn keys_named(value: &Value, name: &str) -> usize {
+        match value {
+            Value::Object(fields) => fields
+                .iter()
+                .map(|(key, value)| usize::from(key == name) + keys_named(value, name))
+                .sum(),
+            Value::Array(items) => items.iter().map(|item| keys_named(item, name)).sum(),
+            _ => 0,
+        }
     }
 }
 

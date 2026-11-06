@@ -1,58 +1,41 @@
-//! The `exclude_kinds=` list on `/v1`: the `/v0` [`PostKinds`](crate::models::PostKinds) in
-//! the `social/v1` names, `unknown` included.
-
-use serde::Deserialize;
-use utoipa::ToSchema;
+//! The `exclude_kinds=` list on `/v1`: the shared [`PostKinds`](crate::models::PostKinds) with
+//! a `/v1` token, so it reads the `social/v1` names, `unknown` included, one to eight of them.
 
 use super::post::PostKind;
-use crate::models::bounded_vec;
+use crate::models::post_kinds::KindToken;
 use nexus_common::models::post;
 
-/// Comma-separated list of `/v1` post kinds (min=1, max=8 tokens; duplicates are dropped,
-/// order preserved). Parsing is strict: a token that is not one of `note`, `article`, `image`,
-/// `video`, `link`, `file`, `collection` or `unknown` is rejected, so a `/v0` name is a 400
-/// rather than a filter that excludes nothing. `unknown` is a name here, unlike on `/v0`: a
-/// client excludes the posts it cannot render with it.
-#[derive(Clone, Debug, PartialEq, Eq, ToSchema)]
-#[schema(value_type = String, example = "collection,link")]
-pub struct PostKinds(pub Vec<PostKind>);
+/// `/v1`'s token: a `/v1` name, `unknown` included, through [`PostKind::parse`], with the
+/// parameter in the error.
+pub struct V1KindToken(PostKind);
 
-/// `deserialize_csv` requires `TryFrom<String>`; one token, with the parameter in the error.
-struct KindToken(PostKind);
-
-impl TryFrom<String> for KindToken {
+impl TryFrom<String> for V1KindToken {
     type Error = String;
     fn try_from(name: String) -> Result<Self, Self::Error> {
         PostKind::parse(&name)
-            .map(KindToken)
+            .map(V1KindToken)
             .map_err(|error| format!("`exclude_kinds`: {error}"))
     }
 }
 
-impl<'de> Deserialize<'de> for PostKinds {
-    fn deserialize<D: serde::de::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let tokens = bounded_vec::deserialize_csv::<KindToken, D, 1, 8>(d)?;
-        let mut kinds: Vec<PostKind> = Vec::with_capacity(tokens.len());
-        for KindToken(kind) in tokens {
-            if !kinds.contains(&kind) {
-                kinds.push(kind);
-            }
-        }
-        Ok(Self(kinds))
+impl From<V1KindToken> for post::PostKind {
+    fn from(token: V1KindToken) -> Self {
+        token.0.into()
     }
 }
 
-/// The stored kinds the list names, for the graph query.
-impl From<PostKinds> for Vec<post::PostKind> {
-    fn from(kinds: PostKinds) -> Self {
-        kinds.0.into_iter().map(|kind| kind.0).collect()
-    }
+impl KindToken for V1KindToken {
+    const DESCRIPTION: &'static str = "Comma-separated list of `/v1` post kinds (min=1, max=8 tokens; duplicates are dropped,\norder preserved). Parsing is strict: a token that is not one of `note`, `article`, `image`,\n`video`, `link`, `file`, `collection` or `unknown` is rejected, so a `/v0` name is a 400\nrather than a filter that excludes nothing. `unknown` is a name here, unlike on `/v0`: a\nclient excludes the posts it cannot render with it.";
 }
+
+/// The `/v1` list: one to eight `/v1` names, `unknown` among them.
+pub type PostKinds = crate::models::PostKinds<V1KindToken, 8>;
 
 #[cfg(test)]
 mod tests {
     use super::super::post::KIND_NAMES;
     use super::*;
+    use utoipa::{PartialSchema, ToSchema};
 
     fn parse(input: &str) -> Result<PostKinds, serde_json::Error> {
         serde_json::from_str(&format!("\"{input}\""))
@@ -117,5 +100,14 @@ mod tests {
         let all = KIND_NAMES.replace(' ', "");
         assert_eq!(parse(&all).unwrap().0.len(), 8);
         assert!(parse(&format!("{all},note")).is_err());
+    }
+
+    /// Named as the `/v0` component is, with the `/v1` description.
+    #[test]
+    fn schema_carries_the_v1_description_under_the_v0_name() {
+        let schema = serde_json::to_value(PostKinds::schema()).unwrap();
+        assert_eq!(schema["description"], V1KindToken::DESCRIPTION);
+        assert_eq!(schema["example"], "collection,link");
+        assert_eq!(PostKinds::name(), "PostKinds");
     }
 }
