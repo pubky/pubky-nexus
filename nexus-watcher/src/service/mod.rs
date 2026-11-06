@@ -1,6 +1,7 @@
 mod constants;
 pub mod indexer;
 pub mod runner;
+pub mod scope_bootstrap;
 pub mod scope_maintenance;
 pub mod stats;
 mod task_runner;
@@ -24,6 +25,7 @@ use crate::homeserver::{HomeserverClient, PubkyHomeserverClient};
 use crate::scope::membership::ScopeMembership;
 use crate::scope::{full_feed_homeservers, watcher_ingestor};
 use crate::service::constants::DEFAULT_WATCHER_CONFIG_TOML;
+use crate::service::scope_bootstrap::{bootstrap_seed_scope, NexusFollowing};
 use crate::service::scope_maintenance::ScopeMaintainer;
 use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
@@ -31,8 +33,9 @@ use nexus_common::db::PubkyConnector;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
-use nexus_common::ScopeConfig;
 use nexus_common::WatcherConfig;
+use nexus_common::{ScopeBootstrapConfig, ScopeConfig};
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
@@ -99,6 +102,20 @@ impl NexusWatcher {
         ));
         let scope_maintainer = Arc::new(ScopeMaintainer::from_config(&config, client.clone()));
         prepare_scope(&config, client.clone(), &scope_maintainer).await?;
+        let bootstrap = match (scope_maintainer.seed_scope(), &config.scope_bootstrap) {
+            (Some(_), ScopeBootstrapConfig::Nexus { nexus_url }) => {
+                // In the background: events are read meanwhile, and crawling finds the
+                // members anyway if the big Nexus can't be read.
+                let maintainer = scope_maintainer.clone();
+                let source = NexusFollowing {
+                    nexus_url: nexus_url.clone(),
+                };
+                Some(tokio::spawn(async move {
+                    bootstrap_seed_scope(&maintainer, &source).await
+                }))
+            }
+            _ => None,
+        };
 
         let event_handler: Arc<dyn EventHandler> =
             Arc::new(DefaultEventHandler::from_config(&config, client.clone()));
@@ -169,11 +186,28 @@ impl NexusWatcher {
             ));
         }
 
-        let task_results = run_periodic_tasks(tasks, shutdown_rx).await;
+        let task_results = stopping_after(bootstrap, run_periodic_tasks(tasks, shutdown_rx)).await;
 
         info!("Nexus Watcher shut down gracefully");
         task_results_into_result(task_results)
     }
+}
+
+/// Runs `run`, then stops `background` and waits for it to end, so nothing it started
+/// outlives the watcher: a seed bootstrap would otherwise go on asking a big Nexus and
+/// changing who is in scope after the watcher stopped. Stopping it midway is safe: an
+/// admission cut short is finished by the next run.
+async fn stopping_after<T>(
+    background: Option<tokio::task::JoinHandle<()>>,
+    run: impl Future<Output = T>,
+) -> T {
+    let output = run.await;
+    if let Some(background) = background {
+        background.abort();
+        // Cancelled, or already done: either way it has ended.
+        let _ = background.await;
+    }
+    output
 }
 
 /// Gets the scope ready before any event is read: the homeservers read whole are
@@ -213,7 +247,12 @@ pub async fn prepare_scope(
 
 #[cfg(test)]
 mod tests {
-    use super::{NexusWatcher, DEFAULT_WATCHER_CONFIG_TOML, WATCHER_CONFIG_FILE_NAME};
+    use super::{
+        stopping_after, NexusWatcher, DEFAULT_WATCHER_CONFIG_TOML, WATCHER_CONFIG_FILE_NAME,
+    };
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
 
     /// A missing config file is written from the default config, which loads
     /// with the trust filter off.
@@ -259,5 +298,25 @@ mod tests {
             [WATCHER_CONFIG_FILE_NAME],
             "nothing else may be written"
         );
+    }
+
+    /// Background work still running when the watcher's tasks end is stopped before the
+    /// watcher returns: nothing it would do later happens.
+    #[tokio::test(start_paused = true)]
+    async fn background_work_stops_with_the_watcher() {
+        let done = Arc::new(AtomicBool::new(false));
+        let background = tokio::spawn({
+            let done = done.clone();
+            async move {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                done.store(true, Ordering::SeqCst);
+            }
+        });
+
+        let output = stopping_after(Some(background), async { "stopped" }).await;
+        tokio::time::sleep(Duration::from_secs(120)).await;
+
+        assert_eq!(output, "stopped");
+        assert!(!done.load(Ordering::SeqCst), "stopped, not left running");
     }
 }
