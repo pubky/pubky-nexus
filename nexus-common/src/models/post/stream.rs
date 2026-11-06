@@ -163,8 +163,10 @@ impl StreamSource {
 pub enum KindFilter {
     /// Only posts of exactly this kind.
     Kind(PostKind),
-    /// Posts of any kind except the listed ones. Posts with a missing (NULL)
-    /// or unrecognized ("unknown") kind are never excluded.
+    /// Posts of any kind except the listed ones. A post with a missing (NULL)
+    /// kind is never excluded. One stored as `unknown` is excluded only when
+    /// [`PostKind::Unknown`] is listed; which callers can list it is the API's
+    /// rule, not this filter's.
     Exclude(Vec<PostKind>),
     /// Only posts with a lock attached, of any kind. Lives here rather than as
     /// a separate filter because the sidebar picks one content filter at a time.
