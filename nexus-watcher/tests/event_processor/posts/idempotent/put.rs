@@ -13,7 +13,7 @@ use nexus_common::types::Pagination;
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
-use pubky_app_specs::post_uri_builder;
+use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind};
 
 use super::{
     assert_root_post_fully_indexed, clear_notifications, delete_mention_edge,
@@ -109,7 +109,7 @@ async fn test_post_put_replay_after_full_success_is_noop() -> Result<()> {
     assert_eq!(find_user_counts(&user_id).await.posts, 1);
 
     // Replay sync_put with identical content. Handler must hit the
-    // `existed == Some(matching)` branch and early-return.
+    // `existed == Some(matching)` branch, whose recovery changes nothing here.
     handlers::post::sync_put(
         post.clone(),
         post_uri_builder(user_id.clone(), post_id.clone()),
@@ -851,6 +851,251 @@ async fn test_post_del_recovery_of_a_reply_sends_no_reply_notification() -> Resu
         .expect("recovery indexes the tombstone");
     assert!(details.deleted, "the reply is a tombstone");
     assert_notification_count(&alice_id, 0, "a deleted reply notifies nobody").await;
+
+    test.cleanup_user(&alice_kp).await?;
+    test.cleanup_user(&bob_kp).await?;
+    Ok(())
+}
+
+/// A read of the post between the failed attempt and the retry refills
+/// PostDetails from the graph. The retry then finds PostDetails, but the post is
+/// the same, so it must still recover the rest of the post's Redis state.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_put_recovers_after_a_read_of_the_post() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let alice_kp = Keypair::random();
+    let alice_id = test
+        .create_user(
+            &alice_kp,
+            &test_user(
+                "Watcher:Post:RecoverAfterRead:Alice",
+                "test_post_put_recovers_after_a_read_of_the_post",
+            ),
+        )
+        .await?;
+    let bob_kp = Keypair::random();
+    let bob_id = test
+        .create_user(
+            &bob_kp,
+            &test_user(
+                "Watcher:Post:RecoverAfterRead:Bob",
+                "test_post_put_recovers_after_a_read_of_the_post",
+            ),
+        )
+        .await?;
+
+    let post = short_post(format!("Hello pubky{bob_id} — a mention"));
+    let (post_id, _post_path) = test.create_post(&alice_kp, &post).await?;
+
+    // The failed attempt never sent Bob's mention, then a client loads the post
+    // before the retry runs.
+    clear_notifications(&bob_id).await?;
+    simulate_partial_put_failure_root(&alice_id, &post_id).await?;
+    PostDetails::get_by_id(&alice_id, &post_id).await?;
+    assert!(PostDetails::get_from_index(&alice_id, &post_id)
+        .await?
+        .is_some());
+    assert!(PostRelationships::get_from_index(&alice_id, &post_id)
+        .await?
+        .is_none());
+
+    handlers::post::sync_put(
+        post.clone(),
+        post_uri_builder(alice_id.clone(), post_id.clone()),
+        pubky_id(&alice_id)?,
+        post_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await?;
+
+    assert_root_post_fully_indexed(&alice_id, &post_id).await?;
+    assert!(
+        PostRelationships::get_from_index(&alice_id, &post_id)
+            .await?
+            .is_some(),
+        "the retry after a read must rebuild PostRelationships"
+    );
+    assert!(
+        PostCounts::get_from_index(&alice_id, &post_id)
+            .await?
+            .is_some(),
+        "the retry after a read must rebuild PostCounts"
+    );
+    assert_notification_count(&bob_id, 1, "the retry after a read sends the mention").await;
+
+    test.cleanup_user(&alice_kp).await?;
+    test.cleanup_user(&bob_kp).await?;
+    Ok(())
+}
+
+/// Like the root case, for a reply: the parent's counts and reply set must
+/// still hold Bob's reply once.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_put_recovers_a_reply_after_a_read_of_the_post() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let alice_kp = Keypair::random();
+    let alice_id = test
+        .create_user(
+            &alice_kp,
+            &test_user(
+                "Watcher:Post:RecoverReplyAfterRead:Alice",
+                "test_post_put_recovers_a_reply_after_a_read_of_the_post",
+            ),
+        )
+        .await?;
+    let bob_kp = Keypair::random();
+    let bob_id = test
+        .create_user(
+            &bob_kp,
+            &test_user(
+                "Watcher:Post:RecoverReplyAfterRead:Bob",
+                "test_post_put_recovers_a_reply_after_a_read_of_the_post",
+            ),
+        )
+        .await?;
+
+    let parent_post = short_post("Watcher:Post:RecoverReplyAfterRead:Parent");
+    let (parent_id, _parent_path) = test.create_post(&alice_kp, &parent_post).await?;
+    let reply_post = short_reply(
+        "Watcher:Post:RecoverReplyAfterRead:Reply",
+        post_uri_builder(alice_id.clone(), parent_id.clone()),
+    );
+    let (reply_id, _reply_path) = test.create_post(&bob_kp, &reply_post).await?;
+    let reply_member_key: &[&str] = &[bob_id.as_str(), reply_id.as_str()];
+
+    clear_notifications(&alice_id).await?;
+    let parent_post_key: &[&str; 2] = &[alice_id.as_str(), parent_id.as_str()];
+    simulate_partial_put_failure_reply(&bob_id, &reply_id, parent_post_key).await?;
+    PostDetails::get_by_id(&bob_id, &reply_id).await?;
+    assert!(PostRelationships::get_from_index(&bob_id, &reply_id)
+        .await?
+        .is_none());
+
+    handlers::post::sync_put(
+        reply_post.clone(),
+        post_uri_builder(bob_id.clone(), reply_id.clone()),
+        pubky_id(&bob_id)?,
+        reply_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await?;
+
+    let relationships = PostRelationships::get_from_index(&bob_id, &reply_id)
+        .await?
+        .expect("the retry after a read must rebuild PostRelationships");
+    assert!(
+        relationships.replied.is_some(),
+        "the reply keeps its parent"
+    );
+    assert!(PostCounts::get_from_index(&bob_id, &reply_id)
+        .await?
+        .is_some());
+    assert!(
+        check_member_post_replies(&alice_id, &parent_id, reply_member_key)
+            .await?
+            .is_some(),
+        "the parent's reply set still holds the reply"
+    );
+    assert_eq!(find_post_counts(&alice_id, &parent_id).await.replies, 1);
+    assert_notification_count(&alice_id, 1, "the retry after a read sends the reply notif").await;
+
+    test.cleanup_user(&alice_kp).await?;
+    test.cleanup_user(&bob_kp).await?;
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_post_put_replay_after_parent_kind_change_keeps_reply_notification() -> Result<()> {
+    assert_replay_after_parent_kind_change_keeps_notification(true).await
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_post_put_replay_after_parent_kind_change_keeps_repost_notification() -> Result<()> {
+    assert_replay_after_parent_kind_change_keeps_notification(false).await
+}
+
+/// Alice's post changes kind after Bob replied to or reposted it. Replaying Bob's
+/// unchanged post rebuilds the notification with the new kind, which must still
+/// count as the one Alice already has, timestamp included.
+async fn assert_replay_after_parent_kind_change_keeps_notification(is_reply: bool) -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let label = if is_reply { "Reply" } else { "Repost" };
+
+    let alice_kp = Keypair::random();
+    let alice_id = test
+        .create_user(
+            &alice_kp,
+            &test_user(
+                format!("Watcher:Post:KindChange{label}:Alice"),
+                "assert_replay_after_parent_kind_change_keeps_notification",
+            ),
+        )
+        .await?;
+    let bob_kp = Keypair::random();
+    let bob_id = test
+        .create_user(
+            &bob_kp,
+            &test_user(
+                format!("Watcher:Post:KindChange{label}:Bob"),
+                "assert_replay_after_parent_kind_change_keeps_notification",
+            ),
+        )
+        .await?;
+
+    let parent_post = short_post(format!("Watcher:Post:KindChange{label}:Parent"));
+    let (parent_id, _parent_path) = test.create_post(&alice_kp, &parent_post).await?;
+    let parent_uri = post_uri_builder(alice_id.clone(), parent_id.clone());
+    let content = format!("Watcher:Post:KindChange{label}:Child");
+    let child = if is_reply {
+        short_reply(content, parent_uri)
+    } else {
+        short_repost(content, parent_uri)
+    };
+    let (child_id, _child_path) = test.create_post(&bob_kp, &child).await?;
+
+    let delivered = Notification::get_by_id(&alice_id, Pagination::default()).await?;
+    assert_eq!(delivered.len(), 1, "the {label} notification was delivered");
+
+    // Alice turns her short post into a long one.
+    let long_parent = PubkyAppPost {
+        kind: PubkyAppPostKind::Long,
+        ..parent_post.clone()
+    };
+    handlers::post::sync_put(
+        long_parent,
+        post_uri_builder(alice_id.clone(), parent_id.clone()),
+        pubky_id(&alice_id)?,
+        parent_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await?;
+    let parent_details = PostDetails::get_from_index(&alice_id, &parent_id)
+        .await?
+        .expect("the edited parent is indexed");
+    assert_eq!(parent_details.kind, PubkyAppPostKind::Long);
+
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    handlers::post::sync_put(
+        child.clone(),
+        post_uri_builder(bob_id.clone(), child_id.clone()),
+        pubky_id(&bob_id)?,
+        child_id.clone(),
+        &default_ingestor_tests(),
+    )
+    .await?;
+
+    let after = Notification::get_by_id(&alice_id, Pagination::default()).await?;
+    assert_eq!(
+        after.len(),
+        1,
+        "the replay adds no second {label} notification"
+    );
+    assert_eq!(
+        after[0].timestamp, delivered[0].timestamp,
+        "the replay keeps the delivered {label} notification's timestamp"
+    );
 
     test.cleanup_user(&alice_kp).await?;
     test.cleanup_user(&bob_kp).await?;
