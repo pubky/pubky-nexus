@@ -372,9 +372,17 @@ mod tests {
         )
         .unwrap();
         assert!(cached.attachments.is_empty());
+        // Built on its own, as the translator builds it: an empty list, not a copy of `cached`.
         let incoming = PostDetails {
+            content: "hi".to_string(),
+            id: "post1".to_string(),
             indexed_at: 2,
-            ..cached.clone()
+            author: "author1".to_string(),
+            kind: PostKind::Short,
+            uri: "pubky://author1/pub/pubky.app/posts/post1".to_string(),
+            attachments: vec![],
+            lock: None,
+            deleted: false,
         };
         assert!(!incoming.content_differs_from(&cached));
         assert!(!incoming.is_different_than(&cached));
