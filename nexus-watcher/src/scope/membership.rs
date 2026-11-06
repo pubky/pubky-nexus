@@ -9,8 +9,8 @@ use nexus_common::models::traits::Collection;
 use nexus_common::models::user::catch_up::{caught_up, start_catch_up};
 use nexus_common::models::user::outsider::admit_outsider;
 use nexus_common::models::user::{
-    set_user_homeserver_from_record, StoredRecord, UserDetails, UserHsCursor, UserIngestor,
-    SCOPE_STATE_LEFT,
+    remove_from_rankings, set_user_homeserver_from_record, StoredRecord, UserDetails, UserHsCursor,
+    UserIngestor, UsersByTagSearch, SCOPE_STATE_LEFT,
 };
 use nexus_common::ScopeConfig;
 use pubky_app_specs::PubkyId;
@@ -163,14 +163,21 @@ impl<'a> ScopeMembership<'a> {
     }
 
     /// Takes a member that left the scope out of it: marks it `left`, unbinds it from its
-    /// HS and forgets its cursor, so it is no longer polled. Its content stays; if it
-    /// comes back, it is promoted and read from the start of its stream again.
+    /// HS and forgets its cursor, so it is no longer polled, and takes it out of the user
+    /// rankings, which only hold members. Its content stays, in the feeds too; if it comes
+    /// back, it is promoted and read from the start of its stream again.
+    ///
+    /// If the rankings can't be updated now, their next rebuild from the graph, which
+    /// leaves out who left, does it.
     pub async fn demote(&self, user_id: &str) -> ModelResult<()> {
         exec_single_row(queries::put::unbind_user_from_scope(
             user_id,
             SCOPE_STATE_LEFT,
         ))
         .await?;
+        if let Err(e) = remove_from_rankings(user_id).await {
+            tracing::warn!("Could not take {user_id}, who left, out of the rankings: {e}");
+        }
         UserHsCursor::remove_all(user_id).await?;
         // A catch-up still running reads users regardless of their binding.
         caught_up(user_id).await?;
@@ -203,11 +210,12 @@ async fn forget_recheck(user_id: &PubkyId) -> ModelResult<()> {
 }
 
 /// Clears the user's `scope_state`: an outsider is admitted (its tags ranked, see
-/// [`admit_outsider`]); a member that left was never kept out of anything, so its state is
-/// just cleared.
+/// [`admit_outsider`]); a member that left gets its tags ranked again. The other rankings,
+/// rebuilt from the graph, take either in from their next rebuild.
 async fn clear_scope_state(user_id: &str) -> ModelResult<()> {
     if !admit_outsider(user_id).await? {
         exec_single_row(queries::put::set_user_scope_state(user_id, None)).await?;
+        UsersByTagSearch::sync_user_labels(user_id).await?;
     }
     Ok(())
 }

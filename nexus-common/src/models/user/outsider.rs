@@ -10,10 +10,13 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::db::kv::{RedisError, RedisResult};
+use crate::db::RedisOps;
 use crate::db::{exec_single_row, fetch_key_from_graph, queries};
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::post::trust_filter;
-use crate::models::user::{UserDetails, UsersByTagSearch};
+use crate::models::user::{
+    Influencers, UserDetails, UserStream, UsersByTagSearch, USER_MOSTFOLLOWED_KEY_PARTS,
+};
 use crate::ScopeConfig;
 
 /// `scope_state` of a user known to this Nexus but outside its scope.
@@ -60,6 +63,32 @@ pub async fn is_kept_out_of_global(user_id: &str) -> RedisResult<bool> {
         return Ok(false);
     }
     is_outsider(user_id).await
+}
+
+/// Whether the user stays out of the user rankings and recommendations (most-followed,
+/// influencers, users-by-tag, recommended, starter packs): anyone but a member, so an
+/// outsider or a member that left. No lookup in a process whose scope holds neither:
+/// "everything" lets them all back in.
+pub async fn is_kept_out_of_rankings(user_id: &str) -> RedisResult<bool> {
+    if !OUTSIDERS_POSSIBLE.load(Ordering::Relaxed) {
+        return Ok(false);
+    }
+    let query = queries::get::get_user_scope_state(user_id);
+    let scope_state: Option<Option<String>> = fetch_key_from_graph(query, "scope_state")
+        .await
+        .map_err(|e| RedisError::CommandFailed(format!("reading the scope state: {e}").into()))?;
+    Ok(scope_state.flatten().is_some())
+}
+
+/// Takes a member that just left the scope out of the user rankings kept in Redis, so it
+/// isn't recommended until it joins again. Its posts stay in the feeds. Rebuilt from the
+/// graph, the rankings leave it out too; the per-viewer recommendations expire with
+/// their cache.
+pub async fn remove_from_rankings(user_id: &str) -> RedisResult<()> {
+    UsersByTagSearch::sync_user_labels(user_id).await?;
+    UserStream::remove_from_index_sorted_set(None, &USER_MOSTFOLLOWED_KEY_PARTS, &[user_id])
+        .await?;
+    Influencers::remove_user(user_id).await
 }
 
 /// Creates the node of a user met outside the scope, already an outsider.
@@ -257,24 +286,28 @@ mod tests {
         Ok(())
     }
 
-    /// The users-by-tag search and its reindex leave a tagged outsider out, as the rankings
-    /// do; a member tagged the same way is in.
+    /// The users-by-tag search and its reindex leave a tagged outsider and a tagged member
+    /// that left out, as the rankings do; a member tagged the same way is in.
     #[tokio_shared_rt::test(shared)]
     async fn the_users_by_tag_queries_leave_outsiders_out() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
-        let [tagger, member, outsider] =
-            [(); 3].map(|_| pubky::Keypair::random().public_key().to_z32());
+        let [tagger, member, outsider, gone] =
+            [(); 4].map(|_| pubky::Keypair::random().public_key().to_z32());
         let label = format!("outsidertest{}", rand_suffix());
         let create = Query::new(
             "test_tag_a_member_and_a_outsider",
             "CREATE (t:User {id: $tagger}), (m:User {id: $member}),
                     (s:User {id: $outsider, scope_state: $outsider_state}),
-                    (t)-[:TAGGED {label: $label}]->(m), (t)-[:TAGGED {label: $label}]->(s)",
+                    (g:User {id: $gone, scope_state: $left_state}),
+                    (t)-[:TAGGED {label: $label}]->(m), (t)-[:TAGGED {label: $label}]->(s),
+                    (t)-[:TAGGED {label: $label}]->(g)",
         )
         .param("tagger", tagger.clone())
         .param("member", member.clone())
         .param("outsider", outsider.clone())
         .param("outsider_state", SCOPE_STATE_OUTSIDE)
+        .param("gone", gone.clone())
+        .param("left_state", crate::models::user::SCOPE_STATE_LEFT)
         .param("label", label.clone());
         exec_single_row(create).await?;
 
@@ -308,18 +341,18 @@ mod tests {
             "test_delete_tagged_users",
             "MATCH (u:User) WHERE u.id IN $ids DETACH DELETE u",
         )
-        .param("ids", vec![tagger, member.clone(), outsider]);
+        .param("ids", vec![tagger, member.clone(), outsider, gone]);
         exec_single_row(delete).await?;
 
         assert_eq!(
             searched?,
             vec![member.clone()],
-            "search: the member, not the outsider"
+            "search: the member, not the outsider nor the member that left"
         );
         assert_eq!(
             reindexed?,
             vec![member],
-            "reindex: the member, not the outsider"
+            "reindex: the member, not the outsider nor the member that left"
         );
         Ok(())
     }
