@@ -20,7 +20,7 @@ pub const COL_CAIRO: &str = "COLW1TGL5BKG3";
 pub const COL_BOGOTA_MALF: &str = "MALF1TGL5BKG7";
 pub const COL_BOGOTA_NEST: &str = "NEST1TGL5BKG8";
 /// The one `social/v1` envelope: its items are objects, addressed in either epoch.
-pub const COL_BOGOTA_V1: &str = "COLV1TGL5BKG4";
+pub const COL_BOGOTA_V1: &str = "C01V1TG15BKG4";
 pub const SHORT_BOGOTA: &str = "00000039YD9BM";
 
 pub const ALL_COLLECTIONS: &[&str] = &[
