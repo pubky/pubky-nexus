@@ -388,15 +388,17 @@ impl WatcherTest {
 /// # Arguments
 /// * `event_line` - A string slice that represents the URI of the event to be retrieved
 ///   from the homeserver. It contains the event type and the homeserver uri
+/// * `homeserver_id` - The homeserver the event is handled as read from
 ///
 /// # Errors
 /// Throws an error if event parsing fails
 pub async fn retrieve_and_handle_event_line(
     event_line: &str,
+    homeserver_id: &str,
     event_handler: Arc<dyn EventHandler>,
 ) -> Result<(), EventProcessorError> {
     match Event::parse_event(event_line)? {
-        ParseResult::Parsed(event) => event_handler.handle(&event).await,
+        ParseResult::Parsed(event) => event_handler.handle(&event, homeserver_id).await,
         ParseResult::Skipped | ParseResult::UnrecognizedUri { .. } => Ok(()),
     }
 }

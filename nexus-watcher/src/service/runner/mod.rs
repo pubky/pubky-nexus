@@ -148,7 +148,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl EventHandler for NoopHandler {
-        async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
+        async fn handle(
+            &self,
+            _event: &Event,
+            _homeserver_id: &str,
+        ) -> Result<(), EventProcessorError> {
             Ok(())
         }
     }

@@ -47,9 +47,9 @@ pub struct EventsQuery {
             status = 200,
             description = "Events list",
             body = String,
-            description = "Events list as plain text with cursor",
+            description = "Events list as plain text with cursor. Each line ends with the public key of the homeserver the event was read from, after the last space: the path may contain spaces. Some lines stored before this key was added have none, and end with the path.",
             content_type = "text/plain",
-            example = "PUT pubky://<pk>/<path>\nDEL pubky://<pk>/<path>\nPUT pubky://<pk>/<path>\ncursor: 2"
+            example = "PUT pubky://<pk>/<path> <hs_pk>\nDEL pubky://<pk>/<path> <hs_pk>\nPUT pubky://<pk>/<path> <hs_pk>\ncursor: 2"
         ),
         (status = 400, description = "Bad request"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),

@@ -43,10 +43,11 @@ async fn test_homeserver_follow_cannot_complete() -> Result<()> {
     );
 
     let event_handler = test.event_processor_runner.event_handler.clone();
-    let sync_fail = retrieve_and_handle_event_line(&follow_event, event_handler)
-        .await
-        .map_err(|e| error!("SYNC ERROR: {:?}", e))
-        .is_err();
+    let sync_fail =
+        retrieve_and_handle_event_line(&follow_event, &test.homeserver_id, event_handler)
+            .await
+            .map_err(|e| error!("SYNC ERROR: {:?}", e))
+            .is_err();
 
     assert!(
         sync_fail,
@@ -65,7 +66,9 @@ async fn test_homeserver_follow_cannot_complete() -> Result<()> {
     );
 
     let event_handler = test.event_processor_runner.event_handler.clone();
-    let opposite = retrieve_and_handle_event_line(&opposite_follow_event, event_handler).await;
+    let opposite =
+        retrieve_and_handle_event_line(&opposite_follow_event, &test.homeserver_id, event_handler)
+            .await;
 
     assert!(
         opposite.is_ok(),

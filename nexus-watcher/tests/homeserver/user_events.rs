@@ -59,6 +59,7 @@ async fn test_user_events_come_from_the_homeserver_after_the_cursor() -> Result<
     unrank_user(&user_id).await?;
     retrieve_and_handle_event_line(
         &format!("DEL pubky://{user_id}/pub/pubky.app/profile.json"),
+        &test.homeserver_id,
         test.event_processor_runner.event_handler.clone(),
     )
     .await?;

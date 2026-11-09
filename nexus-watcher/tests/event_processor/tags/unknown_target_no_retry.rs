@@ -43,7 +43,7 @@ async fn test_tag_unknown_target_is_not_retried() -> Result<()> {
 
     let tag_event = format!("PUT pubky://{user_id}/pub/pubky.app/tags/{tag_id}");
     let event_handler = test.event_processor_runner.event_handler.clone();
-    let err = retrieve_and_handle_event_line(&tag_event, event_handler)
+    let err = retrieve_and_handle_event_line(&tag_event, &test.homeserver_id, event_handler)
         .await
         .expect_err("tag with an unknown target must be rejected");
 

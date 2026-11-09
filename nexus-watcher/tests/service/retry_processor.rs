@@ -377,6 +377,39 @@ async fn test_retry_success_removes_from_queue() -> Result<()> {
 }
 
 // ============================================================================
+// Retry hands the event to the handler with its origin homeserver
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_retry_handles_event_from_its_origin_homeserver() -> Result<()> {
+    setup().await?;
+
+    let post_id = "originhs01";
+    let store = new_in_memory_store();
+    let now = Utc::now().timestamp_millis();
+    let mut retry_event = create_test_retry_event(post_id, EventType::Put, 0, now - 1000);
+    retry_event.origin_homeserver_id = HS_IDS[1].to_string();
+    store.put(&retry_event).await?;
+
+    let handler = create_mock_handler(Ok(()), Some(post_id));
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(10, 50, 60, 3600, 60, 3600),
+        handler.clone(),
+        shutdown_rx,
+    );
+
+    let _ = processor.run_internal().await;
+
+    // The handler stores the event line with this key
+    assert_eq!(handler.get_handled_homeserver_ids(), vec![HS_IDS[1]]);
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
 // Retry 404 removes from queue
 // Handler returns PubkyClientError with 404 message, event is removed (content gone, no point retrying)
 // ============================================================================

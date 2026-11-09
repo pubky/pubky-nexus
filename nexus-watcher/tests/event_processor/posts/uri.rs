@@ -57,7 +57,12 @@ async fn test_post_replayed_event_line_stores_uri() -> Result<()> {
 
     let expected = post_uri_builder(user_id.clone(), post_id.clone());
     let event_handler = test.event_processor_runner.event_handler.clone();
-    retrieve_and_handle_event_line(&format!("PUT {expected}"), event_handler).await?;
+    retrieve_and_handle_event_line(
+        &format!("PUT {expected}"),
+        &test.homeserver_id,
+        event_handler,
+    )
+    .await?;
 
     assert_eq!(find_post_uri(&user_id, &post_id).await, Some(expected));
 

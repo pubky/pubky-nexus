@@ -21,6 +21,8 @@ pub struct MockEventHandler {
     /// can read the count after processing.
     pub handle_count: Arc<Mutex<usize>>,
     pub handled_uris: Arc<Mutex<Vec<String>>>,
+    /// The homeserver each `handle()` call was given, in call order.
+    pub handled_homeserver_ids: Arc<Mutex<Vec<String>>>,
 }
 
 impl MockEventHandler {
@@ -32,14 +34,22 @@ impl MockEventHandler {
     pub fn get_handled_uris(&self) -> Vec<String> {
         self.handled_uris.lock().unwrap().clone()
     }
+
+    pub fn get_handled_homeserver_ids(&self) -> Vec<String> {
+        self.handled_homeserver_ids.lock().unwrap().clone()
+    }
 }
 
 #[async_trait::async_trait]
 impl EventHandler for MockEventHandler {
-    async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
+    async fn handle(&self, event: &Event, homeserver_id: &str) -> Result<(), EventProcessorError> {
         // Increment invocation counter on every call
         *self.handle_count.lock().unwrap() += 1;
         self.handled_uris.lock().unwrap().push(event.uri.clone());
+        self.handled_homeserver_ids
+            .lock()
+            .unwrap()
+            .push(homeserver_id.to_string());
 
         match &self.target_uri_substring {
             Some(s) if !event.uri.contains(s) => Ok(()),
