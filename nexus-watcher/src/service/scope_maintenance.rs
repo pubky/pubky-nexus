@@ -7,6 +7,9 @@
 //! - **homeservers**: users bound to a homeserver the list doesn't hold leave; at start
 //!   after the list changed, users kept out (outsiders, users that left) now on a listed
 //!   homeserver join.
+//! - **seed**: the members are worked out from the graph's follows and compared with who
+//!   is in scope: who is new joins, who is gone leaves. At start, within seconds of a
+//!   follow being indexed or removed, and every interval in case one was missed.
 //!
 //! Joining binds a user to its homeserver with a cursor at 0; leaving unbinds it so it
 //! is no longer polled. Content of users who left stays.
@@ -21,10 +24,14 @@ use nexus_common::models::user::{
 use nexus_common::{ScopeConfig, WatcherConfig};
 
 use crate::scope::membership::ScopeMembership;
-use crate::scope::watcher_ingestor;
+use crate::scope::{seed_members, watcher_ingestor, FollowsChanged, MAX_SEED_MEMBERS};
 use pubky_app_specs::PubkyId;
+use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::sync::Arc;
-use tracing::{info, warn};
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
+use tracing::{debug, info, warn};
 
 /// The scope the last start ran with, to notice a homeserver list that changed.
 const ACTIVE_SCOPE_KEY: &str = "Scope:Active";
@@ -34,6 +41,9 @@ const ACTIVE_SCOPE_KEY: &str = "Scope:Active";
 /// that, or if Redis loses the list, the user is admitted at the next list change.
 const ADMIT_RETRY_KEY: &str = "Scope:AdmitRetry";
 const MAX_ADMIT_ATTEMPTS: u32 = 12;
+/// How often a seed scope checks whether a follow changed, so who it reaches joins within
+/// seconds rather than at the next interval.
+const FOLLOWS_CHECK_MS: u64 = 5_000;
 
 /// How many users joined and left the scope in one run.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -46,6 +56,7 @@ pub struct ScopeChange {
 enum Kind {
     Everything,
     Homeservers(Vec<PubkyId>),
+    Seed { seed: PubkyId, hops: u8 },
 }
 
 /// Keeps the scope's members up to date for the watcher.
@@ -60,6 +71,16 @@ pub struct ScopeMaintainer {
     /// Always in scope and never let go, whatever the scope.
     moderator: PubkyId,
     ingestor: UserIngestor,
+    /// How often the scope is checked whatever happened.
+    interval: Duration,
+    /// When a seed scope last worked its members out.
+    last_recompute: Mutex<Instant>,
+    /// Raised by the event handler when a follow changed; see [`Self::follows_changed`].
+    follows_changed: FollowsChanged,
+    /// Members whose admission failed, and when. Each try looks the member's homeserver
+    /// up, and a recompute can run every few seconds, so one isn't tried again until the
+    /// interval passed. In memory: a start tries all.
+    failed_admissions: std::sync::Mutex<HashMap<String, Instant>>,
     /// Narrows every graph-wide search to these users; `None` in production.
     /// Tests share one graph, so they pass their own users.
     limit_to: Option<Vec<String>>,
@@ -79,6 +100,10 @@ impl ScopeMaintainer {
         let kind = match &config.stack.scope {
             ScopeConfig::Everything => Kind::Everything,
             ScopeConfig::Homeservers { homeservers } => Kind::Homeservers(homeservers.clone()),
+            ScopeConfig::Seed { seed, hops } => Kind::Seed {
+                seed: seed.clone(),
+                hops: *hops,
+            },
         };
         let active_key = match &limit_to {
             None => ACTIVE_SCOPE_KEY.to_string(),
@@ -94,8 +119,18 @@ impl ScopeMaintainer {
             active_key,
             moderator: config.moderation_id.clone(),
             ingestor,
+            interval: Duration::from_millis(config.scope_maintenance.interval_ms),
+            last_recompute: Mutex::new(Instant::now()),
+            follows_changed: FollowsChanged::default(),
+            failed_admissions: Default::default(),
             limit_to,
         }
+    }
+
+    /// The flag this maintainer checks for changed follows, to give the event handler
+    /// (`DefaultEventHandler::with_follows_changed`), which raises it.
+    pub fn follows_changed(&self) -> FollowsChanged {
+        self.follows_changed.clone()
     }
 
     /// Moves users in and out, deciding by this maintainer's scope.
@@ -106,6 +141,16 @@ impl ScopeMaintainer {
     /// Whether the periodic task is needed: everything has nothing to maintain after start.
     pub fn is_periodic(&self) -> bool {
         !matches!(self.kind, Kind::Everything)
+    }
+
+    /// How often the periodic task runs [`Self::tick`]: a seed scope checks for changed
+    /// follows every few seconds, and does the rest each interval.
+    pub fn tick_every_ms(&self) -> u64 {
+        let interval_ms = self.interval.as_millis() as u64;
+        match self.kind {
+            Kind::Seed { .. } => FOLLOWS_CHECK_MS.min(interval_ms),
+            Kind::Everything | Kind::Homeservers(_) => interval_ms,
+        }
     }
 
     /// The run at start, before any event is read.
@@ -119,6 +164,11 @@ impl ScopeMaintainer {
                 }
                 change
             }
+            Kind::Seed { seed, hops } => {
+                // This run covers every follow indexed before it.
+                self.follows_changed.take();
+                self.recompute_members(seed, *hops).await?
+            }
         };
         self.remember_scope().await?;
         info!(?change, "Scope settled at start");
@@ -126,17 +176,47 @@ impl ScopeMaintainer {
     }
 
     /// A periodic run: a homeserver scope lets go of users bound outside its list, and
-    /// tries again the admissions whose homeserver couldn't be found.
+    /// tries again the admissions whose homeserver couldn't be found; a seed scope works
+    /// its members out again if a follow changed or the interval passed.
     pub async fn tick(&self) -> ModelResult<ScopeChange> {
-        let Kind::Homeservers(homeservers) = &self.kind else {
-            return Ok(ScopeChange::default());
+        let change = match &self.kind {
+            Kind::Everything => return Ok(ScopeChange::default()),
+            Kind::Homeservers(homeservers) => {
+                let mut change = self.drop_users_bound_outside(homeservers).await?;
+                change.joined += self.retry_admissions(homeservers).await?;
+                change
+            }
+            Kind::Seed { seed, hops } => {
+                self.seed_tick(|| self.recompute_members(seed, *hops))
+                    .await?
+            }
         };
-        let mut change = self.drop_users_bound_outside(homeservers).await?;
-        change.joined += self.retry_admissions(homeservers).await?;
         if change != ScopeChange::default() {
             info!(?change, "Scope members changed");
         }
         Ok(change)
+    }
+
+    /// A seed scope's periodic run: `recompute` runs if a follow changed or the interval
+    /// passed. A recompute asked for by a follow that fails asks for the next check again.
+    async fn seed_tick<F, Fut>(&self, recompute: F) -> ModelResult<ScopeChange>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = ModelResult<ScopeChange>>,
+    {
+        // Taken first: a follow changed while this runs asks for the next check.
+        let changed = self.follows_changed.take();
+        let mut last_recompute = self.last_recompute.lock().await;
+        if !changed && last_recompute.elapsed() < self.interval {
+            return Ok(ScopeChange::default());
+        }
+        let change = recompute().await;
+        if change.is_err() && changed {
+            // Not lost: the next check tries again.
+            self.follows_changed.raise();
+        }
+        *last_recompute = Instant::now();
+        change
     }
 
     /// For "everything": lets every outsider and every user that left back in. Each one is
@@ -158,6 +238,80 @@ impl ScopeMaintainer {
             }
         }
         Ok(change)
+    }
+
+    /// For a seed scope: works the members out from the graph and compares them with who
+    /// is in scope, which the graph records too. Who is new joins (ingested if never met,
+    /// then bound and read from the start of its stream); who is in scope but no longer a
+    /// member leaves, the moderator aside.
+    ///
+    /// One user failing (no published homeserver, a lookup timing out) is logged and
+    /// doesn't stop the others: still new, or still in, it is tried again by the first
+    /// recompute once the interval passed (see [`Self::failed_admissions`]).
+    async fn recompute_members(&self, seed: &PubkyId, hops: u8) -> ModelResult<ScopeChange> {
+        let members = seed_members(seed, hops, MAX_SEED_MEMBERS).await?;
+        let query = queries::get::get_in_scope_user_ids(self.limit_to.as_deref());
+        let in_scope: HashSet<String> = fetch_key_from_graph::<Vec<String>>(query, "user_ids")
+            .await?
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+
+        let recently_failed: HashSet<String> = {
+            let mut failed = self.failed_admissions();
+            failed.retain(|_, at| at.elapsed() < self.interval);
+            failed.keys().cloned().collect()
+        };
+
+        let (joining, leaving) = plan(&members, &in_scope, &recently_failed, &self.moderator);
+        let mut change = ScopeChange::default();
+        for user_id in &joining {
+            let joined = match self.admit(user_id).await {
+                Ok(true) => true,
+                Ok(false) => {
+                    warn!(%user_id, "Could not bring a member in: no published homeserver");
+                    false
+                }
+                // Never eligible: not worth a warning at every interval.
+                Err(ModelError::HsBlacklisted { hs_id }) => {
+                    debug!(%user_id, %hs_id, "Not bringing a member in: its homeserver is blacklisted");
+                    false
+                }
+                Err(e) => {
+                    warn!(%user_id, error = %e, "Could not bring a member in");
+                    false
+                }
+            };
+            if joined {
+                change.joined += 1;
+                self.failed_admissions().remove(user_id);
+            } else {
+                self.failed_admissions()
+                    .insert(user_id.clone(), Instant::now());
+            }
+        }
+        for user_id in &leaving {
+            match self.membership().demote(user_id).await {
+                Ok(()) => change.left += 1,
+                Err(e) => warn!(%user_id, error = %e, "Could not let a member go"),
+            }
+        }
+        Ok(change)
+    }
+
+    fn failed_admissions(&self) -> std::sync::MutexGuard<'_, HashMap<String, Instant>> {
+        self.failed_admissions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Brings a seed scope's member in: ingested if never met (kept out, as a seed scope
+    /// only counts users once applied), then promoted. Returns whether it is in now.
+    async fn admit(&self, user_id: &str) -> ModelResult<bool> {
+        let id = PubkyId::try_from(user_id)
+            .map_err(|e| ModelError::from_generic(format!("member id {user_id}: {e}")))?;
+        self.ingestor.maybe_ingest_user(&id).await?;
+        self.membership().promote(&id).await
     }
 
     /// Users kept out of the scope: outsiders, and users that left.
@@ -300,5 +454,159 @@ impl ScopeMaintainer {
             .await
             .map_err(RedisError::from)?;
         Ok(())
+    }
+}
+
+/// Who of a seed scope's `members` (user id -> hop) joins and who leaves, given who is
+/// `in_scope`: members not in scope join, closest first and by id within a hop, so a long
+/// run brings in the seed's own follows before theirs, and none `waiting` for the interval
+/// after a failed admission; users in scope that are no longer members leave, by id, but
+/// never the moderator.
+fn plan(
+    members: &HashMap<String, u8>,
+    in_scope: &HashSet<String>,
+    waiting: &HashSet<String>,
+    moderator: &str,
+) -> (Vec<String>, Vec<String>) {
+    let mut joining: Vec<(&String, &u8)> = members
+        .iter()
+        .filter(|(id, _)| !in_scope.contains(*id) && !waiting.contains(*id))
+        .collect();
+    joining.sort_by_key(|(id, hop)| (**hop, id.as_str()));
+    let mut leaving: Vec<String> = in_scope
+        .iter()
+        .filter(|id| !members.contains_key(*id) && id.as_str() != moderator)
+        .cloned()
+        .collect();
+    leaving.sort();
+    (
+        joining.into_iter().map(|(id, _)| id.clone()).collect(),
+        leaving,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nexus_common::models::user::PkdnsRecord;
+    use nexus_common::utils::test_utils::random_pubky_id;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// Resolves no user's homeserver, without the network.
+    struct NoResolver;
+
+    #[async_trait::async_trait]
+    impl PkdnsHomeserverResolver for NoResolver {
+        async fn resolve_record(
+            &self,
+            _: &pubky::PublicKey,
+        ) -> nexus_common::db::PubkyClientResult<PkdnsRecord> {
+            Ok(PkdnsRecord::Missing)
+        }
+    }
+
+    fn maintainer(scope: ScopeConfig, interval_ms: u64) -> ScopeMaintainer {
+        let mut config = WatcherConfig::default();
+        config.stack.scope = scope;
+        config.scope_maintenance.interval_ms = interval_ms;
+        ScopeMaintainer::from_config(&config, Arc::new(NoResolver))
+    }
+
+    fn seed_scope() -> ScopeConfig {
+        ScopeConfig::Seed {
+            seed: random_pubky_id(),
+            hops: 2,
+        }
+    }
+
+    fn ids(ids: &[&str]) -> HashSet<String> {
+        ids.iter().map(|id| id.to_string()).collect()
+    }
+
+    /// A seed scope checks for changed follows every 5 s, or at its interval if shorter;
+    /// a homeserver scope only at its interval.
+    #[test]
+    fn a_seed_scope_checks_its_follows_every_few_seconds() {
+        assert_eq!(maintainer(seed_scope(), 3_600_000).tick_every_ms(), 5_000);
+        assert_eq!(maintainer(seed_scope(), 2_000).tick_every_ms(), 2_000);
+        let homeservers = ScopeConfig::Homeservers {
+            homeservers: vec![random_pubky_id()],
+        };
+        assert_eq!(
+            maintainer(homeservers, 3_600_000).tick_every_ms(),
+            3_600_000
+        );
+    }
+
+    /// Members join closest first, then by id; members already in scope stay; users in
+    /// scope that are no longer members leave, but not the moderator; a member waiting
+    /// after a failed admission doesn't join yet.
+    #[test]
+    fn the_plan_brings_the_closest_in_first_and_never_lets_the_moderator_go() {
+        let members = HashMap::from([
+            ("seed".to_string(), 0),
+            ("b-hop1".to_string(), 1),
+            ("a-hop2".to_string(), 2),
+            ("c-hop1".to_string(), 1),
+            ("waiting".to_string(), 1),
+        ]);
+        let in_scope = ids(&["seed", "gone", "moderator"]);
+
+        let (joining, leaving) = plan(&members, &in_scope, &ids(&["waiting"]), "moderator");
+
+        assert_eq!(joining, vec!["b-hop1", "c-hop1", "a-hop2"]);
+        assert_eq!(leaving, vec!["gone"]);
+    }
+
+    /// No follow changed and the interval not passed: no recompute.
+    #[tokio::test]
+    async fn a_seed_tick_without_a_changed_follow_waits_for_the_interval() {
+        let maintainer = maintainer(seed_scope(), 3_600_000);
+        let runs = AtomicU32::new(0);
+        let recompute = || async {
+            runs.fetch_add(1, Ordering::Relaxed);
+            Ok(ScopeChange::default())
+        };
+
+        maintainer.seed_tick(recompute).await.unwrap();
+        maintainer.follows_changed().raise();
+        maintainer.seed_tick(recompute).await.unwrap();
+
+        assert_eq!(
+            runs.load(Ordering::Relaxed),
+            1,
+            "only the changed follow ran it"
+        );
+    }
+
+    /// A recompute asked for by a follow that fails asks for the next check again, so the
+    /// change isn't left for the interval.
+    #[tokio::test]
+    async fn a_failed_recompute_after_a_follow_runs_again_at_the_next_check() {
+        let maintainer = maintainer(seed_scope(), 3_600_000);
+        let runs = AtomicU32::new(0);
+        maintainer.follows_changed().raise();
+
+        let failed = maintainer
+            .seed_tick(|| async {
+                runs.fetch_add(1, Ordering::Relaxed);
+                Err(ModelError::from_generic("the graph is down"))
+            })
+            .await;
+        let next = maintainer
+            .seed_tick(|| async {
+                runs.fetch_add(1, Ordering::Relaxed);
+                Ok(ScopeChange::default())
+            })
+            .await;
+
+        assert!(failed.is_err());
+        assert!(next.is_ok());
+        assert_eq!(
+            runs.load(Ordering::Relaxed),
+            2,
+            "the next check ran it again"
+        );
+        assert!(!maintainer.follows_changed().take(), "and took the flag");
     }
 }

@@ -216,8 +216,8 @@ impl KeyBasedEventProcessor {
             true => Vec::new(),
             false => user_hs_resolver::get_user_ids_by_homeserver(hs_id).await?,
         };
-        // Users catching up stay in until their stream is read to its end, also while a
-        // replayed DEL marks their profile deleted and the query above leaves them out.
+        // Users catching up stay in until their stream is read to its end, also while the
+        // query above leaves them out.
         let polled: HashSet<String> = user_ids.iter().cloned().collect();
         let catching_up_here = admitted(catch_up::users_catching_up_on(hs_id).await?).await?;
         user_ids.extend(
