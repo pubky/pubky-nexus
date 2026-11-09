@@ -117,8 +117,10 @@ impl NexusWatcher {
             _ => None,
         };
 
-        let event_handler: Arc<dyn EventHandler> =
-            Arc::new(DefaultEventHandler::from_config(&config, client.clone()));
+        let event_handler: Arc<dyn EventHandler> = Arc::new(
+            DefaultEventHandler::from_config(&config, client.clone())
+                .with_follows_changed(scope_maintainer.follows_changed()),
+        );
         let retry_scheduler = Arc::new(RetryScheduler::from_config(&config));
 
         let hs_runner = Arc::new(HsEventProcessorRunner::new(

@@ -217,4 +217,54 @@ mod tests {
         }
         Ok(())
     }
+
+    /// The seed is in, even unknown; anyone else is in only once the graph holds it without
+    /// a `scope_state`: not unknown, not an outsider, not a member that left.
+    #[tokio_shared_rt::test(shared)]
+    async fn a_seed_scope_holds_the_seed_and_the_graphs_members(
+    ) -> Result<(), crate::types::DynError> {
+        use crate::db::{exec_single_row, queries};
+        use crate::models::traits::Collection;
+        use crate::models::user::{outsider::create_outsider, UserDetails, SCOPE_STATE_LEFT};
+
+        crate::StackManager::setup(&crate::StackConfig::default()).await?;
+        let random = || PubkyId::from(pubky::Keypair::random().public_key());
+        let (seed, unknown, member, outsider, left) =
+            (random(), random(), random(), random(), random());
+        let scope = SeedScope::new(seed.clone(), 2);
+
+        UserDetails::from_pubky(member.clone())
+            .put_to_graph()
+            .await?;
+        create_outsider(&UserDetails::from_pubky(outsider.clone())).await?;
+        UserDetails::from_pubky(left.clone()).put_to_graph().await?;
+        exec_single_row(queries::put::set_user_scope_state(
+            &left,
+            Some(SCOPE_STATE_LEFT),
+        ))
+        .await?;
+
+        let mut answers = Vec::new();
+        for user in [&seed, &unknown, &member, &outsider, &left] {
+            answers.push(scope.is_in_scope(user, None).await);
+        }
+        // Other suites share this graph: see the test above.
+        let delete = crate::db::graph::Query::new(
+            "delete_test_users",
+            "MATCH (u:User) WHERE u.id IN $ids DETACH DELETE u",
+        )
+        .param(
+            "ids",
+            vec![member.to_string(), outsider.to_string(), left.to_string()],
+        );
+        exec_single_row(delete).await?;
+
+        let answers = answers.into_iter().collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(
+            answers,
+            vec![true, false, true, false, false],
+            "seed, unknown, member, outsider, left"
+        );
+        Ok(())
+    }
 }

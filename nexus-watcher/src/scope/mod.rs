@@ -83,20 +83,24 @@ pub fn full_feed_homeservers(config: &WatcherConfig) -> Vec<PubkyId> {
     }
 }
 
-/// Set when a follow is indexed or removed, so a seed scope works its members out again
-/// at its next check (see the scope maintenance). Kept in memory: a start works them out
-/// anyway.
-static FOLLOWS_CHANGED: AtomicBool = AtomicBool::new(false);
+/// Raised when a follow is indexed or removed, so a seed scope works its members out
+/// again at its next check (see the scope maintenance). The maintainer owns it and takes
+/// it; the event handler it is given to raises it. Kept in memory: a start works the
+/// members out anyway.
+#[derive(Clone, Debug, Default)]
+pub struct FollowsChanged(Arc<AtomicBool>);
 
-/// Records that a follow was indexed or removed.
-pub(crate) fn follows_changed() {
-    FOLLOWS_CHANGED.store(true, Ordering::Release);
-}
+impl FollowsChanged {
+    /// Records that a follow was indexed or removed.
+    pub fn raise(&self) {
+        self.0.store(true, Ordering::Release);
+    }
 
-/// Whether a follow changed since the last call, and clears it: one changed after this
-/// asks for the next check.
-pub(crate) fn take_follows_changed() -> bool {
-    FOLLOWS_CHANGED.swap(false, Ordering::AcqRel)
+    /// Whether a follow changed since the last call, and clears it: one changed after this
+    /// asks for the next check.
+    pub fn take(&self) -> bool {
+        self.0.swap(false, Ordering::AcqRel)
+    }
 }
 
 /// The most members a seed scope has. One member following everyone would otherwise
