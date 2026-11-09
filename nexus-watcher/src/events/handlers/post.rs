@@ -315,8 +315,8 @@ async fn sync_put_details(
 /// nothing points at it yet, which is the case while a reply to it waits in the retry
 /// queue. The reply would then wait for a parent that never comes, and be dropped. The
 /// tombstone is the one [`del`] leaves for a deleted post with replies: no content, flagged
-/// `deleted`, out of the feeds (see [`counts_toward_engagement`]). A parent whose author isn't indexed gets none: the reply
-/// waits for the author as before.
+/// `deleted`, out of the feeds (see [`counts_toward_engagement`]). A parent whose author
+/// isn't indexed gets none: the reply waits for the author as before.
 async fn put_taken_down_parents(
     relationships: &PostRelationships,
     ingestor: &UserIngestor,
@@ -787,9 +787,11 @@ pub async fn sync_del(
             let indexing_results = nexus_common::traced_join!(
                 tracing::info_span!("index.delete", phase = "reply_parent");
                 async {
-                    // A decrement never creates a member, so a reply parent,
-                    // which has none in POST_TOTAL_ENGAGEMENT, is left alone.
-                    if post_in_index {
+                    // Only what the child's put counted: a reply parent or a tombstone
+                    // gained no score, so it loses none.
+                    if post_in_index
+                        && counts_toward_engagement(&parent_user_id, &parent_post_id).await?
+                    {
                         PostStream::update_index_score(
                             &parent_user_id,
                             &parent_post_id,
@@ -842,9 +844,11 @@ pub async fn sync_del(
             let indexing_results = nexus_common::traced_join!(
                 tracing::info_span!("index.delete", phase = "repost_parent");
                 async {
-                    // A decrement never creates a member, so a reply parent,
-                    // which has none in POST_TOTAL_ENGAGEMENT, is left alone.
-                    if post_in_index {
+                    // Only what the child's put counted: a reply parent or a tombstone
+                    // gained no score, so it loses none.
+                    if post_in_index
+                        && counts_toward_engagement(&reposted_uri.user_id, &parent_post_id).await?
+                    {
                         PostStream::update_index_score(
                             &reposted_uri.user_id,
                             &parent_post_id,

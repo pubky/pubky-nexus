@@ -24,8 +24,8 @@ pub(super) fn fail_on_blacklisted_hs(
 
 /// Whether the post's score belongs in the global engagement feed: a root post that isn't
 /// deleted. Replies are tracked in their parent's reply set instead, and a tombstone stays
-/// out of the feeds. Checked before every score change, since `ZINCRBY` would create the
-/// member if absent.
+/// out of the feeds. Checked before every score change, both ways: an increment would
+/// create the member if absent, and a decrement must not take away what was never added.
 /// # Arguments
 /// * `author_id` - The ID of the author of the post
 /// * `post_id` - The ID of the post to check
