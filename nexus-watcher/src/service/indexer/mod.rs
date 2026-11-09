@@ -266,7 +266,19 @@ pub trait TEventProcessor: Send + Sync + 'static {
             }
         }
 
-        if let Err(e) = self.event_handler().handle(event).await {
+        // The line is stored with the key of the homeserver it was read from. Without one the
+        // run fails, so the cursor stays before this event.
+        let Some(homeserver_id) = self.homeserver_id() else {
+            let error = EventProcessorError::InternalError(format!(
+                "{} has no homeserver to store with the event",
+                self.instance_name()
+            ));
+            span.record("otel.status_code", "ERROR");
+            span.record("otel.status_message", tracing::field::display(&error));
+            return Err(error);
+        };
+
+        if let Err(e) = self.event_handler().handle(event, homeserver_id).await {
             span.record("otel.status_code", "ERROR");
             span.record("otel.status_message", tracing::field::display(&e));
 
@@ -276,5 +288,68 @@ pub trait TEventProcessor: Send + Sync + 'static {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Handler that counts the events it handled.
+    struct CountingHandler(AtomicUsize);
+
+    #[async_trait::async_trait]
+    impl EventHandler for CountingHandler {
+        async fn handle(
+            &self,
+            _event: &Event,
+            _homeserver_id: &str,
+        ) -> Result<(), EventProcessorError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    /// Processor that keeps the trait's default `homeserver_id`, `None`.
+    struct NoHomeserverProcessor {
+        handler: Arc<dyn EventHandler>,
+    }
+
+    #[async_trait::async_trait]
+    impl TEventProcessor for NoHomeserverProcessor {
+        fn event_handler(&self) -> &Arc<dyn EventHandler> {
+            &self.handler
+        }
+
+        fn instance_name(&self) -> &'static str {
+            "NoHomeserverProcessor"
+        }
+
+        async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {
+            Ok(RunOutcome::Completed)
+        }
+    }
+
+    /// An event read by a processor with no homeserver is not handled, and the run fails, so the
+    /// caller keeps its cursor before the event.
+    #[tokio::test]
+    async fn event_without_homeserver_fails_and_is_not_handled() {
+        let handler = Arc::new(CountingHandler(AtomicUsize::new(0)));
+        let processor = NoHomeserverProcessor {
+            handler: handler.clone(),
+        };
+
+        let result = processor
+            .process_event_line(
+                "PUT pubky://operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo/pub/pubky.app/profile.json",
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(EventProcessorError::InternalError(_))),
+            "{result:?}"
+        );
+        assert_eq!(handler.0.load(Ordering::SeqCst), 0);
     }
 }

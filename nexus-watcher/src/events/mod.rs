@@ -37,7 +37,8 @@ pub use moderation::Moderation;
 /// including mocked versions for testing.
 #[async_trait::async_trait]
 pub trait EventHandler: Send + Sync {
-    async fn handle(&self, event: &Event) -> Result<(), EventProcessorError>;
+    /// Handles `event`, read from the homeserver `homeserver_id`.
+    async fn handle(&self, event: &Event, homeserver_id: &str) -> Result<(), EventProcessorError>;
 }
 
 /// Default implementation of `EventHandler` that uses the actual event handling logic.
@@ -81,7 +82,7 @@ impl DefaultEventHandler {
 
 #[async_trait::async_trait]
 impl EventHandler for DefaultEventHandler {
-    async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
+    async fn handle(&self, event: &Event, homeserver_id: &str) -> Result<(), EventProcessorError> {
         match event.event_type {
             EventType::Put => {
                 handle_put_event(
@@ -98,7 +99,7 @@ impl EventHandler for DefaultEventHandler {
             }
         }?;
 
-        event.to_event_line().store().await?;
+        event.to_event_line(homeserver_id).store().await?;
         Ok(())
     }
 }

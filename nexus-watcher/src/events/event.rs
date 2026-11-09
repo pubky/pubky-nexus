@@ -169,8 +169,9 @@ impl Event {
         }))
     }
 
-    pub fn to_event_line(&self) -> EventLine {
-        EventLine::new(self.event_line.clone())
+    /// The line Nexus stores for this event, read from `homeserver_id`.
+    pub fn to_event_line(&self, homeserver_id: &str) -> EventLine {
+        EventLine::new(&self.event_line, homeserver_id)
     }
 }
 

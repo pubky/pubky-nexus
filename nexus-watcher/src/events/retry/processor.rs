@@ -133,11 +133,15 @@ impl RetryProcessor {
         // blacklisted HS are blocked before they can be enqueued.
         //
         // Call event_handler directly to get the actual error (bypassing handle_event/handle_error)
-        let event_handle_res = self.event_handler().handle(&event).await.inspect_err(|e| {
-            // In case of error, log it before the error itself is classified and handled
-            // Error handling could itself throw an error. We log it here to pre-empt this possibility.
-            warn!("Retry event handling failed: {e}");
-        });
+        let event_handle_res = self
+            .event_handler()
+            .handle(&event, &retry_event.origin_homeserver_id)
+            .await
+            .inspect_err(|e| {
+                // In case of error, log it before the error itself is classified and handled
+                // Error handling could itself throw an error. We log it here to pre-empt this possibility.
+                warn!("Retry event handling failed: {e}");
+            });
 
         // Removals and reschedules below are conditional on the nonce of the event
         // we fetched: a live processor may have overwritten the hash(URI)-keyed
@@ -297,7 +301,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl EventHandler for EnqueueNewerEventHandler {
-        async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
+        async fn handle(
+            &self,
+            _event: &Event,
+            _homeserver_id: &str,
+        ) -> Result<(), EventProcessorError> {
             self.store.put(&self.newer).await?;
             Ok(())
         }

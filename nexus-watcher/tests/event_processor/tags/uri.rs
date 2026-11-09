@@ -164,14 +164,14 @@ async fn test_replayed_tag_event_line_stores_uri() -> Result<()> {
     let expected = format!("pubky://{tagger_id}/pub/mapky/tags/{tag_id}");
     let event_handler = test.event_processor_runner.event_handler.clone();
     let line = format!("PUT {expected}");
-    retrieve_and_handle_event_line(&line, event_handler.clone()).await?;
+    retrieve_and_handle_event_line(&line, &test.homeserver_id, event_handler.clone()).await?;
     assert_eq!(
         find_tag_uri(&tagger_id, &tag_id).await,
         Some(expected.clone())
     );
 
     // A retry of the same line lands on the existing edge and leaves `uri` unchanged
-    retrieve_and_handle_event_line(&line, event_handler).await?;
+    retrieve_and_handle_event_line(&line, &test.homeserver_id, event_handler).await?;
     assert_eq!(find_tag_uri(&tagger_id, &tag_id).await, Some(expected));
 
     test.del(&tagger_kp, &mapky_path(&tag_id)).await?;

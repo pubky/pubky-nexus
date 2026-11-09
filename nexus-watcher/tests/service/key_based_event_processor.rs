@@ -45,12 +45,15 @@ async fn key_based_processor_skips_unrecognized_events() -> Result<(), DynError>
     ]]));
 
     let handler = create_mock_handler(Ok(()), None);
+    let hs_id = homeserver.id.to_string();
     let processor = processor(homeserver, handler.clone(), source.clone());
 
     processor.run().await?;
 
     // The unrecognized event is skipped, while the valid event is handled.
     assert_eq!(handler.get_handle_count(), 1);
+    // As read from this homeserver, whose key the handler stores with the line.
+    assert_eq!(handler.get_handled_homeserver_ids(), vec![hs_id]);
 
     // The processor fetched events only for the hosted user.
     assert_eq!(source.calls().await, vec![user_id]);
@@ -435,7 +438,11 @@ struct CountingHandler {
 
 #[async_trait::async_trait]
 impl EventHandler for CountingHandler {
-    async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
+    async fn handle(
+        &self,
+        _event: &Event,
+        _homeserver_id: &str,
+    ) -> Result<(), EventProcessorError> {
         self.handled.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -1333,7 +1340,11 @@ impl ShutdownOnFirstHandle {
 
 #[async_trait::async_trait]
 impl EventHandler for ShutdownOnFirstHandle {
-    async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
+    async fn handle(
+        &self,
+        _event: &Event,
+        _homeserver_id: &str,
+    ) -> Result<(), EventProcessorError> {
         if self.handle_count.fetch_add(1, Ordering::SeqCst) == 0 {
             let _ = self.shutdown_tx.send(true);
         }

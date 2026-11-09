@@ -2,12 +2,24 @@ use crate::db::{kv::RedisResult, RedisOps};
 use serde::{Deserialize, Serialize};
 use tracing::error;
 
+/// An event line as Nexus stores and serves it: the line the homeserver sent, then the public
+/// key of the homeserver the event was read from, e.g. `PUT pubky://<pk>/<path> <hs_pk>`.
+///
+/// The key is always the last field. Homeservers write file names unencoded, so the address
+/// may contain spaces: a reader takes the key after the last space, not after the second.
+///
+/// Some lines stored before Nexus kept the key have none: those of users whose homeserver the
+/// graph didn't know when they were backfilled.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventLine(String);
 
 impl EventLine {
-    pub fn new(line: String) -> Self {
-        Self(line)
+    pub fn new(line: &str, homeserver_id: &str) -> Self {
+        Self(format!("{line} {homeserver_id}"))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
