@@ -1,8 +1,11 @@
 use super::utils::{create_external_test_homeserver, user_on};
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{HomeserverPathForPubkyId, WatcherTest};
+use crate::utils::default_moderation_tests;
 use anyhow::Result;
+use chrono::Utc;
 use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::graph::Query;
+use nexus_common::db::PubkyConnector;
 use nexus_common::db::{exec_single_row, fetch_key_from_graph, get_redis_conn, queries};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::scope::{Scope, SeedScope};
@@ -13,7 +16,8 @@ use nexus_common::models::user::{
 };
 use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_common::{ScopeConfig, WatcherConfig};
-use nexus_watcher::events::handlers;
+use nexus_watcher::events::{handlers, DefaultEventHandler, Event, EventHandler, ParseResult};
+use nexus_watcher::homeserver::PubkyHomeserverClient;
 use nexus_watcher::scope::{seed_members, MAX_SEED_MEMBERS};
 use nexus_watcher::service::big_nexus::NexusAnswer;
 use nexus_watcher::service::scope_bootstrap::{
@@ -21,8 +25,10 @@ use nexus_watcher::service::scope_bootstrap::{
 };
 use nexus_watcher::service::scope_maintenance::{ScopeChange, ScopeMaintainer};
 use nexus_watcher::service::user_hs_resolver::get_user_ids_by_homeserver;
-use pubky_app_specs::{PubkyAppUser, PubkyId};
+use pubky::Keypair;
+use pubky_app_specs::{PubkyAppFollow, PubkyAppUser, PubkyId};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -78,6 +84,56 @@ async fn follow(follower: &PubkyId, followee: &PubkyId, ingestor: &UserIngestor)
     let first = handlers::follow::sync_put(follower.clone(), followee.clone(), ingestor).await;
     if first.is_err() {
         handlers::follow::sync_put(follower.clone(), followee.clone(), ingestor).await?;
+    }
+    Ok(())
+}
+
+/// The watcher's event handler, raising `maintainer`'s flag for each follow it indexes
+/// or removes, as the watcher wires them.
+fn handler_for(
+    ingestor: &UserIngestor,
+    maintainer: &ScopeMaintainer,
+) -> Result<DefaultEventHandler> {
+    let client =
+        PubkyHomeserverClient::from_config(PubkyConnector::get()?, &WatcherConfig::default());
+    Ok(DefaultEventHandler::new(
+        default_moderation_tests(),
+        Arc::new(ingestor.clone()),
+        Arc::new(client),
+        PathBuf::from("/tmp/nexus-watcher-test"),
+    )
+    .with_follows_changed(maintainer.follows_changed()))
+}
+
+/// The event of `follower` following (`PUT`) or unfollowing (`DEL`) `followee`.
+fn follow_event(kind: &str, follower: &PubkyId, followee: &PubkyId) -> Result<Event> {
+    let line = format!("{kind} pubky://{follower}/pub/pubky.app/follows/{followee}");
+    let ParseResult::Parsed(event) = Event::parse_event(&line)? else {
+        panic!("a follow line parses");
+    };
+    Ok(event)
+}
+
+/// `follower` follows `followee` on its homeserver, and `handler` reads the event: a
+/// followee never met is ingested by the first attempt, and the follow lands on the retry.
+async fn follow_through(
+    handler: &DefaultEventHandler,
+    follower_kp: &Keypair,
+    followee: &PubkyId,
+) -> Result<()> {
+    let follow = PubkyAppFollow {
+        created_at: Utc::now().timestamp_millis(),
+    };
+    PubkyConnector::get()?
+        .signer(follower_kp.clone())
+        .signin()
+        .await?
+        .storage()
+        .put(&follow.hs_path(followee), serde_json::to_string(&follow)?)
+        .await?;
+    let event = follow_event("PUT", &PubkyId::from(follower_kp.public_key()), followee)?;
+    if handler.handle(&event).await.is_err() {
+        handler.handle(&event).await?;
     }
     Ok(())
 }
@@ -145,18 +201,26 @@ async fn test_seed_members_are_who_the_seed_reaches_by_following() -> Result<()>
 }
 
 /// At start, a seed scope narrowed from "everything" lets in who the seed follows and
-/// lets go of who it doesn't reach; when the seed unfollows, the next check lets that
-/// member go too, without waiting for the interval.
+/// lets go of who it doesn't reach. Later follows read by the watcher's event handler are
+/// applied at the next check, without waiting for the interval: a new followee joins, an
+/// unfollowed member leaves. With no follow read since, a check changes nothing, even if
+/// the graph would.
 #[tokio_shared_rt::test(shared)]
 async fn test_a_seed_scope_follows_the_seeds_follows() -> Result<()> {
     let test = WatcherTest::setup(None).await?;
     let hs = test.homeserver_id.to_public_key();
-    let (_, seed) = user_on(&test, &hs).await?;
+    let (seed_kp, seed) = user_on(&test, &hs).await?;
     let (_, friend) = user_on(&test, &hs).await?;
     let (_, stranger) = user_on(&test, &hs).await?;
+    let (_, newcomer) = user_on(&test, &hs).await?;
     let moderator = random_pubky_id();
-    let (ingestor, maintainer) =
-        seed_maintainer(&seed, 1, &moderator, &[&seed, &friend, &stranger]);
+    let (ingestor, maintainer) = seed_maintainer(
+        &seed,
+        1,
+        &moderator,
+        &[&seed, &friend, &stranger, &newcomer],
+    );
+    let handler = handler_for(&ingestor, &maintainer)?;
 
     // Indexed under "everything", before the seed scope: in scope, bound and polled.
     UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(PubkyConnectorResolver))
@@ -175,11 +239,31 @@ async fn test_a_seed_scope_follows_the_seeds_follows() -> Result<()> {
     let (stranger_state, friend_state) =
         (scope_state(&stranger).await?, scope_state(&friend).await?);
 
-    handlers::follow::del(seed.clone(), friend.clone()).await?;
+    // The interval is an hour: only the follow the handler read makes this check run.
+    follow_through(&handler, &seed_kp, &newcomer).await?;
+    let after_follow = maintainer.tick().await?;
+    let newcomer_state = scope_state(&newcomer).await?;
+    let newcomer_cursors = UserHsCursor::read(&[newcomer.as_ref()], &test.homeserver_id).await?;
+
+    handler
+        .handle(&follow_event("DEL", &seed, &friend)?)
+        .await?;
     let after_unfollow = maintainer.tick().await?;
-    let unchanged = maintainer.tick().await?;
     let friend_after = scope_state(&friend).await?;
+
+    // A follow the handler didn't read: a check that worked members out would let the
+    // stranger back in.
+    let edge = Query::new(
+        "test_seed_follows_stranger",
+        "MATCH (s:User {id: $seed}), (x:User {id: $stranger}) MERGE (s)-[:FOLLOWS]->(x)",
+    )
+    .param("seed", seed.to_string())
+    .param("stranger", stranger.to_string());
+    exec_single_row(edge).await?;
+    let unchanged = maintainer.tick().await?;
+    let stranger_after = scope_state(&stranger).await?;
     catch_up::caught_up(&friend).await?;
+    catch_up::caught_up(&newcomer).await?;
 
     assert_eq!(at_start, ScopeChange { joined: 1, left: 1 });
     assert_eq!(friend_state, None, "the seed's followee joined");
@@ -189,18 +273,26 @@ async fn test_a_seed_scope_follows_the_seeds_follows() -> Result<()> {
         Some(SCOPE_STATE_LEFT),
         "unreached"
     );
+    assert_eq!(after_follow, ScopeChange { joined: 1, left: 0 });
+    assert_eq!(newcomer_state, None, "the new followee joined");
+    assert_eq!(newcomer_cursors, vec![0], "and is read from the start");
     assert_eq!(after_unfollow, ScopeChange { joined: 0, left: 1 });
     assert_eq!(
         friend_after.as_deref(),
         Some(SCOPE_STATE_LEFT),
         "unfollowed"
     );
-    assert_eq!(unchanged, ScopeChange::default(), "no follow changed since");
+    assert_eq!(unchanged, ScopeChange::default(), "no follow read since");
+    assert_eq!(
+        stranger_after.as_deref(),
+        Some(SCOPE_STATE_LEFT),
+        "not worked out again before the interval"
+    );
     Ok(())
 }
 
-/// A member that can't join (no published homeserver) doesn't stop the others, and stays
-/// out to be tried again at the next run; the moderator, unreached, is never let go.
+/// A member that can't join, its lookup failing, doesn't stop the others, and stays out
+/// to be tried again later; the moderator, unreached, is never let go.
 #[tokio_shared_rt::test(shared)]
 async fn test_a_member_that_cant_join_doesnt_stop_the_others() -> Result<()> {
     let test = WatcherTest::setup(None).await?;
@@ -208,16 +300,19 @@ async fn test_a_member_that_cant_join_doesnt_stop_the_others() -> Result<()> {
     let (_, seed) = user_on(&test, &hs).await?;
     let (_, friend) = user_on(&test, &hs).await?;
     let (_, moderator) = user_on(&test, &hs).await?;
-    // Tried before the friend (same hop, smaller id), so a failure that stopped the run
-    // would keep the friend out.
+    // Tried before the friend (same hop, smaller id), and its lookup errs, so a failure
+    // that stopped the run would keep the friend out.
     let unpublished = std::iter::repeat_with(random_pubky_id)
         .find(|id| id.as_ref() < friend.as_ref())
         .expect("a smaller id comes up");
-    let (ingestor, maintainer) = seed_maintainer(
+    let (ingestor, maintainer) = seed_maintainer_with(
         &seed,
         1,
         &moderator,
         &[&seed, &friend, &unpublished, &moderator],
+        Arc::new(FailingResolver {
+            failing: unpublished.clone(),
+        }),
     );
 
     UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(PubkyConnectorResolver))
@@ -408,6 +503,26 @@ async fn test_seed_members_stop_at_the_most() -> Result<()> {
     Ok(())
 }
 
+/// Looks homeservers up as the real resolver does, but the lookup of one user fails.
+struct FailingResolver {
+    failing: PubkyId,
+}
+
+#[async_trait::async_trait]
+impl PkdnsHomeserverResolver for FailingResolver {
+    async fn resolve_record(
+        &self,
+        user_pk: &pubky::PublicKey,
+    ) -> nexus_common::db::PubkyClientResult<nexus_common::models::user::PkdnsRecord> {
+        if user_pk.to_z32() == self.failing.as_ref() {
+            return Err(nexus_common::db::PubkyClientError::RequestFailed {
+                message: "the DHT is unreachable".to_string(),
+            });
+        }
+        PubkyConnectorResolver.resolve_record(user_pk).await
+    }
+}
+
 /// Looks homeservers up as the real resolver does, counting the lookups of one user.
 struct CountingResolver {
     counted: PubkyId,
@@ -453,8 +568,10 @@ async fn test_a_member_that_couldnt_join_waits_for_the_interval() -> Result<()> 
 
     maintainer.at_start().await?;
     let first = resolver.lookups.load(Ordering::Relaxed);
-    // Another follow: the next check works the members out again.
+    // Another follow, as the event handler reads it: the next check works the members
+    // out again.
     follow(&seed, &friend, &ingestor).await?;
+    maintainer.follows_changed().raise();
     let next = maintainer.tick().await?;
     let second = resolver.lookups.load(Ordering::Relaxed);
     catch_up::caught_up(&friend).await?;
