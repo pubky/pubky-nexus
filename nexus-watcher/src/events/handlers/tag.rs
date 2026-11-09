@@ -18,7 +18,7 @@ use nexus_common::universal_tag::normalize::{
 use pubky_app_specs::{ExtendedParsedUri, ParsedUri, PubkyAppTag, PubkyId, Resource};
 use tracing::{debug, Instrument};
 
-use super::utils::{fail_on_blacklisted_hs, post_kind, post_relationships_is_reply};
+use super::utils::{counts_toward_engagement, fail_on_blacklisted_hs, post_kind};
 
 #[derive(Debug)]
 struct TagStorageUri {
@@ -246,7 +246,7 @@ async fn put_sync_post(
                     ScoreAction::Increment(1.0),
                 ),
                 async {
-                    if !post_relationships_is_reply(&author_id, post_id).await? {
+                    if counts_toward_engagement(&author_id, post_id).await? {
                         PostStream::update_index_score(
                             &author_id,
                             post_id,
@@ -595,7 +595,7 @@ async fn del_sync_post(
             Ok::<(), EventProcessorError>(())
         },
         async {
-            if tagger_in_index && !post_relationships_is_reply(author_id, post_id).await? {
+            if tagger_in_index && counts_toward_engagement(author_id, post_id).await? {
                 PostStream::update_index_score(author_id, post_id, ScoreAction::Decrement(1.0))
                     .await?;
             }
