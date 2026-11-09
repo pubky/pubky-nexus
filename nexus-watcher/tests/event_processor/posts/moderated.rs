@@ -502,7 +502,8 @@ async fn test_reply_to_a_post_taken_down_before_it_is_read_lands_under_a_tombsto
     let parent_uri = post_uri_builder(author_id.clone(), parent_id.clone());
     take_down_unread(parent_uri.clone()).await?;
 
-    // The parent's own event is dropped, whether it comes before the reply or not.
+    // The parent's own event, read before the reply, is dropped. The reply-first order is
+    // `test_reply_under_a_tombstone_survives_the_parents_later_event`.
     test.put(
         &author_kp,
         &parent_path,
