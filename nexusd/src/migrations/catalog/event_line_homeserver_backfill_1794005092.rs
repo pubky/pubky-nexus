@@ -18,8 +18,10 @@ use tracing::info;
 /// points to. A line whose user has no edge, or whose user can't be read, is left as it is,
 /// without a key.
 ///
-/// The edge says where the user is hosted now, not where an old event was read from. For a
-/// user who moved, their older lines get the new homeserver.
+/// The edge names the homeserver the user was bound to, not the one an old event was read
+/// from. A user who moves keeps the edge: the resolver marks it stale instead of switching it,
+/// and the stale flag is ignored here. So a user who moved after being bound gets the
+/// homeserver they were bound to, and only a user first bound after moving gets the new one.
 ///
 /// # Batching
 /// Each page's users are looked up in one query, and its lines are rewritten in place by one
@@ -28,8 +30,9 @@ use tracing::info;
 ///
 /// # Idempotency
 /// A line that already ends with a key is left alone, and the script writes a line only while
-/// it still holds what was read, so a failed run is safe to repeat. A repeated run also gives a
-/// key to the lines of users who have gained an edge since.
+/// it still holds what was read, so a failed run is safe to repeat. `is_multi_staged()` is
+/// `false`, so the manager marks this Done after one successful backfill: a line left without a
+/// key keeps none after its user gains an edge.
 ///
 /// # Deploy ordering
 /// Run it after the watchers that store the key are deployed. A line an older watcher appends
