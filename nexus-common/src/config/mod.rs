@@ -30,7 +30,7 @@ pub use api::{ApiConfig, RateLimitBucketConfig, RateLimitConfig};
 pub use features::FeaturesConfig;
 pub use job::JobConfig;
 pub use net::NetConfig;
-pub use scope::{ScopeConfig, ScopeMaintenanceConfig};
+pub use scope::{ScopeBootstrapConfig, ScopeConfig, ScopeMaintenanceConfig};
 pub use stack::{default_stack, MediaConfig, OtlpConfig, StackConfig};
 pub use trust::{
     default_trust_report_dir, TrustRankConfig, DEFAULT_TRUST_ALPHA, DEFAULT_TRUST_MAX_ITERATIONS,
