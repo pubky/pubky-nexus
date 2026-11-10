@@ -2,8 +2,10 @@
 //!
 //! Shared helpers for unit and integration tests.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock, Mutex};
+
+use tokio::sync::oneshot;
 
 use pubky::pkarr::dns::{rdata::SVCB, Name};
 use pubky::pkarr::{SignedPacket, Timestamp};
@@ -33,6 +35,49 @@ pub(crate) fn move_append_fault(author: &str) -> RedisResult<()> {
         return Err(RedisError::IoError("injected move append failure".into()));
     }
     Ok(())
+}
+
+/// A point in the external reference work of a post where a test can hold its handler: see
+/// [`pause_references`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ReferencePause {
+    /// The start of `references::stage`, right after the post write it reconciles.
+    Stage,
+    /// In `references::flush`, after it read the outbox and before it appends it.
+    Flush,
+}
+
+type PauseSignals = (oneshot::Sender<()>, oneshot::Receiver<()>);
+
+/// Pauses armed by [`pause_references`], per point and author.
+static REFERENCE_PAUSES: LazyLock<Mutex<HashMap<(ReferencePause, String), PauseSignals>>> =
+    LazyLock::new(Default::default);
+
+/// Holds the next handler of `author`'s posts that reaches `point`, once. Returns a receiver
+/// that resolves when one reached it, and the sender that lets it go on.
+pub fn pause_references(
+    point: ReferencePause,
+    author: &str,
+) -> (oneshot::Receiver<()>, oneshot::Sender<()>) {
+    let (reached_tx, reached_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    REFERENCE_PAUSES
+        .lock()
+        .unwrap()
+        .insert((point, author.to_string()), (reached_tx, release_rx));
+    (reached_rx, release_tx)
+}
+
+/// Waits at `point` if [`pause_references`] armed it for `author`.
+pub(crate) async fn reference_pause(point: ReferencePause, author: &str) {
+    let armed = REFERENCE_PAUSES
+        .lock()
+        .unwrap()
+        .remove(&(point, author.to_string()));
+    if let Some((reached, release)) = armed {
+        let _ = reached.send(());
+        let _ = release.await;
+    }
 }
 
 /// Generates a random public key.

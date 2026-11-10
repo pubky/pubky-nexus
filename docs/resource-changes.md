@@ -46,6 +46,14 @@ holds for one watcher process per Neo4j and Redis, the deployment the watcher's
 cursors already assume. Equivalent tag files land on one edge and only its owner
 publishes, so they need no shared lock.
 
+A post's references get the same ordering from one lock per post (author and post
+id): a PUT of any of its version files and its DEL hold it from their first read
+of the post's references to their last append. The post's references then match the
+version handled last: no handler's references land between another one's post write
+and its references, and a PUT cannot append an outbox after a concurrent DEL
+published and retracted it. The handlers do not compare versions, so a PUT of an
+older version handled after a newer one replaces both its content and references.
+
 What the feed cannot repair alone is a handler that stops for good between its
 graph write and its append: a PUT or a DEL whose retries run out there. The graph
 then holds a change the feed lacks. Running the seed job (below) rebuilds the feed from
