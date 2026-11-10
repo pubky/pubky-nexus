@@ -176,7 +176,7 @@ impl<'a> Migration<'a> {
     pub async fn run_through(&mut self, last: Pass) -> Result<()> {
         for pass in Pass::ALL.into_iter().filter(|pass| *pass <= last) {
             for path in self.todo.remove(&pass).unwrap_or_default() {
-                self.object(&path).await?;
+                self.object(pass, &path).await?;
             }
         }
         Ok(())
@@ -222,10 +222,13 @@ impl<'a> Migration<'a> {
         Ok(self.report)
     }
 
-    /// One 0.x object through its own step.
-    async fn object(&mut self, path: &str) -> Result<()> {
-        if self.migrated_before.contains(path) {
+    /// One 0.x object of `pass` through its own step. A File object writes nothing and feeds the
+    /// run, so it is read on every walk, even when an earlier run migrated it, and is not
+    /// recorded as migrated; everything else an earlier run migrated is present.
+    async fn object(&mut self, pass: Pass, path: &str) -> Result<()> {
+        if pass != Pass::Files && self.migrated_before.contains(path) {
             self.report.already_present.push(path.to_string());
+            self.migrated.push(path.to_string());
             return Ok(());
         }
         if self.failing.contains(path) {
@@ -246,8 +249,7 @@ impl<'a> Migration<'a> {
             }
         };
         // A File object feeds the run and writes nothing
-        if migrated.writes.is_empty() {
-            self.migrated.push(path.to_string());
+        if pass == Pass::Files {
             return Ok(());
         }
         let mut written = Vec::new();

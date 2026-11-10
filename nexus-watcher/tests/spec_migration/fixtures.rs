@@ -37,6 +37,8 @@ pub struct Neighbourhood {
     /// Bob's repost of Alice's note.
     pub bob_repost: String,
     pub avatar_hash: String,
+    /// The `pubky.app` File object of the photo.
+    pub photo: String,
     pub photo_hash: String,
 }
 
@@ -60,7 +62,12 @@ impl Neighbourhood {
         let bob_post = bob.note("Bob: hello").await?;
         let note = alice.note("Alice: hello").await?;
         let photo_post = alice
-            .post(&v0_post("Alice: the sea", None, None, Some(vec![photo])))
+            .post(&v0_post(
+                "Alice: the sea",
+                None,
+                None,
+                Some(vec![photo.clone()]),
+            ))
             .await?;
         let reply_to_bob = alice
             .reply("Alice: hi Bob", &v0_post_uri(&bob, &bob_post))
@@ -107,6 +114,7 @@ impl Neighbourhood {
             bob_reply,
             bob_repost,
             avatar_hash,
+            photo,
             photo_hash,
         })
     }

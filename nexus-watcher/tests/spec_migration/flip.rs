@@ -6,10 +6,11 @@ use pubky_social_specs::PubkyId;
 
 use crate::fixtures::{Neighbourhood, AVATAR, PHOTO};
 use crate::harness::{
-    epoch, followers, notifications, post_tags, profile, served_post, v0_post_uri, v1_file_uri,
-    v1_post_uri, SpecMigrationTest,
+    epoch, followers, notifications, post_tags, profile, served_post, v0_post, v0_post_uri,
+    v1_file_uri, v1_post_uri, SpecMigrationTest,
 };
 use crate::migrator::{ensure_clean, Pass};
+use pubky_social_specs::migrate::TRANSFORM_REV;
 
 /// Alice migrates on `alice_hs` and nexus reads the whole copy at once. Nexus serves the same
 /// profile, posts, counts, tags, follows and bookmark as before; Alice's addresses are her
@@ -148,30 +149,65 @@ async fn nexus_reading_between_the_passes_sees_nothing_until_the_profile() -> Re
     Ok(())
 }
 
-/// The app runs the migration again, as it does on every start until it sees the flag: the
-/// second run finds the flag and writes nothing, and a run without the flag (a lost flag, a
-/// new transform revision) finds every key present and writes nothing either. Nexus serves the
-/// same and flips nobody twice.
+/// The app runs the migration again, as it does on every start until it sees the flag. A
+/// check of the port's flag and journal, which the other scenarios rely on: nexus sees nothing
+/// of these runs but the flag's own `/priv/` events, which it does not read.
+///
+/// - The flag at the current revision stops the run before it lists anything.
+/// - A flag of an older revision (new transforms) walks the tree again. Every object the flag
+///   records is present and the File objects are read again, so a post another device wrote
+///   since, with the old photo attached, is copied with the photo's `social/v1` address.
+/// - With no flag at all (lost), the journal finds every key present and writes nothing.
 #[tokio_shared_rt::test(shared)]
-async fn a_second_run_writes_nothing_and_changes_nothing() -> Result<()> {
+async fn a_second_run_writes_nothing() -> Result<()> {
     let test = SpecMigrationTest::setup().await?;
     let n = Neighbourhood::build(&test, &test.primary).await?;
-    ensure_clean(&n.alice.migrate().await?)?;
-    test.index().await?;
-    let served = n.served().await?;
-    let alice_notified = notifications(&n.alice).await?;
-    let bob_notified = notifications(&n.bob).await?;
+    let first = n.alice.migrate().await?;
+    ensure_clean(&first)?;
+    let flag_path = "/priv/social/v1/_migrated.json";
+    let flag = n.alice.get_json(flag_path).await?;
 
     let again = n.alice.migrate().await?;
     assert!(again.already_migrated, "{again:?}");
-    n.alice.delete("/priv/social/v1/_migrated.json").await?;
-    let rescan = n.alice.migrate().await?;
-    assert!(rescan.written.is_empty(), "{rescan:?}");
-    test.index().await?;
 
-    assert_eq!(epoch(&n.alice).await?, Epoch::V1);
-    assert_eq!(n.served().await?, served);
-    assert_eq!(notifications(&n.alice).await?, alice_notified);
-    assert_eq!(notifications(&n.bob).await?, bob_notified);
+    let late = n
+        .alice
+        .post(&v0_post(
+            "Alice: the sea again",
+            None,
+            None,
+            Some(vec![n.photo.clone()]),
+        ))
+        .await?;
+    let mut older = flag.clone();
+    older["transform_rev"] = (TRANSFORM_REV - 1).into();
+    n.alice.put_json(flag_path, &older).await?;
+    let revision = n.alice.migrate().await?;
+    let copy = format!("pub/social/v1/posts/{late}/{late}.json");
+    assert_eq!(
+        revision.written,
+        std::slice::from_ref(&copy),
+        "{revision:?}"
+    );
+    assert!(!revision.already_present.is_empty(), "{revision:?}");
+    let copied = n.alice.get_json(&format!("/{copy}")).await?;
+    assert_eq!(
+        copied["attachments"][0]["uri"],
+        v1_file_uri(&n.alice, &n.photo_hash, "png")
+    );
+    let rewritten = n.alice.get_json(flag_path).await?;
+    assert_eq!(rewritten["transform_rev"], TRANSFORM_REV);
+    let migrated = rewritten["migrated"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    for path in flag["migrated"].as_array().into_iter().flatten() {
+        assert!(migrated.contains(path), "{path} is recorded again");
+    }
+
+    n.alice.delete(flag_path).await?;
+    let lost = n.alice.migrate().await?;
+    assert!(lost.written.is_empty(), "{lost:?}");
+    assert!(!lost.already_present.is_empty(), "{lost:?}");
     Ok(())
 }

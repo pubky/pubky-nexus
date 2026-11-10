@@ -486,6 +486,16 @@ impl User {
         Ok(())
     }
 
+    pub async fn get_json(&self, path: &str) -> Result<serde_json::Value> {
+        let response = self
+            .session
+            .storage()
+            .get(path)
+            .await
+            .with_context(|| format!("GET {path}"))?;
+        Ok(serde_json::from_slice(&response.bytes().await?)?)
+    }
+
     pub async fn delete(&self, path: &str) -> Result<()> {
         self.session
             .storage()
