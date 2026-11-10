@@ -42,6 +42,7 @@ use pubky_social_specs::{
     PubkySocialUser, Root,
 };
 use pubky_testnet::Testnet;
+use serde_json::Value;
 use tempfile::TempDir;
 use tokio::sync::watch;
 
@@ -486,6 +487,14 @@ pub async fn post(author: &User, post_id: &str, viewer: Option<&User>) -> Result
         .map_err(|e| anyhow!("{e}"))
 }
 
+/// Whether `viewer` has bookmarked `author`'s post, as the post is served to them.
+pub async fn has_bookmarked(viewer: &User, author: &User, post_id: &str) -> Result<bool> {
+    let view = post(author, post_id, Some(viewer))
+        .await?
+        .ok_or_else(|| anyhow!("post {}:{post_id} is not served", author.id()))?;
+    Ok(view.bookmark.is_some())
+}
+
 pub async fn served_post(author: &User, post_id: &str) -> Result<PostView> {
     post(author, post_id, None)
         .await?
@@ -532,31 +541,24 @@ pub async fn following(user: &User) -> Result<Vec<String>> {
         .unwrap_or_default())
 }
 
-/// `user`'s notifications as `(kind, time)`, newest first. Identical notifications share one
-/// entry whose time moves to the latest, so a notification issued again shows as a newer time.
-pub async fn notifications(user: &User) -> Result<Vec<(String, i64)>> {
+/// `user`'s notifications as `(time, body)`, newest first, the body whole: its kind, actor,
+/// addresses and label. Identical notifications share one entry whose time moves to the latest,
+/// so a notification issued again shows as a newer time.
+pub async fn notifications(user: &User) -> Result<Vec<(i64, Value)>> {
     let list = Notification::get_by_id(&user.id(), Pagination::default())
         .await
         .map_err(|e| anyhow!("{e}"))?;
-    Ok(list
-        .into_iter()
-        .map(|n| (notification_kind(&n), n.timestamp))
-        .collect())
+    list.into_iter()
+        .map(|n| Ok((n.timestamp, serde_json::to_value(&n.body)?)))
+        .collect()
 }
 
 pub async fn notification_kinds(user: &User) -> Result<Vec<String>> {
     Ok(notifications(user)
         .await?
         .into_iter()
-        .map(|(kind, _)| kind)
+        .map(|(_, body)| body["type"].as_str().unwrap_or_default().to_string())
         .collect())
-}
-
-fn notification_kind(notification: &Notification) -> String {
-    serde_json::to_value(&notification.body)
-        .ok()
-        .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_string))
-        .unwrap_or_default()
 }
 
 /// `(label, taggers)` of the tags on a post, sorted.

@@ -1,14 +1,14 @@
 //! The neighbourhood every scenario starts from: Alice, who migrates, and Bob, who stays on
 //! `pubky.app`, with everything between them that the flip has to carry over.
 
-use anyhow::{anyhow, ensure, Result};
+use anyhow::{ensure, Result};
 use pubky_social_specs::legacy_v0::traits::HasPath;
 use pubky_social_specs::legacy_v0::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 use serde_json::{json, Value};
 
 use crate::harness::{
-    author_posts, followers, following, post_tags, profile, profile_tags, served_post, v0_post,
-    v0_post_uri, v0_profile, v0_profile_uri, SpecMigrationTest, User,
+    author_posts, followers, following, has_bookmarked, post_tags, profile, profile_tags,
+    served_post, v0_post, v0_post_uri, v0_profile, v0_profile_uri, SpecMigrationTest, User,
 };
 
 pub const AVATAR: &[u8] = b"\x89PNG\r\n\x1a\nalice's avatar";
@@ -27,7 +27,7 @@ pub struct Neighbourhood {
     /// Alice's long post with a title line, which Bob replied to. Its `social/v1` copy is an
     /// article, whose content is an envelope: the one copy whose content differs.
     pub long: String,
-    /// Bob's post, which Alice replied to and tagged.
+    /// Bob's post, which Alice replied to, tagged and bookmarked.
     pub bob_post: String,
     /// Bob's reply to Alice's note.
     pub bob_reply: String,
@@ -83,6 +83,7 @@ impl Neighbourhood {
         alice.tag(&v0_post_uri(&bob, &bob_post), "nice").await?;
         alice.tag(&v0_post_uri(&alice, &photo_post), "mine").await?;
         alice.tag(&v0_profile_uri(&bob), "pal").await?;
+        alice.bookmark(&v0_post_uri(&bob, &bob_post)).await?;
 
         // Bob's events can reach nexus before Alice's on another homeserver: the retry
         // processor links them once hers are in
@@ -140,11 +141,6 @@ impl Neighbourhood {
                 "reposted": view.relationships.reposted.is_some(),
             }));
         }
-        let bookmark = crate::harness::post(alice, &self.note, Some(bob))
-            .await?
-            .ok_or_else(|| anyhow!("Alice's note is not served"))?
-            .bookmark
-            .is_some();
         Ok(json!({
             "alice": {
                 "name": alice_view.details.name,
@@ -165,7 +161,8 @@ impl Neighbourhood {
                 "posts": author_posts(bob).await?,
             },
             "posts": posts,
-            "bob_bookmarked_alices_note": bookmark,
+            "bob_bookmarked_alices_note": has_bookmarked(bob, alice, &self.note).await?,
+            "alice_bookmarked_bobs_post": has_bookmarked(alice, bob, &self.bob_post).await?,
         }))
     }
 }

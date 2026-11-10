@@ -5,15 +5,16 @@ use nexus_common::models::user::Epoch;
 
 use crate::fixtures::{Neighbourhood, AVATAR, PHOTO};
 use crate::harness::{
-    epoch, followers, notifications, post_tags, profile, served_post, v0_post_uri, v1_file_uri,
-    v1_post_uri, SpecMigrationTest,
+    epoch, followers, has_bookmarked, notifications, post_tags, profile, served_post, v0_post_uri,
+    v1_file_uri, v1_post_uri, SpecMigrationTest,
 };
 use crate::migrator::ensure_clean;
 
 /// Alice migrates and nexus reads the whole copy at once. Nexus serves the same profile, posts,
-/// counts, tags, follows and bookmark as before. Alice's addresses are her `social/v1` ones,
-/// her files included and served from there; Bob's reply and repost point at her note's new
-/// address, his own posts keep theirs; nobody is notified of anything.
+/// counts, tags, follows and bookmarks as before, hers included, and every notification as
+/// before, body and time: nobody is notified of anything. Alice's addresses are her
+/// `social/v1` ones, her files included and served from there; Bob's reply and repost point at
+/// her note's new address, his own posts keep theirs.
 #[tokio_shared_rt::test(shared)]
 async fn a_migrated_user_keeps_everything() -> Result<()> {
     let test = SpecMigrationTest::setup().await?;
@@ -31,6 +32,8 @@ async fn a_migrated_user_keeps_everything() -> Result<()> {
     );
     assert_eq!(profile(&n.alice).await?.counts.posts, 4);
     assert!(followers(&n.alice).await?.contains(&n.bob.id()));
+    assert!(has_bookmarked(&n.alice, &n.bob, &n.bob_post).await?);
+    assert_eq!(profile(&n.alice).await?.counts.bookmarks, 1);
     assert!(alice_notified.len() >= 5, "{alice_notified:?}");
 
     let report = n.alice.migrate().await?;
