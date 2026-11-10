@@ -33,13 +33,29 @@ async fn copies_landing_after_the_flip_change_nothing() -> Result<()> {
     let mut migration = n.alice.start_migration().await?;
     migration.fail_reading(&v0_post_path(&n.long));
     let report = migration.finish().await?;
-    ensure!(
-        report
-            .written
-            .iter()
-            .any(|path| path.starts_with("pub/social/v1/posts/")),
-        "the run copies the posts: {report:?}"
-    );
+    // Everything but the profile, which the app wrote, and the long post: her posts, files and
+    // follow at the addresses they derive, her three tags and her private bookmark
+    let mut copies = report.written.clone();
+    copies.sort();
+    let (tags, rest): (Vec<_>, Vec<_>) = copies
+        .into_iter()
+        .partition(|path| path.starts_with("pub/social/v1/tags/"));
+    let (bookmarks, rest): (Vec<_>, Vec<_>) = rest
+        .into_iter()
+        .partition(|path| path.starts_with("priv/social/v1/bookmarks/"));
+    let mut expected: Vec<String> = [&n.note, &n.photo_post, &n.reply_to_bob]
+        .iter()
+        .map(|id| format!("pub/social/v1/posts/{id}/{id}.json"))
+        .chain(
+            [&n.avatar_hash, &n.photo_hash]
+                .iter()
+                .map(|hash| format!("pub/social/v1/files/{hash}.png")),
+        )
+        .chain([format!("pub/social/v1/follows/{}.json", n.bob.id())])
+        .collect();
+    expected.sort();
+    assert_eq!(rest, expected, "{report:?}");
+    assert_eq!((tags.len(), bookmarks.len()), (3, 1), "{report:?}");
     test.index().await?;
 
     assert_eq!(notifications(&n.alice).await?, alice_notified);
