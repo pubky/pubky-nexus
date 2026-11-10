@@ -86,12 +86,15 @@ fn freeze_relationships(relationships: &mut Value) {
     }
 }
 
-/// Whether `uri` is a post's stored address, in either epoch's folder. Only a post's address
-/// is, so this tells a reply to a post from a reply to an external resource (another scheme's
-/// URL or another app's object) without parsing, and so without refusing a post whose id an
-/// older writer spelled loosely.
+/// Whether `uri` is a post's stored address: its path, right after the authority, starts in
+/// either epoch's folder. Only a post's address does, so this tells a reply to a post from a
+/// reply to an external resource (another scheme's URL or another app's object, even one whose
+/// path nests a post folder further down) without parsing the id, and so without refusing a
+/// post whose id an older writer spelled loosely.
 fn is_post_uri(uri: &str) -> bool {
-    uri.starts_with("pubky://") && POST_FOLDERS.iter().any(|folder| uri.contains(folder))
+    uri.strip_prefix("pubky://")
+        .and_then(|rest| rest.find('/').map(|slash| &rest[slash..]))
+        .is_some_and(|path| POST_FOLDERS.iter().any(|folder| path.starts_with(folder)))
 }
 
 /// The folders a post's stored address names, `pubky.app`'s and `social/v1`'s.
@@ -130,17 +133,22 @@ mod tests {
     const AUTHOR: &str = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy";
 
     /// A post's relationships lose `embedded`, and an external `replied` reads `null`, at any
-    /// depth; a reply to a post of either epoch keeps its `replied`.
+    /// depth, also for another app's object whose path nests a post folder; a reply to a post
+    /// of either epoch keeps its `replied`.
     #[test]
     fn freeze_writes_the_v0_relationships() {
         let legacy = format!("pubky://{AUTHOR}/pub/pubky.app/posts/00000039YD9BM");
         let social = format!("pubky://{AUTHOR}/pub/social/v1/posts/00000039YD9BM");
+        // Another app's object whose path nests a post folder: external, not a post.
+        let nested =
+            format!("pubky://{AUTHOR}/pub/mapky/objects/pub/social/v1/posts/0033SSE3B1FQ0");
         let mut value = json!({
             "posts": [
                 {"relationships": {"replied": "https://example.com/a", "reposted": null,
                     "embedded": "https://example.com/b", "mentioned": []}},
                 {"relationships": {"replied": legacy, "reposted": null, "mentioned": [AUTHOR]}},
-                {"relationships": {"replied": social, "reposted": null, "mentioned": []}}
+                {"relationships": {"replied": social, "reposted": null, "mentioned": []}},
+                {"relationships": {"replied": nested, "reposted": null, "mentioned": []}}
             ],
             "user": {"relationships": {"embedded": "kept: not a post's relationships"}}
         });
@@ -151,7 +159,8 @@ mod tests {
                 "posts": [
                     {"relationships": {"replied": null, "reposted": null, "mentioned": []}},
                     {"relationships": {"replied": legacy, "reposted": null, "mentioned": [AUTHOR]}},
-                    {"relationships": {"replied": social, "reposted": null, "mentioned": []}}
+                    {"relationships": {"replied": social, "reposted": null, "mentioned": []}},
+                    {"relationships": {"replied": null, "reposted": null, "mentioned": []}}
                 ],
                 "user": {"relationships": {"embedded": "kept: not a post's relationships"}}
             })
