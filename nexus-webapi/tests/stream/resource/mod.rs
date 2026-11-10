@@ -258,3 +258,82 @@ async fn test_stream_resource_ids_empty_filter() -> Result<()> {
 
     Ok(())
 }
+
+/// The batch route is `/v1` only: `/v0` is frozen.
+const BATCH_PATH: &str = "/v1/stream/resources/by_ids";
+
+#[tokio_shared_rt::test(shared)]
+async fn test_batch_resources_preserves_order_and_skips_unknown() -> Result<()> {
+    use crate::utils::post_request;
+    use serde_json::json;
+    let viewer = "emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy";
+    let ids = [VIDEO, "00000000000000000000000000000000", ARTICLE, VIDEO];
+    let views = post_request(
+        BATCH_PATH,
+        json!({
+            "resource_ids": ids,
+            "viewer_id": viewer
+        }),
+    )
+    .await?;
+    let ids: Vec<_> = views
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v["details"]["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, [VIDEO, ARTICLE, VIDEO]);
+    // `/v1` tags carry the viewer's tag file in `tag_uri` and no `relationship`.
+    let tags = views[1]["tags"].as_array().unwrap();
+    assert!(tags.iter().all(|tag| tag.get("relationship").is_none()));
+    assert!(tags.iter().any(|tag| tag["label"] == "bitcoin"
+        && tag["tag_uri"] == format!("pubky://{viewer}/pub/mapky/tags/RES_TAG_001")));
+
+    let by_uri = post_request(BATCH_PATH, json!({
+        "uris": ["HTTPS://Example.COM:443/video#fragment", "https://example.com/unknown-batch", "https://example.com/article"]
+    })).await?;
+    let ids: Vec<_> = by_uri
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v["details"]["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, [VIDEO, ARTICLE]);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_batch_resources_bad_requests_and_no_matches() -> Result<()> {
+    use crate::utils::{invalid_post_request, post_request};
+    use serde_json::json;
+    for body in [
+        json!({"resource_ids": ["00000000000000000000000000000000"]}),
+        json!({"uris": ["https://example.com/unknown-batch"]}),
+    ] {
+        assert_eq!(post_request(BATCH_PATH, body).await?, json!([]));
+    }
+    for body in [
+        json!({"resource_ids": []}),
+        json!({"uris": ["bad"]}),
+        json!({"resource_ids": [ARTICLE], "uris": ["https://example.com/article"]}),
+        json!({"resource_ids": [ARTICLE], "viewer_id": "bad"}),
+        json!({"resource_ids": vec![ARTICLE; 101]}),
+    ] {
+        invalid_post_request(BATCH_PATH, body, StatusCode::BAD_REQUEST).await?;
+    }
+    Ok(())
+}
+
+/// `/v0` is frozen, so it has no batch route: a 404 like any path it does not know.
+#[tokio_shared_rt::test(shared)]
+async fn test_batch_resources_is_v1_only() -> Result<()> {
+    use crate::utils::invalid_post_request;
+    use serde_json::json;
+    invalid_post_request(
+        &format!("{ROOT_PATH}/by_ids"),
+        json!({"resource_ids": [ARTICLE]}),
+        StatusCode::NOT_FOUND,
+    )
+    .await?;
+    Ok(())
+}

@@ -11,7 +11,8 @@
 //! changed nothing, a stalled keyset scan). The flip goes through the normal retry, which runs
 //! it whole again while the user is still `v0`; a user whose data cannot be migrated is never
 //! reported as `v1`. The epoch write and the details cache refresh that end the flip
-//! ([`crate::events::handlers::user::flip`]) go through the same [`step`].
+//! ([`crate::events::handlers::user::flip`]) go through the same [`step`]; the resource changes
+//! feed lines published between them do not, since they never fail the flip (see [`run`]).
 
 pub mod attachments;
 pub mod copy;
@@ -19,6 +20,7 @@ pub mod files;
 #[cfg(test)]
 mod migrator_tests;
 pub mod posts;
+pub mod resource_changes;
 pub mod tags;
 
 use crate::events::EventProcessorError;
@@ -31,7 +33,9 @@ use tracing::error;
 /// Runs every step of `user_id`'s migration, in order: the file map first, then the copy of
 /// each file to its `social/v1` address under `files_path`, then the posts whose attachments
 /// the map resolves, then the tags whose file targets it resolves. The copy comes before the
-/// posts, so no migrated address names a missing file.
+/// posts, so no migrated address names a missing file. The resource changes feed lines of the
+/// tags it moves are published after the flip's epoch write, and never fail the flip: see
+/// [`resource_changes`].
 #[tracing::instrument(name = "user.migrate", skip_all, fields(user_id = %user_id))]
 pub async fn run(user_id: &PubkyId, files_path: &Path) -> Result<(), EventProcessorError> {
     let files = step(user_id, "files", FileMap::load(user_id)).await?;

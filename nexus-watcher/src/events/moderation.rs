@@ -112,7 +112,7 @@ impl Moderation {
                     }
                 }
                 record_takedown(&address, tag_uri).await?;
-                Self::remove_taken_down(target, files_path, ingestor).await
+                Self::remove_taken_down(target, &address, files_path, ingestor).await
             }
         }
     }
@@ -122,15 +122,16 @@ impl Moderation {
     /// user's own DEL event. A `social/v1` file is removed at every address of its bytes
     /// ([`blob_takedown_key`]). Deleting what isn't indexed reports
     /// [`EventProcessorError::SkipIndexing`], as a user's DEL does. A user or any other
-    /// target is never taken down, so it is a no-op here.
+    /// target is never taken down, so it is a no-op here. `uri` is the taken-down address.
     pub(crate) async fn remove_taken_down(
         target: ReferenceTarget,
+        uri: &str,
         files_path: &Path,
         ingestor: &UserIngestor,
     ) -> Result<(), EventProcessorError> {
         match target {
             ReferenceTarget::Post(key) => handlers::post::del(key, ingestor).await,
-            ReferenceTarget::Tag { key } => handlers::tag::del(key).await,
+            ReferenceTarget::Tag { key } => handlers::tag::del_at(key, uri).await,
             ReferenceTarget::File(key) if is_v1_file_id(&key.resource_id) => {
                 handlers::file::del_blob(&key.owner_id, blob_of(&key.resource_id), files_path).await
             }
@@ -244,6 +245,7 @@ mod tests {
                 owner_id: owner,
                 resource_id: format!("{hash}.png"),
             }),
+            &format!("pubky://{USER_ID}/pub/social/v1/files/{hash}.png"),
             files.path(),
             &nexus_common::utils::test_utils::default_ingestor_tests(),
         )
