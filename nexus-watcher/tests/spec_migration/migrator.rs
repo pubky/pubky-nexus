@@ -368,7 +368,11 @@ fn is_not_found(error: &pubky::Error) -> bool {
 /// Fails unless `report` wrote something and skipped nothing: the fixtures write only objects
 /// the 0.x reader accepts.
 pub fn ensure_clean(report: &Report) -> Result<()> {
-    if !report.skipped.is_empty() || !report.deleted_mid_run.is_empty() || report.incomplete() {
+    if report.written.is_empty()
+        || !report.skipped.is_empty()
+        || !report.deleted_mid_run.is_empty()
+        || report.incomplete()
+    {
         bail!("the migration left objects behind: {report:?}");
     }
     Ok(())
