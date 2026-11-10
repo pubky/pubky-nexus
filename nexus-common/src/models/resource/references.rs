@@ -80,6 +80,12 @@ pub async fn flush(author: &str, id: &str) -> ModelResult<()> {
     let Some(raw) = state(author, id).await?.outbox else {
         return Ok(());
     };
+    #[cfg(any(test, feature = "test-utils"))]
+    crate::utils::test_utils::reference_pause(
+        crate::utils::test_utils::ReferencePause::Flush,
+        author,
+    )
+    .await;
     let lines: Vec<ResourceChange> =
         serde_json::from_str(&raw).map_err(ModelError::from_generic)?;
     ResourceChange::store_batch(&lines).await?;
@@ -110,7 +116,17 @@ pub async fn sync(post: &PostDetails, lines: Vec<ResourceChange>) -> ModelResult
 }
 
 /// Commit edges and recovery metadata, without acknowledging the feed append.
+///
+/// Like [`flush`], [`prepare_delete`] and [`finish_delete`], it reads and then writes the post's
+/// references and outbox: its callers serialize every handler of one post (the watcher's post
+/// lock), so another one's write cannot land between its read and its write.
 pub async fn stage(post: &PostDetails, mut lines: Vec<ResourceChange>) -> ModelResult<()> {
+    #[cfg(any(test, feature = "test-utils"))]
+    crate::utils::test_utils::reference_pause(
+        crate::utils::test_utils::ReferencePause::Stage,
+        &post.author,
+    )
+    .await;
     flush(&post.author, &post.id).await?;
     let old = state(&post.author, &post.id).await?;
     let at = chrono::Utc::now().timestamp_millis();
