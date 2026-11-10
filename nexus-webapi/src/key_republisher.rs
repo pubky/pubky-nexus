@@ -45,13 +45,19 @@ impl KeyRepublisher {
         client: &pkarr::Client,
         signed_packet: &SignedPacket,
     ) -> Result<(), PublishError> {
-        let res = client.publish(signed_packet, None).await;
-        if let Err(e) = &res {
-            tracing::warn!("Failed to publish the service's pkarr packet to the DHT: {e}");
-        } else {
-            tracing::info!("Published the service's pkarr packet to the DHT.");
+        match client.publish(signed_packet).await {
+            Ok(stored_on) => {
+                tracing::info!(
+                    stored_on,
+                    "Published the service's pkarr packet to the DHT."
+                );
+                Ok(())
+            }
+            Err(e) => {
+                tracing::warn!("Failed to publish the service's pkarr packet to the DHT: {e}");
+                Err(e)
+            }
         }
-        res
     }
 
     /// Start the periodic republish task which will republish the server packet to the DHT every hour.

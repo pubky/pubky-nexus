@@ -16,7 +16,7 @@ use crate::event_processor::utils::watcher::{unrank_user, HomeserverHashIdPath, 
 use anyhow::Result;
 use chrono::Utc;
 use pubky::Keypair;
-use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppTag};
+use pubky_social_specs::legacy_v0::{post_uri_builder, PubkyAppPost, PubkyAppTag};
 
 const BIO: &str = "trust gate";
 

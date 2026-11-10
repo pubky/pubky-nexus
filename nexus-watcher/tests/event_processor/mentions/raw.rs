@@ -3,7 +3,7 @@ use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::{db::RedisOps, models::post::PostRelationships};
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_mentions() -> Result<()> {

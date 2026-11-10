@@ -2,6 +2,7 @@ mod bookmark;
 mod collection;
 mod counts;
 mod details;
+mod kind;
 mod metrics;
 mod relationships;
 pub mod search;
@@ -13,7 +14,8 @@ pub use bookmark::Bookmark;
 pub use collection::{collection_item_keys, sync_collected_edges};
 pub use counts::PostCounts;
 pub use details::PostDetails;
-pub use relationships::PostRelationships;
+pub use kind::PostKind;
+pub use relationships::{PostParent, PostParents, PostRelationships};
 pub use search::PostsByContentSearch;
 pub use stream::{
     KindFilter, PostKeyStream, PostStream, StreamSource, POST_PER_USER_KEY_PARTS,

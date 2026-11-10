@@ -10,8 +10,8 @@ use chrono::Utc;
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
 use pubky::Keypair;
-use pubky_app_specs::post_uri_builder;
-use pubky_app_specs::{PubkyAppPost, PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::legacy_v0::post_uri_builder;
+use pubky_social_specs::legacy_v0::{PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_del_tag_post() -> Result<()> {

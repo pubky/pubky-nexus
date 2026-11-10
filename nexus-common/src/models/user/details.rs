@@ -6,7 +6,7 @@ use crate::models::error::ModelResult;
 use crate::models::traits::Collection;
 use async_trait::async_trait;
 use chrono::Utc;
-use pubky_app_specs::{PubkyAppUser, PubkyAppUserLink, PubkyId};
+use pubky_social_specs::PubkyId;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json;
 use utoipa::ToSchema;
@@ -34,14 +34,24 @@ impl Collection<&str> for UserDetails {
     }
 }
 
+/// One link on a profile, in Nexus vocabulary: every epoch's translator maps its spec's links
+/// into it, after the spec reader has validated and sanitised them.
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug, PartialEq, Eq)]
+pub struct UserLink {
+    pub title: String,
+    pub url: String,
+}
+
 /// Represents user data with name, bio, image, links, and status.
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
 pub struct UserDetails {
     pub name: String,
     pub bio: Option<String>,
     pub id: PubkyId,
-    #[serde(deserialize_with = "deserialize_user_links")]
-    pub links: Option<Vec<PubkyAppUserLink>>,
+    /// The profile's links, in order; empty when it has none.
+    #[serde(deserialize_with = "deserialize_user_links", default)]
+    #[schema(required = true)]
+    pub links: Vec<UserLink>,
     pub status: Option<String>,
     pub image: Option<String>,
     pub indexed_at: i64,
@@ -51,9 +61,10 @@ pub struct UserDetails {
     pub epoch: Epoch,
 }
 
-fn deserialize_user_links<'de, D>(
-    deserializer: D,
-) -> Result<Option<Vec<PubkyAppUserLink>>, D::Error>
+/// Reads every stored form of the links, and every form without any as an empty list: the
+/// graph's JSON string (`"null"` on profiles indexed before links were always a list), the
+/// cache's array or `null`, or no property at all.
+fn deserialize_user_links<'de, D>(deserializer: D) -> Result<Vec<UserLink>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -63,23 +74,21 @@ where
     // deserialize_option (returning None), not deserialize_any.
     let value = match Option::<serde_json::Value>::deserialize(deserializer)? {
         Some(v) => v,
-        None => return Ok(None),
+        None => return Ok(Vec::new()),
     };
 
     match value {
         serde_json::Value::String(s) => {
             // If it's a string, parse the string as JSON
-            let urls: Option<Vec<PubkyAppUserLink>> =
+            let links: Option<Vec<UserLink>> =
                 serde_json::from_str(&s).map_err(serde::de::Error::custom)?;
-            Ok(urls)
+            Ok(links.unwrap_or_default())
         }
         serde_json::Value::Array(arr) => {
             // If it's already an array, deserialize it directly
-            let urls: Vec<PubkyAppUserLink> = serde_json::from_value(serde_json::Value::Array(arr))
-                .map_err(serde::de::Error::custom)?;
-            Ok(Some(urls))
+            serde_json::from_value(serde_json::Value::Array(arr)).map_err(serde::de::Error::custom)
         }
-        serde_json::Value::Null => Ok(None),
+        serde_json::Value::Null => Ok(Vec::new()),
         _ => Err(serde::de::Error::custom(
             "Expected either a string, an array or null",
         )),
@@ -118,31 +127,19 @@ impl UserDetails {
         Ok(details_collection.into_iter().flatten().next())
     }
 
-    /// Creates a minimal `UserDetails` with only the public key.
-    /// All profile fields (bio, links, status, image) default to `None`.
+    /// Creates a minimal `UserDetails` with only the public key: the stub of a user whose
+    /// profile Nexus has not indexed, named by its id. Every profile field is empty: bio, status and
+    /// image are `None`, the links an empty list. The epoch write's `ON CREATE` ([`Epoch::set_v1_in_graph`])
+    /// mirrors it, so a stub looks the same whichever path created it.
     pub fn from_pubky(user_id: PubkyId) -> Self {
         UserDetails {
             name: user_id.to_string(),
             id: user_id.clone(),
             indexed_at: Utc::now().timestamp_millis(),
             bio: None,
-            links: None,
+            links: Vec::new(),
             status: None,
             image: None,
-            deleted: false,
-            epoch: Epoch::V0,
-        }
-    }
-
-    pub fn from_homeserver(homeserver_user: PubkyAppUser, user_id: &PubkyId) -> Self {
-        UserDetails {
-            name: homeserver_user.name,
-            bio: homeserver_user.bio,
-            status: homeserver_user.status,
-            links: homeserver_user.links,
-            image: homeserver_user.image,
-            id: user_id.clone(),
-            indexed_at: Utc::now().timestamp_millis(),
             deleted: false,
             epoch: Epoch::V0,
         }
@@ -156,7 +153,7 @@ impl UserDetails {
             name: String::new(),
             bio: None,
             id: user_id.clone(),
-            links: None,
+            links: Vec::new(),
             status: None,
             image: None,
             indexed_at: Utc::now().timestamp_millis(),
@@ -166,9 +163,21 @@ impl UserDetails {
     }
 
     /// Writes a profile read from the homeserver, storing `uri` (its event path) on the node.
-    /// `put_to_graph` writes no `uri` and keeps the stored one: stubs and tombstones use it.
-    pub async fn put_profile_to_graph(&self, uri: &str) -> GraphResult<()> {
-        exec_single_row(queries::put::create_user(self, Some(uri))?).await
+    /// `put_to_graph` writes no `uri` and keeps the stored one: stubs use it.
+    ///
+    /// The write keeps the epoch stored on the node, and sets it on `self`.
+    pub async fn put_profile_to_graph(&mut self, uri: &str) -> GraphResult<()> {
+        let query = queries::put::create_user(self, Some(uri))?;
+        self.epoch = Epoch::fetch_from_graph(query).await?;
+        Ok(())
+    }
+
+    /// Writes a [`UserDetails::tombstone`], keeping the stored `uri`. The write keeps the epoch
+    /// stored on the node, and sets it on `self`.
+    pub async fn put_tombstone_to_graph(&mut self) -> GraphResult<()> {
+        let query = self.put_graph_query()?;
+        self.epoch = Epoch::fetch_from_graph(query).await?;
+        Ok(())
     }
 
     pub async fn delete(user_id: &str) -> ModelResult<()> {
@@ -232,8 +241,8 @@ mod tests {
     use neo4rs::{BoltInteger, BoltList, BoltMap, BoltNode, BoltString, BoltType, Node};
 
     /// Deserializing a UserDetails from a BoltNode without the links property
-    /// should succeed with links: None. Neo4j drops null properties from nodes,
-    /// so this is the expected shape after a roundtrip with links: None.
+    /// should succeed with no links. Neo4j drops null properties from nodes,
+    /// so a node written without links has this shape.
     #[test]
     fn deserialize_from_node_without_links() {
         let mut props = BoltMap::new();
@@ -258,7 +267,7 @@ mod tests {
             .to()
             .expect("should deserialize without links property (Neo4j drops null properties)");
         assert_eq!(details.name, "Dave");
-        assert!(details.links.is_none());
+        assert!(details.links.is_empty());
         assert!(
             !details.deleted,
             "missing 'deleted' property should deserialize as false (pre-migration compatibility)"
@@ -337,5 +346,59 @@ mod tests {
         let details: UserDetails =
             serde_json::from_value(json).expect("should deserialize without epoch");
         assert_eq!(details.epoch, Epoch::V0);
+    }
+
+    /// Every stored form of the links reads as a list; the ones without links as an empty one.
+    #[test]
+    fn deserialize_links_in_every_stored_form() {
+        let link = UserLink {
+            title: "site".into(),
+            url: "https://example.com".into(),
+        };
+        let with = |links: Option<serde_json::Value>| {
+            let mut json = serde_json::json!({
+                "name": "Dave",
+                "bio": null,
+                "id": "uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko",
+                "status": null,
+                "image": null,
+                "indexed_at": 1724134095000_i64,
+            });
+            if let Some(links) = links {
+                json["links"] = links;
+            }
+            serde_json::from_value::<UserDetails>(json).expect("should deserialize")
+        };
+        let listed = serde_json::json!([{ "title": "site", "url": "https://example.com" }]);
+
+        for (stored, expected) in [
+            (None, vec![]),
+            (Some(serde_json::Value::Null), vec![]),
+            (Some(serde_json::json!("null")), vec![]),
+            (Some(serde_json::json!("[]")), vec![]),
+            (Some(serde_json::json!([])), vec![]),
+            (
+                Some(serde_json::json!(listed.to_string())),
+                vec![link.clone()],
+            ),
+            (Some(listed.clone()), vec![link.clone()]),
+        ] {
+            assert_eq!(with(stored.clone()).links, expected, "stored {stored:?}");
+        }
+    }
+
+    /// The stub and the tombstone store an empty list, never `null`.
+    #[test]
+    fn stub_and_tombstone_store_an_empty_list() {
+        let id = PubkyId::try_from("uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko").unwrap();
+        for details in [
+            UserDetails::from_pubky(id.clone()),
+            UserDetails::tombstone(&id),
+        ] {
+            assert_eq!(
+                serde_json::to_value(&details).unwrap()["links"],
+                serde_json::json!([])
+            );
+        }
     }
 }

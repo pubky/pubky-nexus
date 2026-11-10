@@ -245,7 +245,7 @@ async fn test_get_counts() -> Result<()> {
 async fn test_user_counts_collections_and_bookmark_exclusion() -> Result<()> {
     let bogota = "ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny";
     let res = get_request(&format!("/v0/user/{bogota}/counts")).await?;
-    assert_eq!(res["collections"], 4, "Bogota authored 4 collections");
+    assert_eq!(res["collections"], 5, "Bogota authored 5 collections");
 
     let cairo = "f5tcy5gtgzshipr6pag6cn9uski3s8tjare7wd3n7enmyokgjk1o";
     let res = get_request(&format!("/v0/user/{cairo}/counts")).await?;

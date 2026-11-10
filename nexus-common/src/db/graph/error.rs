@@ -24,12 +24,6 @@ pub enum GraphError {
     #[error("Deserialization failed: {0}")]
     DeserializationFailed(#[source] DynError),
 
-    #[error("URI parse error: {0}")]
-    UriParseError(String),
-
-    #[error("Invalid resource type: {0}")]
-    InvalidResourceType(String),
-
     /// A keyset scan could not advance, so it would skip or refetch rows forever.
     #[error("{context}: keyset scan cannot advance ({detail})")]
     KeysetScanStalled { context: String, detail: String },

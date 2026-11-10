@@ -1,7 +1,16 @@
 use nexus_common::models::user::UserIngestor;
+mod classify;
+mod epoch_metrics;
 pub mod event;
+mod gate;
+pub mod inputs;
+mod route;
+pub mod target;
+mod translation;
 
+pub use classify::SkipReason;
 pub use event::{Event, EventType, ParseResult};
+pub use target::EventTarget;
 
 use crate::errors::EventProcessorError;
 use crate::homeserver::HomeserverClient;
@@ -10,7 +19,6 @@ use nexus_common::models::takedown::is_taken_down;
 use nexus_common::WatcherConfig;
 use opentelemetry::{global, metrics::Counter};
 use pubky::PubkyResource;
-use pubky_app_specs::{ExtendedParsedUri, PubkyAppObject, Resource};
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, LazyLock},
@@ -28,8 +36,18 @@ static TAKEN_DOWN: LazyLock<Counter<u64>> = LazyLock::new(|| {
 pub mod handlers;
 mod moderation;
 pub mod retry;
+pub mod v0_to_v1;
 
+use gate::Gate;
+pub(crate) use gate::{confirm_flip, is_flip};
+use handlers::utils::bounded;
+use inputs::{ReferenceTarget, ResourceKey, TagInput};
 pub use moderation::Moderation;
+use retry::{RedisRetryStore, RetryStore};
+use route::resolve_reference;
+use translation::{
+    translate_del, translate_put, translate_put_from_path, TranslatedDel, TranslatedPut,
+};
 
 /// Trait for handling events.
 ///
@@ -48,6 +66,11 @@ pub struct DefaultEventHandler {
 
     /// Local files directory on Nexus used for file-backed events.
     files_path: PathBuf,
+
+    /// The retry queue the gate reads a `v0` user's queued flip from, before a `pubky.app`
+    /// DEL or a `social/v1` write of theirs is decided. The same queue the runners enqueue to and the retry
+    /// processor drains: [`RedisRetryStore`] in production, an in-memory one in tests.
+    retry_store: Arc<dyn RetryStore>,
 }
 
 impl DefaultEventHandler {
@@ -56,18 +79,20 @@ impl DefaultEventHandler {
         ingestor: Arc<UserIngestor>,
         client: Arc<dyn HomeserverClient>,
         files_path: PathBuf,
+        retry_store: Arc<dyn RetryStore>,
     ) -> Self {
         Self {
             moderation,
             ingestor,
             client,
             files_path,
+            retry_store,
         }
     }
 
     /// Builds a handler that fetches through `client`, deriving its moderation rules
-    /// and user ingestor from config. The ingestor resolves users' homeservers through
-    /// `client` too.
+    /// and user ingestor from config, and reading the Redis retry queue. The ingestor
+    /// resolves users' homeservers through `client` too.
     pub fn from_config(config: &WatcherConfig, client: Arc<dyn HomeserverClient>) -> Self {
         let ingestor = UserIngestor::from_config(&config.stack, client.clone());
         Self::new(
@@ -75,6 +100,7 @@ impl DefaultEventHandler {
             Arc::new(ingestor),
             client,
             config.stack.files_path.clone(),
+            Arc::new(RedisRetryStore::new()),
         )
     }
 }
@@ -82,6 +108,34 @@ impl DefaultEventHandler {
 #[async_trait::async_trait]
 impl EventHandler for DefaultEventHandler {
     async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
+        // Before any fetch. An ignored event stores no event line, and `Ok` moves the cursor
+        // on and removes its retry entry. A deferred event, a `v0` user's `pubky.app` DEL or
+        // `social/v1` write, waits on the flip as a tag waits on its post: queued with the
+        // dependency class and held while the flip's entry is in the queue; after the flip
+        // the user is at `v1`, the gate ignores the DEL and handles the write. A flip dropped
+        // or dead-lettered on retry frees them: the DELs then run against `v0` and the writes
+        // are ignored.
+        let gate = match gate::check(event, self.retry_store.as_ref()).await? {
+            Gate::Ignore => return Ok(()),
+            Gate::Defer => {
+                return Err(EventProcessorError::MissingDependency {
+                    dependency: vec![gate::flip_profile_uri(event.target.user_id())],
+                })
+            }
+            gate @ (Gate::Handle | Gate::Flip) => gate,
+        };
+
+        if gate == Gate::Flip {
+            // The flip step first, before any fetch, so the user's move does not wait for the
+            // homeserver. A failure inside it is a `FlipFailed` that leaves the user at `v0` and
+            // is queued without limit while they are (the cache step after the epoch write is
+            // the exception: its retry finds a `v1` user and runs as their profile PUT). The
+            // flip logs the failed step and, while the user stays `v0`, one summary line. Once
+            // the step lands, the event is a `v1` user's profile PUT and takes the ordinary path
+            // below, retry limit included.
+            handlers::user::flip(event.target.user_id(), self.files_path.as_path()).await?;
+        }
+
         match event.event_type {
             EventType::Put => {
                 handle_put_event(
@@ -103,8 +157,11 @@ impl EventHandler for DefaultEventHandler {
     }
 }
 
-/// Handles a PUT event: fetches its resource through `client` and dispatches it to the
-/// matching handler.
+/// Handles a PUT event: translates its resource and dispatches it to the matching handler.
+///
+/// A resource with a body is fetched through `client`, capped for a JSON object, and translated
+/// from its bytes. A resource with none, a `social/v1` file, is translated from its path alone
+/// and its handler downloads the bytes under the file cap, so the JSON fetch is skipped.
 pub async fn handle_put_event(
     event: &Event,
     files_path: &Path,
@@ -120,84 +177,77 @@ pub async fn handle_put_event(
         return Ok(());
     }
 
-    let pubky_resource: PubkyResource = event.uri.parse()?;
-    let blob = client.get_resource(&pubky_resource).await?;
+    let translated = match translate_put_from_path(&event.target) {
+        Some(translated) => translated,
+        None => {
+            let pubky_resource: PubkyResource = event.uri.parse()?;
+            let blob = client.get_resource(&pubky_resource).await?;
+            translate_put(&event.uri, &event.target, &blob)?
+        }
+    };
 
-    let resource = event.parsed_uri.resource().clone();
-
-    // Use the new importer from pubky-app-specs.
-    // `from_resource` runs spec validation; failures are deterministic and must
-    // not be retried (a re-run produces the same error). Classify them as
-    // `SpecValidation` so the retry queue stays clean — the load-bearing
-    // counterpart to the `Unknown` forwards-compat variant in pubky-app-specs.
-    let pubky_object = PubkyAppObject::from_resource(&resource, blob.as_slice())
-        .map_err(|e| EventProcessorError::SpecValidation(e.to_string()))?;
-
-    let user_id = event.parsed_uri.user_id().clone();
-    match (pubky_object, resource) {
-        (PubkyAppObject::User(user), Resource::User) => {
-            handlers::user::sync_put(user, event.uri.clone(), user_id).await?
+    let outcome = match translated {
+        TranslatedPut::User { user_id, user } => handlers::user::sync_put(user, user_id).await,
+        TranslatedPut::Post { key, post } => handlers::post::sync_put(post, key, &ingestor).await,
+        TranslatedPut::Follow {
+            user_id,
+            followee_id,
+        } => handlers::follow::sync_put(user_id, followee_id, &ingestor).await,
+        TranslatedPut::Bookmark { key, bookmark } => {
+            handlers::bookmark::sync_put(bookmark, key).await
         }
-        (PubkyAppObject::Post(post), Resource::Post(post_id)) => {
-            handlers::post::sync_put(post, event.uri.clone(), user_id, post_id, &ingestor).await?
-        }
-        (PubkyAppObject::Follow(_follow), Resource::Follow(followee_id)) => {
-            handlers::follow::sync_put(user_id, followee_id, &ingestor).await?
-        }
-        (PubkyAppObject::Mute(_), Resource::Mute(_)) => {
-            debug!("Mute events are no longer handled by nexus");
-        }
-        (PubkyAppObject::Bookmark(bookmark), Resource::Bookmark(bookmark_id)) => {
-            handlers::bookmark::sync_put(user_id, bookmark, bookmark_id).await?
-        }
-        (PubkyAppObject::Tag(tag), Resource::Tag(tag_id)) => {
-            if moderation.should_delete(&tag, &user_id) {
+        TranslatedPut::Tag { key, tag } => {
+            // A moderator tag takes the takedown path, whatever it tags.
+            if moderation.should_delete(&tag.label, &key.owner_id) {
                 moderation
-                    .apply_moderation(tag, &event.uri, files_path, &ingestor)
-                    .await?
+                    .apply_moderation(&tag.label, tag.tagged, &event.uri, files_path, &ingestor)
+                    .await
             } else {
-                // Route universal tag events (non-pubky.app apps) to sync_put_resource
-                // which handles Resource nodes for InternalUnknown/InternalUnknown URIs.
-                if let ExtendedParsedUri::UniversalTag { app, .. } = &event.parsed_uri {
-                    handlers::tag::sync_put_resource(
-                        tag,
-                        event.uri.clone(),
-                        user_id,
-                        tag_id.to_string(),
-                        app.clone(),
-                        &ingestor,
-                    )
-                    .await?
-                } else {
-                    handlers::tag::sync_put(
-                        tag,
-                        event.uri.clone(),
-                        user_id,
-                        tag_id.to_string(),
-                        &ingestor,
-                    )
-                    .await?
-                }
+                put_tag(tag, key, &ingestor).await
             }
         }
-        (PubkyAppObject::File(file), Resource::File(file_id)) => {
-            handlers::file::sync_put(
-                file,
-                event.uri.clone(),
-                user_id,
-                file_id,
-                files_path,
-                &ingestor,
-                client,
-            )
-            .await?
+        TranslatedPut::File { key, file } => {
+            handlers::file::sync_put(file, key, files_path, &ingestor, client).await
         }
-        other => debug!(?other, "Event type not handled"),
-    }
+        TranslatedPut::V1File { key, hash } => {
+            handlers::file::sync_put_v1(key, &hash, files_path, &ingestor, client).await
+        }
+    };
+    outcome?;
 
     // Checked again once written: see `remove_if_taken_down`.
     remove_if_taken_down(&event.uri, files_path, &ingestor).await?;
     Ok(())
+}
+
+/// Indexes a non-moderator tag by what it tags, so the same tag gives the same result from either
+/// folder (`pubky.app/tags` or `social/v1/tags`; another app's folder is skipped before this):
+///
+/// - a post or a user: a post or user tag ([`handlers::tag::sync_put`]);
+/// - a foreign resource or a file, at either epoch's address: a `Resource` tag
+///   ([`handlers::tag::sync_put_resource`]);
+/// - a tag or anything else: [`EventProcessorError::UnsupportedTarget`], never retried. A
+///   `social/vN` target dropped here comes back through a reindex once Nexus speaks that epoch.
+pub async fn put_tag(
+    tag: TagInput,
+    key: ResourceKey,
+    ingestor: &UserIngestor,
+) -> Result<(), EventProcessorError> {
+    match &tag.tagged.target {
+        ReferenceTarget::Post(_) | ReferenceTarget::User(_) => {
+            handlers::tag::sync_put(tag, key, ingestor).await
+        }
+        ReferenceTarget::Foreign | ReferenceTarget::File(_) => {
+            handlers::tag::sync_put_resource(tag, key).await
+        }
+        target @ (ReferenceTarget::Tag { .. } | ReferenceTarget::Other) => {
+            Err(EventProcessorError::UnsupportedTarget(format!(
+                "The tagged resource {} is neither a post, a user, a file nor a foreign resource, instead is: {}",
+                bounded(&tag.tagged.uri),
+                bounded(&format!("{target:?}"))
+            )))
+        }
+    }
 }
 
 /// Removes the record at `uri` if the moderator took it down, and returns whether it did.
@@ -208,43 +258,42 @@ pub async fn handle_put_event(
 /// check, the record is removed there; if later, the moderator's own delete runs after
 /// the write and removes it. A removal that failed is finished on the event's retry, by
 /// the first check. Removing what is already gone does nothing.
+///
+/// The record is looked up by its [`route::takedown_key`], the key its takedown was recorded
+/// under. An address no parser reads is looked up as written; none is ever recorded.
 pub async fn remove_if_taken_down(
     uri: &str,
     files_path: &Path,
     ingestor: &UserIngestor,
 ) -> Result<bool, EventProcessorError> {
-    if !is_taken_down(uri).await? {
+    let key = route::takedown_key(uri).unwrap_or_else(|_| uri.to_string());
+    if !is_taken_down(&key).await? {
         return Ok(false);
     }
+    let target = resolve_reference(uri).target;
     // Boxed: the delete handlers' futures would otherwise nest inside every PUT's.
-    match Box::pin(Moderation::remove_taken_down(uri, files_path, ingestor)).await {
+    match Box::pin(Moderation::remove_taken_down(target, files_path, ingestor)).await {
         Ok(()) | Err(EventProcessorError::SkipIndexing) => Ok(true),
         Err(e) => Err(e),
     }
 }
 
-/// Handles a DEL event by dispatching to the appropriate handler.
+/// Handles a DEL event: translate, dispatch to the matching handler. A file DEL of either epoch
+/// reaches the one file handler, which picks the folder by the id.
 pub async fn handle_del_event(
     event: &Event,
     files_path: &Path,
     ingestor: Arc<UserIngestor>,
 ) -> Result<(), EventProcessorError> {
-    let user_id = event.parsed_uri.user_id().clone();
-    match event.parsed_uri.resource() {
-        Resource::User => handlers::user::del(user_id).await?,
-        Resource::Post(post_id) => handlers::post::del(user_id, post_id.clone(), &ingestor).await?,
-        Resource::Follow(followee_id) => {
-            handlers::follow::del(user_id, followee_id.clone()).await?
-        }
-        Resource::Mute(_) => debug!("Mute events are no longer handled by nexus"),
-        Resource::Bookmark(bookmark_id) => {
-            handlers::bookmark::del(user_id, bookmark_id.clone()).await?
-        }
-        Resource::Tag(_) => handlers::tag::del(&event.uri).await?,
-        Resource::File(file_id) => {
-            handlers::file::del(&user_id, file_id.clone(), files_path).await?
-        }
-        other => debug!(?other, "DEL event type not handled"),
+    match translate_del(&event.target)? {
+        TranslatedDel::User { user_id } => handlers::user::del(user_id).await,
+        TranslatedDel::Post(key) => handlers::post::del(key, &ingestor).await,
+        TranslatedDel::Follow {
+            user_id,
+            followee_id,
+        } => handlers::follow::del(user_id, followee_id).await,
+        TranslatedDel::Tag(key) => handlers::tag::del(key).await,
+        TranslatedDel::Bookmark(key) => handlers::bookmark::del(key).await,
+        TranslatedDel::File(key) => handlers::file::del(key, files_path).await,
     }
-    Ok(())
 }

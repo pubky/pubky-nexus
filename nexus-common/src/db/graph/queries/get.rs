@@ -15,7 +15,9 @@ use crate::types::WotDepth;
 // Defense-in-depth: cap SKIP and LIMIT before splicing into Cypher so a future
 // route regression can't produce runaway result sets or excessive skip cost.
 const MAX_QUERY_SKIP: usize = 10_000;
-const MAX_QUERY_LIMIT: usize = 1_000;
+/// The most rows any page query here returns, whatever limit it is asked for. A scan that
+/// stops on a short page must ask for no more than this, or a full page reads as the last.
+pub const MAX_QUERY_LIMIT: usize = 1_000;
 
 // Retrieve post node by post id and author id
 pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
@@ -49,6 +51,37 @@ pub fn get_post_by_id(author_id: &str, post_id: &str) -> Query {
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
+}
+
+/// The details of `author_id`'s posts `post_ids`, shaped as [`get_post_by_id`] shapes them,
+/// one row per post the graph holds, in `post_ids` order. No reply key.
+///
+/// The `WITH` barrier is load-bearing, as in [`get_post_by_id`]: it pins the seek on
+/// `Post(id)` per id, where the planner may otherwise expand every post of the author for
+/// each id.
+pub fn get_posts_details_by_ids(author_id: &str, post_ids: &[String]) -> Query {
+    Query::new(
+        "get_posts_details_by_ids",
+        "
+        MATCH (u:User {id: $author_id})
+        UNWIND $post_ids AS post_id
+        MATCH (p:Post {id: post_id})
+        WITH u, p WHERE (u)-[:AUTHORED]->(p)
+        RETURN {
+            uri: p.uri,
+            content: p.content,
+            id: p.id,
+            indexed_at: p.indexed_at,
+            author: u.id,
+            kind: COALESCE(p.kind, 'short'),
+            attachments: p.attachments,
+            lock: p.lock,
+            deleted: COALESCE(p.deleted, false)
+        } AS details
+        ",
+    )
+    .param("author_id", author_id)
+    .param("post_ids", post_ids.to_vec())
 }
 
 pub fn post_counts(author_id: &str, post_id: &str) -> Query {
@@ -168,35 +201,23 @@ pub fn get_post_replies(author_id: &str, post_id: &str, cursor: &[String], limit
 }
 
 // Read the target details for a tag without deleting the TAGGED edge.
-// Used in tag del to read before graph-last deletion.
-pub fn get_tag_target(user_id: &str, tag_id: &str, app: Option<&str>) -> Query {
-    let app_filter = match app {
-        Some(_) => "\n    WHERE tag.app = $app",
-        None => "\n    WHERE tag.app IS NULL",
-    };
-
-    let cypher = format!(
-        "MATCH (user:User {{id: $user_id}})-[tag:TAGGED {{id: $tag_id}}]->(target){app_filter}
+// Used in tag del to read before graph-last deletion. The edge is found by its id alone,
+// whichever folder wrote the tag.
+pub fn get_tag_target(user_id: &str, tag_id: &str) -> Query {
+    Query::new(
+        "get_tag_target",
+        "MATCH (user:User {id: $user_id})-[tag:TAGGED {id: $tag_id}]->(target)
          OPTIONAL MATCH (target)<-[:AUTHORED]-(author:User)
          WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
               CASE WHEN target:Post THEN target.id ELSE null END AS post_id,
               CASE WHEN target:Post THEN author.id ELSE null END AS author_id,
               CASE WHEN target:Post THEN target.uri ELSE null END AS post_uri,
               CASE WHEN target:Resource THEN target.id ELSE null END AS resource_id,
-              tag.label AS label,
-              tag.app AS app
-         RETURN user_id, post_id, author_id, post_uri, resource_id, label, app"
-    );
-
-    let mut query = Query::new("get_tag_target", &cypher)
-        .param("user_id", user_id)
-        .param("tag_id", tag_id);
-
-    if let Some(a) = app {
-        query = query.param("app", a);
-    }
-
-    query
+              tag.label AS label
+         RETURN user_id, post_id, author_id, post_uri, resource_id, label",
+    )
+    .param("user_id", user_id)
+    .param("tag_id", tag_id)
 }
 
 // t.id collides across taggers (hashes only {target_uri, label}), so the keyset is the row value
@@ -234,6 +255,26 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
           replied_post.uri AS replied_uri,
           reposted_post.uri AS reposted_uri,
           COLLECT(mentioned_user.id) AS mentioned_user_ids",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}
+
+/// The posts a post replies to and reposts: each one's stored address and key.
+pub fn post_parents(author_id: &str, post_id: &str) -> Query {
+    Query::new(
+        "post_parents",
+        "MATCH (p:Post {id: $post_id})
+        WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
+        OPTIONAL MATCH (p)-[:REPLIED]->(replied_post:Post)<-[:AUTHORED]-(replied_author:User)
+        OPTIONAL MATCH (p)-[:REPOSTED]->(reposted_post:Post)<-[:AUTHORED]-(reposted_author:User)
+        RETURN
+          replied_post.uri AS replied_uri,
+          replied_author.id AS replied_author_id,
+          replied_post.id AS replied_post_id,
+          reposted_post.uri AS reposted_uri,
+          reposted_author.id AS reposted_author_id,
+          reposted_post.id AS reposted_post_id",
     )
     .param("author_id", author_id)
     .param("post_id", post_id)
@@ -618,8 +659,8 @@ pub fn viewer_user_tag_uris(user_id: &str, viewer_id: &str, labels: Vec<String>)
 /// ordered by tagger count, then label, and paginated with `skip_tags`/`limit_tags`.
 /// Each label carries its full `taggers_count`, at most `limit_taggers` tagger ids,
 /// and `tag_uri`, the viewer's tag address, looked up among all of its taggers, not
-/// only the listed ones; null without a viewer. With one edge per app, `min` picks
-/// the same address as `resource_label_taggers`. A missing Resource returns
+/// only the listed ones; null without a viewer. Where old per-app edges left two
+/// for one label, `min` picks the same address as `resource_label_taggers`. A missing Resource returns
 /// `details = null`; an existing one without tags returns `tags = []`.
 pub fn resource_view(
     resource_id: &str,
@@ -662,10 +703,10 @@ pub fn resource_view(
 }
 
 /// Taggers of `label` on a Resource node, sorted by user id and paged with
-/// `skip`/`limit`. A user who tagged the label from two apps is listed once.
-/// `tag_uri` is the viewer's tag address on the label, null without a viewer or
-/// their tag; with one edge per app, `min` picks the same address as
-/// `resource_view`. A missing Resource has no taggers.
+/// `skip`/`limit`. A user with two edges for the label, left by old per-app edges,
+/// is listed once. `tag_uri` is the viewer's tag address on the label, null without
+/// a viewer or their tag; where old per-app edges left two, `min` picks the same
+/// address as `resource_view`. A missing Resource has no taggers.
 ///
 /// The index hint makes both matches start from the Resource, so the cost follows
 /// the resource's own tags. Left to itself, the planner can seek every TAGGED edge
@@ -708,13 +749,13 @@ pub fn resource_label_taggers(
     .param("limit", limit as i64)
 }
 
-/// Query a stream of Resources with optional app and tag filters.
+/// Query a stream of Resources with an optional tag filter.
 ///
 /// Ordering:
 /// - `Timeline` sorts by the newest matching TAGGED edge (`MAX(t.indexed_at)`),
 ///   not by when the Resource node was created. Adding a newer tag moves the
 ///   resource up; removing it drops the resource back to its latest remaining
-///   tag. With an app or label filter, only the matching edges count.
+///   tag. With a label filter, only the matching edges count.
 ///
 /// `score` is the sort value (the timestamp), so callers can hand it
 /// back as a cursor. `start` is the resume cursor and `end` the hard limit,
@@ -724,7 +765,6 @@ pub fn resource_label_taggers(
 /// not the id, so resuming from inside a tie group takes a `skip` covering
 /// every already-served row with that score.
 pub fn resource_stream(
-    app: Option<&str>,
     labels: Option<&[String]>,
     sorting: &ResourceSorting,
     order: &SortOrder,
@@ -742,17 +782,8 @@ pub fn resource_stream(
 
     let mut cypher = String::from("MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\n");
 
-    let mut where_clauses = Vec::new();
-    if app.is_some() {
-        where_clauses.push("t.app = $app");
-    }
     if labels.is_some() {
-        where_clauses.push("t.label IN $labels");
-    }
-    if !where_clauses.is_empty() {
-        cypher.push_str("WHERE ");
-        cypher.push_str(&where_clauses.join(" AND "));
-        cypher.push('\n');
+        cypher.push_str("WHERE t.label IN $labels\n");
     }
 
     let score_expr = match sorting {
@@ -785,9 +816,6 @@ pub fn resource_stream(
 
     let mut query = Query::new("resource_stream", &cypher);
 
-    if let Some(a) = app {
-        query = query.param("app", a);
-    }
     if let Some(l) = labels {
         let label_strings: Vec<String> = l.iter().map(|s| s.to_string()).collect();
         query = query.param("labels", label_strings);
@@ -870,6 +898,17 @@ pub fn get_user_homeserver(user_id: &str) -> Query {
         "get_user_homeserver",
         "MATCH (u:User {id: $user_id})-[r:HOSTED_BY]->(hs:Homeserver)
          RETURN hs.id AS homeserver_id, coalesce(r.stale, false) AS stale",
+    )
+    .param("user_id", user_id.to_string())
+}
+
+/// Reads a user's epoch as stored on the `User` node: `v0` when the node has no
+/// `epoch`, or when there is no node.
+pub fn get_user_epoch(user_id: &str) -> Query {
+    Query::new(
+        "get_user_epoch",
+        "OPTIONAL MATCH (u:User {id: $user_id})
+         RETURN coalesce(u.epoch, 'v0') AS epoch",
     )
     .param("user_id", user_id.to_string())
 }
@@ -2023,6 +2062,16 @@ pub fn is_taken_down(uri: &str) -> Query {
     .param("uri", uri.to_string())
 }
 
+/// Whether the moderator took down any of `uris`, in one read: the addresses one resource is
+/// known under, such as a migrated file's `social/v1` address and its `pubky.app` ones.
+pub fn is_any_taken_down(uris: &[String]) -> Query {
+    Query::new(
+        "is_any_taken_down",
+        "RETURN EXISTS { MATCH (t:Takedown) WHERE t.uri IN $uris } AS taken_down",
+    )
+    .param("uris", uris.to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2081,7 +2130,7 @@ mod tests {
     #[test]
     fn post_stream_trust_rule_matches_authors_after_sorting_posts() {
         let tags = Some(vec!["a".to_string(), "b".to_string()]);
-        let kind = Some(KindFilter::Kind(pubky_app_specs::PubkyAppPostKind::Short));
+        let kind = Some(KindFilter::Kind(crate::models::post::PostKind::Short));
         let cypher = all_stream(
             StreamSorting::Timeline,
             &tags,
@@ -2117,7 +2166,7 @@ mod tests {
     /// Engagement sorting drops hidden authors before counting engagement.
     #[test]
     fn post_stream_trust_rule_filters_engagement_streams() {
-        let kind = Some(KindFilter::Kind(pubky_app_specs::PubkyAppPostKind::Short));
+        let kind = Some(KindFilter::Kind(crate::models::post::PostKind::Short));
         let ranked = Some(TrustRule::Ranked);
         let cypher = all_stream(StreamSorting::TotalEngagement, &None, kind, ranked);
         let rule = format!("WHERE {}", ranked_user("author"));
@@ -2377,19 +2426,17 @@ mod tests {
     }
 
     fn build_resource_stream(
-        app: Option<&str>,
         labels: Option<&[String]>,
         sorting: ResourceSorting,
         order: SortOrder,
         pagination: Pagination,
     ) -> String {
-        resource_stream(app, labels, &sorting, &order, &pagination).to_cypher_populated()
+        resource_stream(labels, &sorting, &order, &pagination).to_cypher_populated()
     }
 
     #[test]
     fn resource_stream_timeline_orders_by_latest_matching_tag() {
         let cypher = build_resource_stream(
-            None,
             None,
             ResourceSorting::Timeline,
             SortOrder::Descending,
@@ -2403,22 +2450,23 @@ mod tests {
         assert!(cypher.contains("ORDER BY score DESC, r.id DESC"));
         assert!(
             !cypher.contains("WHERE"),
-            "no filter without app/labels: {cypher}"
+            "no filter without labels: {cypher}"
         );
         assert!(cypher.contains("SKIP 0\nLIMIT 10"));
     }
 
     #[test]
-    fn resource_stream_applies_app_and_label_filters_to_the_edges() {
+    fn resource_stream_applies_the_label_filter_to_the_edges() {
         let labels = vec!["bitcoin".to_string(), "nostr".to_string()];
         let cypher = build_resource_stream(
-            Some("mapky"),
             Some(&labels),
             ResourceSorting::Timeline,
             SortOrder::Descending,
             Pagination::default(),
         );
-        assert!(cypher.contains("MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\nWHERE t.app = 'mapky' AND t.label IN ['bitcoin', 'nostr']\n"));
+        assert!(cypher.contains(
+            "MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\nWHERE t.label IN ['bitcoin', 'nostr']\n"
+        ));
     }
 
     #[test]
@@ -2431,7 +2479,6 @@ mod tests {
         };
         let desc = build_resource_stream(
             None,
-            None,
             ResourceSorting::Timeline,
             SortOrder::Descending,
             pagination,
@@ -2441,7 +2488,6 @@ mod tests {
         assert!(desc.contains("ORDER BY score DESC, r.id DESC\nSKIP 5\nLIMIT 7"));
 
         let asc = build_resource_stream(
-            None,
             None,
             ResourceSorting::Timeline,
             SortOrder::Ascending,
@@ -2455,7 +2501,6 @@ mod tests {
     #[test]
     fn resource_stream_caps_skip_and_limit() {
         let cypher = build_resource_stream(
-            None,
             None,
             ResourceSorting::Timeline,
             SortOrder::Descending,

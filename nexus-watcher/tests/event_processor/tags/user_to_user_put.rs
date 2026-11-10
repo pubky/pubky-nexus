@@ -10,7 +10,7 @@ use nexus_common::models::event::EventLine;
 use nexus_common::models::tag::{traits::TagCollection, user::TagUser};
 use nexus_common::models::user::{UsersByTagSearch, TAG_GLOBAL_USER_TAGGERS};
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_tag_user_another() -> Result<()> {
@@ -109,6 +109,69 @@ async fn test_homeserver_put_tag_user_another() -> Result<()> {
     assert_eq!(taggers_score.unwrap(), 1);
 
     // Cleanup user
+    test.cleanup_user(&tagged_kp).await?;
+    test.cleanup_user(&tagger_kp).await?;
+
+    Ok(())
+}
+
+/// A `pubky.app` tag whose target is a bare `pubky://<pk>`, the v1 user reference, tags that
+/// user as a tag on the user's `profile.json` address does.
+#[tokio_shared_rt::test(shared)]
+async fn test_homeserver_put_tag_user_on_a_bare_key() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let tagged_kp = Keypair::random();
+    let tagged_user = PubkyAppUser {
+        bio: Some("test_homeserver_put_tag_user_on_a_bare_key".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:PutTagBareKey:TaggedUser".to_string(),
+        status: None,
+    };
+    let tagged_user_id = test.create_user(&tagged_kp, &tagged_user).await?;
+
+    let tagger_kp = Keypair::random();
+    let tagger_user = PubkyAppUser {
+        bio: Some("test_homeserver_put_tag_user_on_a_bare_key".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:PutTagBareKey:TaggerUser".to_string(),
+        status: None,
+    };
+    let tagger_user_id = test.create_user(&tagger_kp, &tagger_user).await?;
+
+    let label = "barekey";
+    let tag = PubkyAppTag {
+        uri: format!("pubky://{tagged_user_id}"),
+        label: label.to_string(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let tag_path = tag.hs_path();
+    test.put(&tagger_kp, &tag_path, tag).await?;
+
+    let user_tag = find_user_tag(&tagged_user_id, label)
+        .await?
+        .expect("a tag on a bare key must be indexed as a user tag");
+    assert_eq!(user_tag.label, label);
+    assert_eq!(user_tag.taggers_count, 1);
+    assert_eq!(user_tag.taggers[0], tagger_user_id);
+
+    let cache_user_tag =
+        TagUser::get_from_index(&tagged_user_id, None, None, None, None, None, false)
+            .await
+            .expect("Failed to get tag from cache")
+            .expect("Tag should exist in cache");
+    assert_eq!(cache_user_tag.len(), 1);
+    assert_eq!(cache_user_tag[0].label, label);
+    assert_eq!(cache_user_tag[0].taggers_count, 1);
+
+    let user_counts = find_user_counts(&tagged_user_id).await;
+    assert_eq!(user_counts.tags, 1);
+    assert_eq!(user_counts.unique_tags, 1);
+    let user_counts = find_user_counts(&tagger_user_id).await;
+    assert_eq!(user_counts.tagged, 1);
+
     test.cleanup_user(&tagged_kp).await?;
     test.cleanup_user(&tagger_kp).await?;
 

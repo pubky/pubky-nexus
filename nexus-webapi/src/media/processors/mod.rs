@@ -1,7 +1,6 @@
-use crate::media::{concurrency::MediaGate, MediaSubprocess};
+use crate::media::{concurrency::MediaGate, MediaFile, MediaSubprocess};
 use async_trait::async_trait;
 use nexus_common::media::FileVariant;
-use nexus_common::models::file::FileDetails;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 use thiserror::Error;
@@ -103,7 +102,7 @@ async fn timed_out_recently(marker_path: &Path) -> bool {
 /// A name only this run writes to, so a failure cleans up after itself without touching a variant
 /// another request may have just finished. It carries the file it belongs to so an orphan in the
 /// temp directory can be traced back.
-fn temp_variant_name(file: &FileDetails, variant: &FileVariant) -> String {
+fn temp_variant_name(file: &MediaFile, variant: &FileVariant) -> String {
     let nanos = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
@@ -160,7 +159,7 @@ pub trait VariantProcessor {
     /// Creates a variant for the given file
     /// If there are no options for this variant, return with the original content type
     async fn create_variant(
-        file: &FileDetails,
+        file: &MediaFile,
         variant: &FileVariant,
         file_path: &Path,
         gate: &dyn MediaGate,
@@ -175,9 +174,7 @@ pub trait VariantProcessor {
             Err(_) => return Ok(file.content_type.clone()),
         };
 
-        let origin_path = file_path
-            .join(file.owner_id.as_str())
-            .join(file.id.as_str());
+        let origin_path = file_path.join(file.folder());
 
         let origin_file = origin_path.join(FileVariant::Main.to_string());
 
@@ -323,10 +320,9 @@ mod tests {
 
     use crate::media::{
         concurrency::{MediaPermits, QueuedGate},
-        MediaGate, MediaSubprocess,
+        MediaFile, MediaGate, MediaSubprocess,
     };
     use nexus_common::media::FileVariant;
-    use nexus_common::models::file::{FileDetails, FileUrls};
 
     use super::{
         sweep_stale_temp_files, timed_out_recently, BaseProcessingOptions, MediaProcessorError,
@@ -415,19 +411,12 @@ mod tests {
             .expect("release the stand-in");
     }
 
-    fn file_details() -> FileDetails {
-        FileDetails {
-            id: String::from("file"),
-            uri: String::new(),
+    fn media_file() -> MediaFile {
+        MediaFile {
             owner_id: String::from("owner"),
-            indexed_at: 0,
-            created_at: 0,
-            src: String::new(),
-            name: String::new(),
-            size: 0,
+            id: String::from("file"),
             content_type: String::from("image/png"),
-            urls: FileUrls::new("owner", "file", "image/png"),
-            metadata: None,
+            download_name: None,
         }
     }
 
@@ -436,7 +425,7 @@ mod tests {
     #[tokio_shared_rt::test(shared)]
     async fn test_cancelled_request_holds_permit_until_work_completes() {
         let root = tempfile::TempDir::new().expect("temp dir");
-        let file = file_details();
+        let file = media_file();
         let dir = variant_dir(root.path(), &file).await;
         let variant = dir.join(FileVariant::Small.to_string());
         let gate = Arc::new(QueuedGate::with_limits(
@@ -517,7 +506,7 @@ mod tests {
     #[tokio_shared_rt::test(shared)]
     async fn test_cancelled_caller_still_publishes_the_variant() {
         let root = tempfile::TempDir::new().expect("temp dir");
-        let file = file_details();
+        let file = media_file();
         let dir = variant_dir(root.path(), &file).await;
 
         // `open` gates the retry: it stays false until the first work has fully finished, so the
@@ -596,7 +585,7 @@ mod tests {
         COUNT.store(0, Ordering::SeqCst);
 
         let root = tempfile::TempDir::new().expect("temp dir");
-        let file = file_details();
+        let file = media_file();
         let dir = variant_dir(root.path(), &file).await;
         let output = dir.join(FileVariant::Small.to_string());
 
@@ -653,7 +642,7 @@ mod tests {
     #[tokio_shared_rt::test(shared)]
     async fn test_cancelled_caller_still_writes_the_timeout_marker() {
         let root = tempfile::TempDir::new().expect("temp dir");
-        let file = file_details();
+        let file = media_file();
         let dir = variant_dir(root.path(), &file).await;
 
         let gate = Arc::new(QueuedGate::with_limits(
@@ -745,7 +734,7 @@ mod tests {
     #[tokio_shared_rt::test(shared)]
     async fn test_failed_conversion_leaves_no_output_behind() {
         let root = tempfile::TempDir::new().expect("temp dir");
-        let file = file_details();
+        let file = media_file();
         let variant_dir = variant_dir(root.path(), &file).await;
         let output = variant_dir.join(FileVariant::Small.to_string());
 
@@ -792,8 +781,8 @@ mod tests {
     }
 
     /// Creates the variant directory a processor writes into, and returns it.
-    async fn variant_dir(root: &Path, file: &FileDetails) -> PathBuf {
-        let dir = root.join(file.owner_id.as_str()).join(file.id.as_str());
+    async fn variant_dir(root: &Path, file: &MediaFile) -> PathBuf {
+        let dir = root.join(file.folder());
         tokio::fs::create_dir_all(&dir).await.expect("variant dir");
         dir
     }
@@ -841,7 +830,7 @@ mod tests {
     #[tokio_shared_rt::test(shared)]
     async fn test_variant_is_invisible_until_complete() {
         let root = tempfile::TempDir::new().expect("temp dir");
-        let file = file_details();
+        let file = media_file();
         let dir = variant_dir(root.path(), &file).await;
         let variant = FileVariant::Small.to_string();
         OBSERVED.lock().expect("observed").clear();
@@ -876,7 +865,7 @@ mod tests {
     #[tokio_shared_rt::test(shared)]
     async fn test_failed_conversion_keeps_a_finished_variant() {
         let root = tempfile::TempDir::new().expect("temp dir");
-        let file = file_details();
+        let file = media_file();
         let dir = variant_dir(root.path(), &file).await;
         let output = dir.join(FileVariant::Small.to_string());
         tokio::fs::write(&output, b"a variant someone else finished")
@@ -916,7 +905,7 @@ mod tests {
     #[tokio_shared_rt::test(shared)]
     async fn test_empty_output_is_not_published() {
         let root = tempfile::TempDir::new().expect("temp dir");
-        let file = file_details();
+        let file = media_file();
         let dir = variant_dir(root.path(), &file).await;
         let gate = QueuedGate::with_limits(MediaPermits::new(1), 4, Duration::from_millis(200));
 
@@ -969,7 +958,7 @@ mod tests {
 
     async fn create_small<P: VariantProcessor + Send + Sync + Sized + 'static>(
         root: &Path,
-        file: &FileDetails,
+        file: &MediaFile,
         gate: &dyn MediaGate,
     ) -> Result<String, MediaProcessorError> {
         P::create_variant(
@@ -987,7 +976,7 @@ mod tests {
     #[tokio_shared_rt::test(shared)]
     async fn test_recent_timeout_sheds_without_converting() {
         let root = tempfile::TempDir::new().expect("temp dir");
-        let file = file_details();
+        let file = media_file();
         let dir = variant_dir(root.path(), &file).await;
         tokio::fs::write(marker_path(&dir), b"")
             .await
@@ -1016,7 +1005,7 @@ mod tests {
     #[tokio_shared_rt::test(shared)]
     async fn test_a_kill_covers_every_variant_of_the_file() {
         let root = tempfile::TempDir::new().expect("temp dir");
-        let file = file_details();
+        let file = media_file();
         let dir = variant_dir(root.path(), &file).await;
         let gate = QueuedGate::with_limits(MediaPermits::new(1), 4, Duration::from_millis(200));
 
@@ -1049,7 +1038,7 @@ mod tests {
     #[tokio_shared_rt::test(shared)]
     async fn test_expired_marker_lets_the_conversion_run() {
         let root = tempfile::TempDir::new().expect("temp dir");
-        let file = file_details();
+        let file = media_file();
         let dir = variant_dir(root.path(), &file).await;
         let marker = marker_path(&dir);
         tokio::fs::write(&marker, b"").await.expect("marker");
@@ -1074,7 +1063,7 @@ mod tests {
     #[tokio_shared_rt::test(shared)]
     async fn test_only_a_timeout_is_remembered() {
         let root = tempfile::TempDir::new().expect("temp dir");
-        let file = file_details();
+        let file = media_file();
         let dir = variant_dir(root.path(), &file).await;
 
         let gate = QueuedGate::with_limits(MediaPermits::new(1), 4, Duration::from_millis(200));
@@ -1135,7 +1124,7 @@ mod tests {
     #[tokio_shared_rt::test(shared)]
     async fn test_expired_marker_is_reclaimed_by_the_check() {
         let root = tempfile::TempDir::new().expect("temp dir");
-        let file = file_details();
+        let file = media_file();
         let dir = variant_dir(root.path(), &file).await;
         let marker = marker_path(&dir);
         tokio::fs::write(&marker, b"").await.expect("marker");
@@ -1282,7 +1271,7 @@ mod tests {
         );
 
         let result = WedgedProcessor::create_variant(
-            &file_details(),
+            &media_file(),
             &FileVariant::Small,
             Path::new("/tmp"),
             &gate,

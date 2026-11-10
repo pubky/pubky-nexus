@@ -5,7 +5,9 @@ use anyhow::{anyhow, Result};
 use chrono::Utc;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::Keypair;
-use pubky_app_specs::{post_uri_builder, traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{
+    post_uri_builder, traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser,
+};
 use tracing::error;
 
 /// Verifies that tagging fails with MissingDependency when the tagger or tagged resource

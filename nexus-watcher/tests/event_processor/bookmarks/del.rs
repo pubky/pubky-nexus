@@ -6,7 +6,9 @@ use crate::event_processor::{
 use anyhow::Result;
 use nexus_common::models::post::{Bookmark, PostStream};
 use pubky::Keypair;
-use pubky_app_specs::{post_uri_builder, PubkyAppBookmark, PubkyAppPost, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{
+    post_uri_builder, PubkyAppBookmark, PubkyAppPost, PubkyAppUser,
+};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_unbookmark() -> Result<()> {

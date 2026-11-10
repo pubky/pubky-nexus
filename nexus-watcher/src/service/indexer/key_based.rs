@@ -13,7 +13,7 @@ use nexus_common::models::user::UserHsCursor;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
 use pubky::{EventCursor, PublicKey};
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::PubkyId;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
@@ -98,6 +98,11 @@ impl TEventProcessor for KeyBasedEventProcessor {
             return Err(EventProcessorError::HsBlacklisted { hs_id });
         }
 
+        // A format-valid id need not be a curve point, and then no user's stream on it can
+        // be read. That never changes, so the run stops here instead of failing every user.
+        self.homeserver_id.to_public_key().map_err(|e| {
+            EventProcessorError::SpecValidation(format!("{hs_id} is not a valid public key: {e}"))
+        })?;
         let deadline = Instant::now() + self.budget;
 
         let mut users = self

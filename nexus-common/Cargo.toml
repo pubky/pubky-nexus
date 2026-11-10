@@ -23,7 +23,7 @@ opentelemetry-appender-tracing = "0.33.0"
 opentelemetry-otlp = { version = "0.33", features = ["grpc-tonic"] }
 opentelemetry_sdk = { workspace = true }
 pubky = { workspace = true }
-pubky-app-specs = { workspace = true }
+pubky-social-specs = { workspace = true }
 redis = { workspace = true, features = ["tokio-comp", "json"] }
 deadpool-redis = { workspace = true }
 serde = { workspace = true }

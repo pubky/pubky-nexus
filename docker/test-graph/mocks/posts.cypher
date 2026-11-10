@@ -238,14 +238,28 @@ MATCH (u:User {id: $eixample}), (p:Post {id: "SIJW1TGL5BKG8"}) MERGE (u)-[:AUTHO
 // It has a reply
 MERGE (p:Post {id: "SIJW1TGL5BKG9"}) SET p.content = "LINK post, pubky H", p.kind = "link", p.indexed_at = 1980477299378;
 MATCH (u:User {id: $eixample}), (p:Post {id: "SIJW1TGL5BKG9"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/posts/SIJW1TGL5BKG9";
+// A post of kind `unknown`, written when the spec crate knows a kind Nexus's translator has no
+// arm for yet, or when a stored kind name is one serde no longer knows; never the client's
+// word. `/v1` filters by that name and
+// `/v0` cannot exclude it. Oldest of all, no tags, in no collection, and its content holds
+// neither `post` nor `privacy`, so no other stream, search or count moves.
+MERGE (p:Post {id: "7VNK1TGW5BKG1"}) SET p.content = "Sondage: a kind Nexus does not know", p.kind = "unknown", p.indexed_at = 1600000000000;
+MATCH (u:User {id: $eixample}), (p:Post {id: "7VNK1TGW5BKG1"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://8attbeo9ftu5nztqkcfw3gydksehr7jbspgfi64u4h8eo5e7dbiy/pub/pubky.app/posts/7VNK1TGW5BKG1";
 MATCH (reply:Post {id: "SIJW1TGL5BKG9" }), (parent:Post {id: "SIJW1TGL5BKG8" }) MERGE (reply)-[:REPLIED]->(parent);
 
 // ###############################
 // ##### Collection posts ########
 // ###############################
 // Collections are kind="collection" with a JSON envelope ({name, description?, items})
-// in `content`. Timestamps placed below other kinds so they don't disturb existing
-// timeline/bootstrap test fixtures.
+// in `content`. The legacy envelope lists its items as address strings; the
+// `social/v1` envelope (C01V1TG15BKG4) as {uri, note?} objects, whose addresses may
+// be of either epoch. Timestamps placed below other kinds so they don't disturb
+// existing timeline/bootstrap test fixtures.
+// `social/v1` envelope, stored under its `social/v1` address: a legacy-addressed
+// post (D), a v1-addressed post (E), a user and a web URL. Expected
+// `?source=collection` stream: [D, E].
+MERGE (p:Post {id: "C01V1TG15BKG4"}) SET p.content = "{\"name\":\"Epoch bridge\",\"description\":\"Items of both epochs\",\"items\":[{\"uri\":\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/00000039YD9C0\",\"note\":\"legacy address\"},{\"uri\":\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/social/v1/posts/00000039YD9CE\"},{\"uri\":\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/social/v1/profile.json\"},{\"uri\":\"https://example.com/reading\"}]}", p.kind = "collection", p.indexed_at = 1980477299091;
+MATCH (u:User {id: $bogota}), (p:Post {id: "C01V1TG15BKG4"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/social/v1/posts/C01V1TG15BKG4";
 MERGE (p:Post {id: "COLW1TGL5BKG1"}) SET p.content = "{\"name\":\"AI papers\",\"description\":\"Best stuff\",\"items\":[\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/00000039YD9BM\",\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/00000039YD9C0\",\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/00000039YD9CE\",\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/ZZZZZZZZZZZZZ\",\"pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/profile.json\"]}", p.kind = "collection", p.indexed_at = 1980477299101;
 MATCH (u:User {id: $bogota}), (p:Post {id: "COLW1TGL5BKG1"}) MERGE (u)-[:AUTHORED]->(p) SET p.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/pubky.app/posts/COLW1TGL5BKG1";
 MERGE (p:Post {id: "COLW1TGL5BKG2"}) SET p.content = "{\"name\":\"Privacy reads\",\"items\":[]}", p.kind = "collection", p.indexed_at = 1980477299111;
@@ -270,12 +284,15 @@ MATCH (u:User {id: $bogota}), (p:Post {id: "NEST1TGL5BKG8"}) MERGE (u)-[:AUTHORE
 // only items that exist as posts get one (the missing and non-post items of
 // COLW1TGL5BKG1 do not). Used by `?source=post_collections` and post counts.
 // COLW1TGL5BKG3 also curates 00000039YD9BM so that post has two curators, the
-// newer one first.
+// newer one first. C01V1TG15BKG4 curates 00000039YD9C0 and 00000039YD9CE, whichever
+// epoch's address names them.
 MATCH (c:Post {id: "COLW1TGL5BKG1"}), (i:Post {id: "00000039YD9BM"}) MERGE (c)-[:COLLECTED]->(i);
 MATCH (c:Post {id: "COLW1TGL5BKG3"}), (i:Post {id: "00000039YD9BM"}) MERGE (c)-[:COLLECTED]->(i);
 MATCH (c:Post {id: "COLW1TGL5BKG1"}), (i:Post {id: "00000039YD9C0"}) MERGE (c)-[:COLLECTED]->(i);
 MATCH (c:Post {id: "COLW1TGL5BKG1"}), (i:Post {id: "00000039YD9CE"}) MERGE (c)-[:COLLECTED]->(i);
 MATCH (c:Post {id: "NEST1TGL5BKG8"}), (i:Post {id: "COLW1TGL5BKG1"}) MERGE (c)-[:COLLECTED]->(i);
+MATCH (c:Post {id: "C01V1TG15BKG4"}), (i:Post {id: "00000039YD9C0"}) MERGE (c)-[:COLLECTED]->(i);
+MATCH (c:Post {id: "C01V1TG15BKG4"}), (i:Post {id: "00000039YD9CE"}) MERGE (c)-[:COLLECTED]->(i);
 
 // Bookmarked collection (used by `?source=bookmarks` stream tests). Eixample
 // bookmarks Bogota's COLW1TGL5BKG1.

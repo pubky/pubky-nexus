@@ -3,10 +3,8 @@ use crate::routes::Path;
 use crate::{Error, Result};
 use axum::Json;
 use nexus_common::models::file::FileDetails;
-use nexus_common::models::file::FileUrls;
 use nexus_common::models::traits::Collection;
 use tracing::debug;
-use utoipa::OpenApi;
 
 #[utoipa::path(
     get,
@@ -37,10 +35,3 @@ pub async fn file_details_handler(Path(file_uri): Path<String>) -> Result<Json<F
         Some(value) => Ok(Json(value.clone())),
     }
 }
-
-#[derive(OpenApi)]
-#[openapi(
-    paths(file_details_handler),
-    components(schemas(FileDetails, FileUrls))
-)]
-pub struct FileDetailsApiDoc;

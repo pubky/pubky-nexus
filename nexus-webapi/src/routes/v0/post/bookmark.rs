@@ -1,3 +1,7 @@
+//! The viewer's bookmark of a post. Served and documented by `/v0` alone (`V0::own_routes`,
+//! `V0Doc`): `social/v1` bookmarks live under `/priv/`, which Nexus never sees, so `/v1` has no
+//! bookmark route. The graph edges, the Redis keys and this route stay until R1.
+
 use crate::models::{PostId, PubkyId};
 use crate::routes::v0::endpoints::POST_BOOKMARK_ROUTE;
 use crate::routes::v0::post::view::PostPath;
@@ -8,7 +12,6 @@ use axum::Json;
 use nexus_common::models::post::Bookmark;
 use serde::Deserialize;
 use tracing::debug;
-use utoipa::OpenApi;
 
 #[derive(Deserialize)]
 pub struct PostQuery {
@@ -47,10 +50,3 @@ pub async fn post_bookmark_handler(
         None => Err(Error::post_not_found(author_id, post_id)),
     }
 }
-
-#[derive(OpenApi)]
-#[openapi(
-    paths(post_bookmark_handler),
-    components(schemas(Bookmark, PubkyId, PostId))
-)]
-pub struct BookmarkApiDoc;

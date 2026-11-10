@@ -38,9 +38,9 @@ MATCH (u:User {id: $trel_viewer}), (t:User {id: $trel_drift}) MERGE (u)-[:TAGGED
 MATCH (u:User {id: $trel_viewer}), (t:User {id: $trel_drift}) MERGE (u)-[:TAGGED {label: "trel-wot-unindexed", id: "TRELDRIFTV03", indexed_at: 1724134098024, uri: "pubky://xcb38btb3ioaoxtinmwtmizfum1akeg5yajju67o6rrcxq47n76o/pub/mapky/tags/TRELDRIFTV03"}]->(t);
 
 // Resource: same shape.
-MATCH (u:User {id: $trel_viewer}), (r:Resource {id: "7a6e1c0de5f0a11ce0ffee0000000001"}) MERGE (u)-[:TAGGED {label: "trel-shared", id: "TRELRESV01", indexed_at: 1724134098006, app: "mapky", uri: "pubky://xcb38btb3ioaoxtinmwtmizfum1akeg5yajju67o6rrcxq47n76o/pub/mapky/tags/TRELRESV01"}]->(r);
-MATCH (u:User {id: $trel_tagger}), (r:Resource {id: "7a6e1c0de5f0a11ce0ffee0000000001"}) MERGE (u)-[:TAGGED {label: "trel-shared", id: "TRELREST01", indexed_at: 1724134098007, app: "mapky", uri: "pubky://ww9hfpxrbq6hg8b34gg57irnhfk1iz9b8px9o7biy1d1dz1xep8o/pub/mapky/tags/TRELREST01"}]->(r);
-MATCH (u:User {id: $trel_tagger}), (r:Resource {id: "7a6e1c0de5f0a11ce0ffee0000000001"}) MERGE (u)-[:TAGGED {label: "trel-other", id: "TRELREST02", indexed_at: 1724134098008, app: "mapky", uri: "pubky://ww9hfpxrbq6hg8b34gg57irnhfk1iz9b8px9o7biy1d1dz1xep8o/pub/mapky/tags/TRELREST02"}]->(r);
+MATCH (u:User {id: $trel_viewer}), (r:Resource {id: "7a6e1c0de5f0a11ce0ffee0000000001"}) MERGE (u)-[:TAGGED {label: "trel-shared", id: "TRELRESV01", indexed_at: 1724134098006, uri: "pubky://xcb38btb3ioaoxtinmwtmizfum1akeg5yajju67o6rrcxq47n76o/pub/mapky/tags/TRELRESV01"}]->(r);
+MATCH (u:User {id: $trel_tagger}), (r:Resource {id: "7a6e1c0de5f0a11ce0ffee0000000001"}) MERGE (u)-[:TAGGED {label: "trel-shared", id: "TRELREST01", indexed_at: 1724134098007, uri: "pubky://ww9hfpxrbq6hg8b34gg57irnhfk1iz9b8px9o7biy1d1dz1xep8o/pub/mapky/tags/TRELREST01"}]->(r);
+MATCH (u:User {id: $trel_tagger}), (r:Resource {id: "7a6e1c0de5f0a11ce0ffee0000000001"}) MERGE (u)-[:TAGGED {label: "trel-other", id: "TRELREST02", indexed_at: 1724134098008, uri: "pubky://ww9hfpxrbq6hg8b34gg57irnhfk1iz9b8px9o7biy1d1dz1xep8o/pub/mapky/tags/TRELREST02"}]->(r);
 
 // Cache-miss targets: the cache-miss tests delete their Redis tag keys, so no other test reads
 // them. The resource keeps no Redis tag keys, so the resource streams can list it.
@@ -58,10 +58,12 @@ MATCH (u:User {id: $trel_tagger}), (p:Post {id: "2ZRT8G4VXQ0N0"}) MERGE (u)-[:TA
 MATCH (u:User {id: $trel_viewer}), (t:User {id: $trel_miss_user}) MERGE (u)-[:TAGGED {label: "trel-shared", id: "TRELMISSUV01", indexed_at: 1724134098012, uri: "pubky://xcb38btb3ioaoxtinmwtmizfum1akeg5yajju67o6rrcxq47n76o/pub/mapky/tags/TRELMISSUV01"}]->(t);
 MATCH (u:User {id: $trel_tagger}), (t:User {id: $trel_miss_user}) MERGE (u)-[:TAGGED {label: "trel-other", id: "TRELMISSUT01", indexed_at: 1724134098013, uri: "pubky://ww9hfpxrbq6hg8b34gg57irnhfk1iz9b8px9o7biy1d1dz1xep8o/pub/pubky.app/tags/TRELMISSUT01"}]->(t);
 MATCH (u:User {id: $trel_viewer}), (r:Resource {id: "7a6e1c0de5f0a11ce0ffee0000000002"}) MERGE (u)-[:TAGGED {label: "trel-shared", id: "TRELMISSRV01", indexed_at: 1724134098014, app: "mapky", uri: "pubky://xcb38btb3ioaoxtinmwtmizfum1akeg5yajju67o6rrcxq47n76o/pub/mapky/tags/TRELMISSRV01"}]->(r);
-// The viewer tagged `trel-shared` from a second app too: both reads must pick the same address
-// (the lowest, mapky's). Older than the resource's newest tag, so the resource streams don't move.
+// TRELMISSRV01 and TRELMISSRV02 stand in for resource tag edges written before a tag became one
+// edge per tagger, target and label, so they still carry `app`: two `trel-shared` edges from the
+// viewer, and both reads must pick the same address (the lowest, mapky's). Older than the
+// resource's newest tag, so the resource streams don't move.
 MATCH (u:User {id: $trel_viewer}), (r:Resource {id: "7a6e1c0de5f0a11ce0ffee0000000002"}) MERGE (u)-[:TAGGED {label: "trel-shared", id: "TRELMISSRV02", indexed_at: 1724134098014, app: "pubky.app", uri: "pubky://xcb38btb3ioaoxtinmwtmizfum1akeg5yajju67o6rrcxq47n76o/pub/pubky.app/tags/TRELMISSRV02"}]->(r);
-MATCH (u:User {id: $trel_tagger}), (r:Resource {id: "7a6e1c0de5f0a11ce0ffee0000000002"}) MERGE (u)-[:TAGGED {label: "trel-other", id: "TRELMISSRT01", indexed_at: 1724134098015, app: "mapky", uri: "pubky://ww9hfpxrbq6hg8b34gg57irnhfk1iz9b8px9o7biy1d1dz1xep8o/pub/mapky/tags/TRELMISSRT01"}]->(r);
+MATCH (u:User {id: $trel_tagger}), (r:Resource {id: "7a6e1c0de5f0a11ce0ffee0000000002"}) MERGE (u)-[:TAGGED {label: "trel-other", id: "TRELMISSRT01", indexed_at: 1724134098015, uri: "pubky://ww9hfpxrbq6hg8b34gg57irnhfk1iz9b8px9o7biy1d1dz1xep8o/pub/mapky/tags/TRELMISSRT01"}]->(r);
 
 // Web of Trust targets: the viewer follows a WoT tagger who tags them, so their labels show
 // with `depth`. Only the WoT tests read them; the user's WoT cache keys are its own.
