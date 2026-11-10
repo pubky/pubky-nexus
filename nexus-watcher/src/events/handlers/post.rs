@@ -4,13 +4,18 @@ use nexus_common::db::kv::ScoreAction;
 use nexus_common::db::queries;
 use nexus_common::db::queries::get::post_is_safe_to_delete;
 use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
+use nexus_common::models::event::resource_changes::{ResourceChange, ResourceChangeKind};
 use nexus_common::models::notification::{Notification, PostChangedSource, PostChangedType};
 use nexus_common::models::post::{
     collection_item_keys, sync_collected_edges, PostCounts, PostDetails, PostParent, PostParents,
     PostRelationships, PostStream,
 };
+use nexus_common::models::resource::references;
 use nexus_common::models::user::UserIngestor;
 use pubky_social_specs::PubkyId;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::LazyLock;
+use tokio::sync::{Mutex, MutexGuard};
 use tracing::{debug, Instrument};
 
 use super::utils::{
@@ -18,24 +23,118 @@ use super::utils::{
 };
 use crate::events::inputs::{PostInput, PostKind, Reference, ReferenceTarget, ResourceKey};
 
+/// Locks shared by the handlers of posts: see [`lock_post`].
+const POST_LOCK_STRIPES: usize = 1024;
+static POST_LOCKS: LazyLock<Vec<Mutex<()>>> =
+    LazyLock::new(|| (0..POST_LOCK_STRIPES).map(|_| Mutex::new(())).collect());
+
+/// The lock of one post, keyed by its author and id, which every handler of the post knows
+/// before it reads the graph. A PUT of any of its version files and its DEL hold it from their
+/// first read of the post's external references to their last resource changes feed append.
+/// The live runners and the retry processor run in parallel: without it, a handler paused
+/// between its post write and its references could, once another version's handler finished,
+/// replace that version's references with its own, or append an outbox that a concurrent
+/// delete already published and retracted. With it, the post's references are the ones of the
+/// version handled last (the handlers do not compare versions). The locks are a fixed set of
+/// stripes, as [`super::tag::lock_tag`]'s: two posts that share one only wait for each other. A
+/// crash releases it. It orders the handlers of one watcher process.
+pub async fn lock_post(author_id: &str, post_id: &str) -> MutexGuard<'static, ()> {
+    let mut hasher = DefaultHasher::new();
+    (author_id, post_id).hash(&mut hasher);
+    POST_LOCKS[hasher.finish() as usize % POST_LOCK_STRIPES]
+        .lock()
+        .await
+}
+
 pub async fn sync_put(
     post: PostInput,
     key: ResourceKey,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
+    let source_uri = post.uri.clone();
+    sync_put_at(post, key, ingestor, &source_uri).await
+}
+
+pub async fn sync_put_at(
+    post: PostInput,
+    key: ResourceKey,
+    ingestor: &UserIngestor,
+    source_uri: &str,
+) -> Result<(), EventProcessorError> {
     reject_unsupported_parent(&post)?;
+    let _post_lock = lock_post(key.owner_id.as_ref(), &key.resource_id).await;
+    let mut lines: Vec<ResourceChange> = Vec::new();
+    for (target, kind) in post
+        .parent
+        .iter()
+        .map(|r| (r, ResourceChangeKind::Reply))
+        .chain(post.embed.iter().map(|r| (r, ResourceChangeKind::Embed)))
+        .chain(
+            post.collection_items
+                .iter()
+                .map(|r| (r, ResourceChangeKind::Collection)),
+        )
+    {
+        // Only an external target is a Resource: another scheme's URL or another app's
+        // public object. Native posts keep their own edges; profiles, files, tags,
+        // bookmarks, private paths and anything else Nexus never references are not
+        // projected at all.
+        if matches!(target.target, ReferenceTarget::Foreign) {
+            lines.push(references::reference(
+                &key.owner_id,
+                source_uri,
+                &target.uri,
+                kind,
+            )?);
+        }
+    }
+    references::finish_delete(&key.owner_id, &key.resource_id).await?;
+    let was_reply = PostRelationships::get_from_graph(&key.owner_id, &key.resource_id)
+        .await?
+        .is_some_and(|relationships| relationships.replied.is_some());
+    let now_reply = is_reply_input(&post);
     let post_details = post.clone().into_details(&key);
+    let projected = post.clone().into_details(&key);
     let ResourceKey {
         owner_id: author_id,
         resource_id: post_id,
     } = key;
-    sync_put_details(post, post_details, author_id, post_id, ingestor).await
+    sync_put_details(
+        post,
+        post_details,
+        author_id.clone(),
+        post_id.clone(),
+        ingestor,
+    )
+    .await?;
+    references::sync(&projected, lines).await?;
+    PostRelationships::reindex(&author_id, &post_id).await?;
+    PostDetails::reindex(&author_id, &post_id).await?;
+    if was_reply && !now_reply {
+        if let Some((counts, is_reply)) = PostCounts::get_from_graph(&author_id, &post_id).await? {
+            counts.put_to_index(&author_id, &post_id, is_reply).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Whether `post` is indexed as a reply: its parent is a post, or an external target it has a
+/// Resource reply edge to. A parent Nexus never references makes no edge, so the post is a root
+/// post, as a graph rebuild of its counts and timelines finds it.
+fn is_reply_input(post: &PostInput) -> bool {
+    post.parent.as_ref().is_some_and(|parent| {
+        matches!(
+            parent.target,
+            ReferenceTarget::Post(_) | ReferenceTarget::Foreign
+        )
+    })
 }
 
 /// Rejects a reply to a file, a profile or a tag, whatever folder holds it, as
 /// [`EventProcessorError::UnsupportedTarget`], never retried: no reply edge can ever point at
-/// one. A reply to a URL, another app's object or a resource Nexus never references is indexed
-/// with no reply edge.
+/// one. A reply to a URL or another app's object is indexed with no Post reply edge and a
+/// Resource reply edge, written after the post commit; a reply to a resource Nexus never
+/// references (a bookmark, a follow, a private path) is indexed with neither.
 fn reject_unsupported_parent(post: &PostInput) -> Result<(), EventProcessorError> {
     match &post.parent {
         Some(Reference {
@@ -110,7 +209,7 @@ async fn sync_put_details(
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing post");
     // We avoid indexing replies into global feed sorted sets
-    let is_reply = post.parent.is_some();
+    let is_reply = is_reply_input(&post);
     let is_collection = post.kind == PostKind::Collection;
     // PRE-INDEX operation, identify the post relationship. These parents carry the addresses as
     // the author wrote them: only their keys reach the graph, and the addresses only the
@@ -200,6 +299,7 @@ async fn sync_put_details(
     let mut post_relationships = PostRelationships {
         replied: replied.as_ref().map(|parent| parent.uri.clone()),
         reposted: reposted.as_ref().map(|parent| parent.uri.clone()),
+        embedded: None,
         mentioned: Vec::new(),
     };
 
@@ -653,6 +753,16 @@ async fn ingest_collection_item_authors(post: &PostInput, ingestor: &UserIngesto
 
 #[tracing::instrument(name = "post.del", skip_all, fields(user_id = %key.owner_id, post_id = %key.resource_id))]
 pub async fn del(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), EventProcessorError> {
+    let _post_lock = lock_post(key.owner_id.as_ref(), &key.resource_id).await;
+    references::prepare_delete(&key.owner_id, &key.resource_id).await?;
+    let result = del_inner(key.clone(), ingestor).await;
+    if result.is_ok() || matches!(result, Err(EventProcessorError::SkipIndexing)) {
+        references::finish_delete(&key.owner_id, &key.resource_id).await?;
+    }
+    result
+}
+
+async fn del_inner(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), EventProcessorError> {
     debug!("Deleting post");
 
     // The post's stored address: a tombstone keeps it, and a hard delete reports it.
@@ -716,11 +826,14 @@ pub async fn del(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), EventP
 }
 
 /// `deleted_uri` is the post's stored address, read by the caller before the graph delete below.
+/// It reads and writes the post's references: call it under the post's [`lock_post`], as
+/// [`del`] does.
 pub async fn sync_del(
     author_id: PubkyId,
     post_id: String,
     deleted_uri: String,
 ) -> Result<(), EventProcessorError> {
+    references::prepare_delete(&author_id, &post_id).await?;
     // 1. The PostRelationships index entry is the gate.
     //    NOTE: deliberately NOT using `get_by_id`, which would re-populate the
     //    index from the graph and defeat the gate.
@@ -754,7 +867,8 @@ pub async fn sync_del(
     // If the post is a reply, cannot delete from the main feeds
     // In the main feed, we just include the root posts and reposts
     // It could be a situation that relationship would not exist and we will treat the post as a not reply
-    let is_reply = replied.is_some();
+    // A tombstoned external reply has lost its Resource edge but keeps its reply flag.
+    let is_reply = references::is_reply(&author_id, &post_id).await?;
 
     // DELETE TO INDEX - PHASE 1, remove the post counts
     // Idempotent: JSON DEL + ZREM from engagement sorted set.
@@ -871,6 +985,10 @@ pub async fn sync_del(
         indexing_results.1?;
     }
 
+    // External replies have no native parent wrapper, but still own this membership.
+    if is_reply {
+        PostStream::remove_from_replies_per_user_sorted_set(&author_id, &post_id).await?;
+    }
     // PHASE 4: Final Redis cleanup of PostDetails (idempotent JSON DEL + ZREM).
     PostDetails::delete_from_index(&author_id, &post_id, reply_parent_post_key_wrapper)
         .instrument(tracing::info_span!("index.delete", phase = "post_details"))
@@ -893,6 +1011,7 @@ pub async fn sync_del(
         PostCounts::invalidate(&[&parent[0], &parent[1]]).await?;
     }
 
+    references::finish_delete(&author_id, &post_id).await?;
     Ok(())
 }
 

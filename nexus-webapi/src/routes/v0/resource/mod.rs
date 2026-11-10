@@ -1,3 +1,6 @@
+/// The routes `/v1` alone serves: the posts replying to or embedding a resource.
+pub mod references;
+
 use crate::models::{BoundedLimit, BoundedSkip, PubkyId, ResourceId};
 use crate::routes::v0::endpoints::{
     RESOURCE_BY_URI_ROUTE, RESOURCE_TAGGERS_ROUTE, RESOURCE_TAGS_ROUTE,

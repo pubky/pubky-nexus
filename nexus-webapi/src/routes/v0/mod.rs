@@ -110,7 +110,9 @@ impl ApiDoc {
     /// Version `V`'s document, with every path under its prefix as [`routes`] mounts them.
     /// Nesting prefixes the paths and carries the schemas over; the routes the version
     /// documents from outside its mount ([`ApiVersion::absolute_docs`]) are merged as they are.
-    /// The description ends with the version's standing ([`ApiVersion::STANDING`]).
+    /// The description ends with the version's standing ([`ApiVersion::STANDING`]), and the
+    /// version finishes the document ([`ApiVersion::finish_docs`]): the frozen `/v0` leaves out
+    /// what the stored models gained since.
     fn docs_of<V: ApiVersion>() -> utoipa::openapi::OpenApi {
         let mut docs = Self::openapi()
             .nest(V::PREFIX, Self::relative_docs::<V>())
@@ -119,7 +121,7 @@ impl ApiDoc {
             Some(about) => format!("{about}\n\n{}", V::STANDING),
             None => V::STANDING.to_string(),
         });
-        docs
+        V::finish_docs(docs)
     }
 
     /// Every module's document merged for version `V`, with paths relative to its prefix. The

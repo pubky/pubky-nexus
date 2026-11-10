@@ -103,7 +103,8 @@ pub fn post_counts(author_id: &str, post_id: &str) -> Query {
                 reposts: COUNT { (p)<-[:REPOSTED]-() },
                 collections: COUNT { (p)<-[:COLLECTED]-() }
             } AS counts,
-            EXISTS { (p)-[:REPLIED]->(:Post) } AS is_reply
+            // A tombstoned external reply lost its Resource reply edge, not its reply flag.
+            (EXISTS { (p)-[:REPLIED]->() } OR coalesce(p.resource_reply, false)) AS is_reply
     ",
     )
     .param("author_id", author_id)
@@ -284,10 +285,12 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
         "post_relationships",
         "MATCH (p:Post {id: $post_id})
         WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
-        OPTIONAL MATCH (p)-[:REPLIED]->(replied_post:Post)<-[:AUTHORED]-(replied_author:User)
+        OPTIONAL MATCH (p)-[:REPLIED]->(replied_post)
         OPTIONAL MATCH (p)-[:REPOSTED]->(reposted_post:Post)<-[:AUTHORED]-(reposted_author:User)
+        OPTIONAL MATCH (p)-[:EMBEDS]->(embedded:Resource)
         OPTIONAL MATCH (p)-[:MENTIONED]->(mentioned_user:User)
         RETURN
+          embedded.uri AS embedded_uri,
           replied_post.uri AS replied_uri,
           reposted_post.uri AS reposted_uri,
           COLLECT(mentioned_user.id) AS mentioned_user_ids",
@@ -489,7 +492,7 @@ pub fn author_post_entries(author_id: &str, after: (i64, &str), limit: usize) ->
         RETURN author.id AS author_id,
             p.id AS post_id,
             p.indexed_at AS indexed_at,
-            EXISTS { (p)-[:REPLIED]->(:Post) } AS is_reply,
+            (EXISTS { (p)-[:REPLIED]->() } OR coalesce(p.resource_reply, false)) AS is_reply,
             COLLECT { MATCH (p)<-[tag:TAGGED]-(:User) RETURN DISTINCT tag.label } AS labels,
             COUNT { (p)<-[:TAGGED]-() }
                 + COUNT { (p)<-[:REPLIED]-() }
@@ -728,7 +731,10 @@ pub fn resource_view(
                 tag_uri: viewer_uri
             }) AS tags
         }
-        RETURN r {.id, .uri, .scheme, .indexed_at} AS details, tags
+        RETURN r {.id, .uri, .scheme, .indexed_at} AS details, tags,
+          COUNT { (r)<-[:REPLIED]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS replies_count,
+          COUNT { (r)<-[:EMBEDS]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS embeds_count,
+          COUNT { (r)<-[:COLLECTED]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS collections_count
     ",
     )
     .param("resource_id", resource_id)
@@ -1089,7 +1095,7 @@ const USER_COUNT_FIELDS: &[(&str, &str)] = &[
     ("posts", POSTS_COUNT),
     (
         "replies",
-        "COUNT { (u)-[:AUTHORED]->(:Post)-[:REPLIED]->(:Post) }",
+        "COUNT { (u)-[:AUTHORED]->(p:Post) WHERE EXISTS { (p)-[:REPLIED]->() } OR coalesce(p.resource_reply, false) }",
     ),
     (
         "collections",
@@ -1720,10 +1726,12 @@ pub fn post_stream(
     // the parents-only filter here would silently drop bookmarked replies on the
     // graph path (reachable via kind/exclude_kinds or engagement sort), diverging
     // from the index path. Every other source that routes here wants parents only.
+    // A tombstoned external reply has lost its Resource reply edge, but keeps
+    // `resource_reply`: it is still a reply (see `references::is_reply`).
     if !matches!(source, StreamSource::Bookmarks { .. }) {
         append_condition(
             &mut cypher,
-            "NOT ( (p)-[:REPLIED]->(:Post) )",
+            "NOT ( EXISTS { (p)-[:REPLIED]->() } OR coalesce(p.resource_reply, false) )",
             &mut where_clause_applied,
         );
     }
@@ -1972,7 +1980,7 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
                 (type(r) = 'AUTHORED' AND startNode(r).id = $author_id AND endNode(r) = p)
                 OR
                 // 2. Outgoing REPOSTED relationship to another post
-                (type(r) = 'REPOSTED' AND startNode(r) = p)
+                (type(r) IN ['REPOSTED', 'EMBEDS'] AND startNode(r) = p)
                 OR
                 // 3. Outgoing REPLIED relationship to another post
                 (type(r) = 'REPLIED' AND startNode(r) = p)
@@ -2178,7 +2186,7 @@ mod tests {
         let clauses = [
             "MATCH (:User)-[tag:TAGGED]->(p)",
             "p.kind = 'short'",
-            "NOT ( (p)-[:REPLIED]->(:Post) )",
+            "NOT ( EXISTS { (p)-[:REPLIED]->() } OR coalesce(p.resource_reply, false) )",
             "WITH DISTINCT p\nORDER BY p.indexed_at DESC, p.id DESC",
             "MATCH (p)<-[:AUTHORED]-(author:User)",
             &rule,
