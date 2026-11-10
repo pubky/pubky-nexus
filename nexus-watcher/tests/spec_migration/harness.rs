@@ -2,7 +2,6 @@
 //! homeserver, nexus's indexers driven one step at a time, and users acting through their own
 //! SDK sessions, writing `pubky.app` objects before the migration and `social/v1` objects after.
 
-use std::os::unix::fs::PermissionsExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -197,14 +196,20 @@ impl SpecMigrationTest {
         Ok(uris)
     }
 
-    /// Makes nexus's file store refuse new folders, or accept them again: a full or broken
-    /// disk, the one failure the flip's own steps meet outside the databases. The flip copies
-    /// a user's files under `v1/`, so it fails while the store refuses.
+    /// Makes nexus's file store refuse `social/v1` file writes, or accept them again: a full or
+    /// broken disk, the one failure the flip's own steps meet outside the databases. The flip
+    /// copies a user's files to their `social/v1` addresses, so it fails while the store
+    /// refuses. A file where the writer's temp folder goes stops every write before it starts,
+    /// whoever runs the test, root included.
     pub fn refuse_file_writes(&self, refuse: bool) -> Result<()> {
         let v1 = self.files.path().join("v1");
         std::fs::create_dir_all(&v1)?;
-        let mode = if refuse { 0o555 } else { 0o755 };
-        std::fs::set_permissions(&v1, std::fs::Permissions::from_mode(mode))?;
+        let blocked = v1.join(".tmp");
+        if refuse {
+            std::fs::write(&blocked, b"")?;
+        } else {
+            std::fs::remove_file(&blocked)?;
+        }
         Ok(())
     }
 
