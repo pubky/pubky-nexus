@@ -542,8 +542,9 @@ pub async fn following(user: &User) -> Result<Vec<String>> {
 }
 
 /// `user`'s notifications as `(time, body)`, newest first, the body whole: its kind, actor,
-/// addresses and label. Identical notifications share one entry whose time moves to the latest,
-/// so a notification issued again shows as a newer time.
+/// addresses and label. Identical notifications share one entry. A follow or a tag issued again
+/// moves that entry's time to the latest; a reply, repost or mention issued again keeps its
+/// first time, so it shows no change at all.
 pub async fn notifications(user: &User) -> Result<Vec<(i64, Value)>> {
     let list = Notification::get_by_id(&user.id(), Pagination::default())
         .await
