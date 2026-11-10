@@ -554,14 +554,6 @@ pub async fn notifications(user: &User) -> Result<Vec<(i64, Value)>> {
         .collect()
 }
 
-pub async fn notification_kinds(user: &User) -> Result<Vec<String>> {
-    Ok(notifications(user)
-        .await?
-        .into_iter()
-        .map(|(_, body)| body["type"].as_str().unwrap_or_default().to_string())
-        .collect())
-}
-
 /// `(label, taggers)` of the tags on a post, sorted.
 pub async fn post_tags(author: &User, post_id: &str) -> Result<Vec<(String, Vec<String>)>> {
     Ok(tag_list(served_post(author, post_id).await?.tags))
