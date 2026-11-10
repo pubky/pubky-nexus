@@ -175,8 +175,9 @@ async fn copies_landing_after_the_flip_change_nothing() -> Result<()> {
 /// flips her, and ends `incomplete`. Her app runs it again and copies the post, now a `v1`
 /// user's write. The copy of a `pubky.app` long post is a `social/v1` article, whose content is
 /// an envelope (`{"title":…,"body":…}`, the title taken from the first line), while the flip
-/// left the post's content as `pubky.app` wrote it. Nobody edited the post, so nexus should
-/// serve it as before and notify nobody.
+/// left the post's content as `pubky.app` wrote it. Nobody edited the post, so its copy should
+/// change nothing: not its content, whichever form the flip gives it, and not anyone's
+/// notifications.
 ///
 /// Demonstrated: nexus takes the copy for an edit. It replaces the content with the envelope
 /// and notifies Bob, who replied to the post, that Alice edited it. The same happens to any
@@ -201,6 +202,7 @@ async fn an_article_copied_after_the_flip_is_no_edit() -> Result<()> {
         "the profile copy flips her"
     );
     assert_eq!(n.served().await?, served, "the flip");
+    let content = served_post(&n.alice, &n.long).await?.details.content;
     let alice_notified = notifications(&n.alice).await?;
     let bob_notified = notifications(&n.bob).await?;
 
@@ -217,6 +219,10 @@ async fn an_article_copied_after_the_flip_is_no_edit() -> Result<()> {
         notifications(&n.bob).await?,
         bob_notified,
         "nobody edited it"
+    );
+    assert_eq!(
+        served_post(&n.alice, &n.long).await?.details.content,
+        content
     );
     assert_eq!(n.served().await?, served);
     Ok(())

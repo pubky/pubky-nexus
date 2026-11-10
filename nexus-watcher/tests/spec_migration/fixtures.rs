@@ -130,8 +130,9 @@ impl Neighbourhood {
         ]
     }
 
-    /// What nexus serves about the two of them, leaving out every address: the flip moves
-    /// Alice's addresses and nothing else, so this is the same before and after it.
+    /// What nexus serves about the two of them, leaving out every address and the long post's
+    /// content: the flip moves Alice's addresses and nothing else, so this is the same before
+    /// and after it.
     pub async fn served(&self) -> Result<Value> {
         let (alice, bob) = (&self.alice, &self.bob);
         let alice_view = profile(alice).await?;
@@ -143,9 +144,12 @@ impl Neighbourhood {
             (bob, self.bob_repost.as_str()),
         ]) {
             let view = served_post(author, id).await?;
+            // Which content a migrated long post should have, as `pubky.app` wrote it or as its
+            // `social/v1` article copy carries it, is open; the suite does not pin either
+            let content = (id != self.long).then_some(view.details.content);
             posts.push(json!({
                 "id": id,
-                "content": view.details.content,
+                "content": content,
                 "kind": view.details.kind,
                 "deleted": view.details.deleted,
                 "attachments": view.details.attachments.len(),
