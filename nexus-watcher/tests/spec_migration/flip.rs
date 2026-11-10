@@ -150,8 +150,8 @@ async fn nexus_reading_between_the_passes_sees_nothing_until_the_profile() -> Re
 }
 
 /// The app runs the migration again, as it does on every start until it sees the flag. A
-/// check of the port's flag and journal, which the other scenarios rely on: nexus sees nothing
-/// of these runs but the flag's own `/priv/` events, which it does not read.
+/// check of the port's flag and journal alone, which the other scenarios rely on: the test
+/// never lets nexus read after the neighbourhood is built.
 ///
 /// - The flag at the current revision stops the run before it lists anything.
 /// - A flag of an older revision (new transforms) walks the tree again. Every object the flag
