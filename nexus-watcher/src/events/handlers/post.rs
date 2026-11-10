@@ -13,12 +13,38 @@ use nexus_common::models::post::{
 use nexus_common::models::resource::references;
 use nexus_common::models::user::UserIngestor;
 use pubky_social_specs::PubkyId;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::LazyLock;
+use tokio::sync::{Mutex, MutexGuard};
 use tracing::{debug, Instrument};
 
 use super::utils::{
     bounded, fail_on_permanent_ingest_error, post_kind, post_relationships_is_reply,
 };
 use crate::events::inputs::{PostInput, PostKind, Reference, ReferenceTarget, ResourceKey};
+
+/// Locks shared by the handlers of posts: see [`lock_post`].
+const POST_LOCK_STRIPES: usize = 1024;
+static POST_LOCKS: LazyLock<Vec<Mutex<()>>> =
+    LazyLock::new(|| (0..POST_LOCK_STRIPES).map(|_| Mutex::new(())).collect());
+
+/// The lock of one post, keyed by its author and id, which every handler of the post knows
+/// before it reads the graph. A PUT of any of its version files and its DEL hold it from their
+/// first read of the post's external references to their last resource changes feed append.
+/// The live runners and the retry processor run in parallel: without it, a handler paused
+/// between its post write and its references could, once another version's handler finished,
+/// replace that version's references with its own, or append an outbox that a concurrent
+/// delete already published and retracted. With it, the post's references are the ones of the
+/// version handled last (the handlers do not compare versions). The locks are a fixed set of
+/// stripes, as [`super::tag::lock_tag`]'s: two posts that share one only wait for each other. A
+/// crash releases it. It orders the handlers of one watcher process.
+pub async fn lock_post(author_id: &str, post_id: &str) -> MutexGuard<'static, ()> {
+    let mut hasher = DefaultHasher::new();
+    (author_id, post_id).hash(&mut hasher);
+    POST_LOCKS[hasher.finish() as usize % POST_LOCK_STRIPES]
+        .lock()
+        .await
+}
 
 pub async fn sync_put(
     post: PostInput,
@@ -36,6 +62,7 @@ pub async fn sync_put_at(
     source_uri: &str,
 ) -> Result<(), EventProcessorError> {
     reject_unsupported_parent(&post)?;
+    let _post_lock = lock_post(key.owner_id.as_ref(), &key.resource_id).await;
     let mut lines: Vec<ResourceChange> = Vec::new();
     for (target, kind) in post
         .parent
@@ -726,6 +753,7 @@ async fn ingest_collection_item_authors(post: &PostInput, ingestor: &UserIngesto
 
 #[tracing::instrument(name = "post.del", skip_all, fields(user_id = %key.owner_id, post_id = %key.resource_id))]
 pub async fn del(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), EventProcessorError> {
+    let _post_lock = lock_post(key.owner_id.as_ref(), &key.resource_id).await;
     references::prepare_delete(&key.owner_id, &key.resource_id).await?;
     let result = del_inner(key.clone(), ingestor).await;
     if result.is_ok() || matches!(result, Err(EventProcessorError::SkipIndexing)) {
@@ -798,6 +826,8 @@ async fn del_inner(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), Even
 }
 
 /// `deleted_uri` is the post's stored address, read by the caller before the graph delete below.
+/// It reads and writes the post's references: call it under the post's [`lock_post`], as
+/// [`del`] does.
 pub async fn sync_del(
     author_id: PubkyId,
     post_id: String,
