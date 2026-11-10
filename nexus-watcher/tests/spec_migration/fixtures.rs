@@ -4,7 +4,6 @@
 use anyhow::{anyhow, ensure, Result};
 use pubky_social_specs::legacy_v0::traits::HasPath;
 use pubky_social_specs::legacy_v0::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
-use pubky_social_specs::PubkyId;
 use serde_json::{json, Value};
 
 use crate::harness::{
@@ -25,8 +24,6 @@ pub struct Neighbourhood {
     pub photo_post: String,
     /// Alice's reply to Bob's post.
     pub reply_to_bob: String,
-    /// Alice's post nobody touched.
-    pub quiet: String,
     /// Alice's long post with a title line, which Bob replied to. Its `social/v1` copy is an
     /// article, whose content is an envelope: the one copy whose content differs.
     pub long: String,
@@ -37,16 +34,14 @@ pub struct Neighbourhood {
     /// Bob's repost of Alice's note.
     pub bob_repost: String,
     pub avatar_hash: String,
-    /// The `pubky.app` File object of the photo.
-    pub photo: String,
     pub photo_hash: String,
 }
 
 impl Neighbourhood {
-    /// Alice on `alice_hs`, Bob on the primary, all of it written through `pubky.app` and
-    /// indexed by nexus, nothing left to retry.
-    pub async fn build(test: &SpecMigrationTest, alice_hs: &PubkyId) -> Result<Self> {
-        let alice = test.user("Alice", alice_hs).await?;
+    /// Alice on the external homeserver, read per user, and Bob on the primary, read in bulk,
+    /// all of it written through `pubky.app` and indexed by nexus, nothing left to retry.
+    pub async fn build(test: &SpecMigrationTest) -> Result<Self> {
+        let alice = test.user("Alice", &test.external).await?;
         let bob = test.user("Bob", &test.primary).await?;
 
         let (avatar, avatar_hash) = alice.upload("avatar.png", "image/png", AVATAR).await?;
@@ -62,17 +57,11 @@ impl Neighbourhood {
         let bob_post = bob.note("Bob: hello").await?;
         let note = alice.note("Alice: hello").await?;
         let photo_post = alice
-            .post(&v0_post(
-                "Alice: the sea",
-                None,
-                None,
-                Some(vec![photo.clone()]),
-            ))
+            .post(&v0_post("Alice: the sea", None, None, Some(vec![photo])))
             .await?;
         let reply_to_bob = alice
             .reply("Alice: hi Bob", &v0_post_uri(&bob, &bob_post))
             .await?;
-        let quiet = alice.note("Alice: nobody reads this").await?;
         let long = alice
             .post(&PubkyAppPost {
                 kind: PubkyAppPostKind::Long,
@@ -108,26 +97,18 @@ impl Neighbourhood {
             note,
             photo_post,
             reply_to_bob,
-            quiet,
             long,
             bob_post,
             bob_reply,
             bob_repost,
             avatar_hash,
-            photo,
             photo_hash,
         })
     }
 
     /// Alice's posts, oldest first.
-    pub fn alice_posts(&self) -> [&str; 5] {
-        [
-            &self.note,
-            &self.photo_post,
-            &self.reply_to_bob,
-            &self.quiet,
-            &self.long,
-        ]
+    pub fn alice_posts(&self) -> [&str; 4] {
+        [&self.note, &self.photo_post, &self.reply_to_bob, &self.long]
     }
 
     /// What nexus serves about the two of them, leaving out every address and the long post's

@@ -18,8 +18,8 @@
 //!
 //! Not ported: the capability check, the lock, the retries and the size bounds. The engine runs
 //! two objects at a time; the port runs one, which only narrows the orders a test can see.
-//! [`Migration::run_through`] stops the walk after a pass, so a test can let nexus read, or the
-//! user write from another device, between two passes.
+//! [`Migration::fail_reading`] makes one object's GET fail for good, so a test can end a run
+//! `incomplete` and have the next one copy that object.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -36,7 +36,7 @@ const FLAG: &str = "priv/social/v1/_migrated.json";
 
 /// One pass of the walk, named by the 0.x resource segment, in walk order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Pass {
+enum Pass {
     Files,
     Blobs,
     Posts,
@@ -173,7 +173,7 @@ impl<'a> Migration<'a> {
     }
 
     /// Walks every pass up to and including `last` that has not run yet.
-    pub async fn run_through(&mut self, last: Pass) -> Result<()> {
+    async fn run_through(&mut self, last: Pass) -> Result<()> {
         for pass in Pass::ALL.into_iter().filter(|pass| *pass <= last) {
             for path in self.todo.remove(&pass).unwrap_or_default() {
                 self.object(pass, &path).await?;

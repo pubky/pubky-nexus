@@ -15,6 +15,7 @@ use nexus_common::models::follow::{Followers, Following, UserFollows};
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::{PostStream, PostView};
+use nexus_common::models::tag::TagDetails;
 use nexus_common::models::user::{Epoch, UserIngestor, UserView};
 use nexus_common::types::Pagination;
 use nexus_common::utils::test_utils::default_ingestor_tests;
@@ -47,7 +48,8 @@ use tokio::sync::watch;
 use crate::migrator::{self, Report};
 
 pub struct SpecMigrationTest {
-    pub testnet: Testnet,
+    /// Keeps the homeservers running.
+    testnet: Testnet,
     /// Bulk-indexed by nexus.
     pub primary: PubkyId,
     /// Read per user.
@@ -196,23 +198,6 @@ impl SpecMigrationTest {
         Ok(uris)
     }
 
-    /// Makes nexus's file store refuse `social/v1` file writes, or accept them again: a full or
-    /// broken disk, the one failure the flip's own steps meet outside the databases. The flip
-    /// copies a user's files to their `social/v1` addresses, so it fails while the store
-    /// refuses. A file where the writer's temp folder goes stops every write before it starts,
-    /// whoever runs the test, root included.
-    pub fn refuse_file_writes(&self, refuse: bool) -> Result<()> {
-        let v1 = self.files.path().join("v1");
-        std::fs::create_dir_all(&v1)?;
-        let blocked = v1.join(".tmp");
-        if refuse {
-            std::fs::write(&blocked, b"")?;
-        } else {
-            std::fs::remove_file(&blocked)?;
-        }
-        Ok(())
-    }
-
     /// The bytes of the `main` nexus serves for `owner`'s `social/v1` file `{hash}.{ext}`, if it
     /// holds one.
     pub fn served_file(&self, owner: &User, hash: &str, ext: &str) -> Option<Vec<u8>> {
@@ -334,16 +319,15 @@ impl User {
             .await
     }
 
-    /// Tags `target`, a `pubky://` address. Returns the tag's path.
-    pub async fn tag(&self, target: &str, label: &str) -> Result<String> {
+    /// Tags `target`, a `pubky://` address.
+    pub async fn tag(&self, target: &str, label: &str) -> Result<()> {
         let tag = PubkyAppTag {
             uri: target.to_string(),
             label: label.to_string(),
             created_at: Utc::now().timestamp_millis(),
         };
-        let path = PubkyAppTag::create_path(&tag.create_id());
-        self.put_json(&path, &tag).await?;
-        Ok(path)
+        self.put_json(&PubkyAppTag::create_path(&tag.create_id()), &tag)
+            .await
     }
 
     pub async fn bookmark(&self, target: &str) -> Result<()> {
@@ -356,11 +340,6 @@ impl User {
             &bookmark,
         )
         .await
-    }
-
-    /// Deletes the `pubky.app` post `post_id`.
-    pub async fn delete_post(&self, post_id: &str) -> Result<()> {
-        self.delete(&PubkyAppPost::create_path(post_id)).await
     }
 
     // ----- the migration -----
@@ -387,52 +366,8 @@ impl User {
         Ok(minted.id)
     }
 
-    pub async fn v1_note(&self, text: &str) -> Result<String> {
-        self.v1_post(&v1_note(text, None)).await
-    }
-
     pub async fn v1_reply(&self, text: &str, parent: &str) -> Result<String> {
         self.v1_post(&v1_note(text, Some(parent))).await
-    }
-
-    /// Writes a new version of post `post_id` with `text`, its newest version being `head`.
-    /// Returns the version's edit id.
-    pub async fn v1_edit(&self, post_id: &str, head: &str, text: &str) -> Result<String> {
-        let post = v1_note(text, None);
-        let minted = post
-            .edit_version(post_id, head, Root::Pub, &self.id, None)
-            .map_err(|e| anyhow!("minting an edit: {e}"))?;
-        self.put_json(&minted.path, &post).await?;
-        tokio::time::sleep(Duration::from_millis(5)).await;
-        Ok(minted.edit_id)
-    }
-
-    /// Deletes post `post_id` as the `social/v1` app does: the legacy copy first, then every
-    /// version oldest first.
-    pub async fn v1_delete_post(&self, post_id: &str) -> Result<()> {
-        if self
-            .session
-            .storage()
-            .exists(PubkyAppPost::create_path(post_id))
-            .await?
-        {
-            self.delete(&PubkyAppPost::create_path(post_id)).await?;
-        }
-        let dir = format!("/pub/social/v1/posts/{post_id}/");
-        let mut versions: Vec<String> = self
-            .session
-            .storage()
-            .list(dir.as_str())?
-            .send()
-            .await?
-            .into_iter()
-            .map(|resource| resource.path.as_str().to_string())
-            .collect();
-        versions.sort();
-        for version in versions {
-            self.delete(&version).await?;
-        }
-        Ok(())
     }
 
     pub async fn v1_follow(&self, followee: &User) -> Result<()> {
@@ -443,27 +378,14 @@ impl User {
         .await
     }
 
-    /// Tags `target` from the `social/v1` app. Returns the tag's path.
-    pub async fn v1_tag(&self, target: &str, label: &str) -> Result<String> {
+    /// Tags `target` from the `social/v1` app.
+    pub async fn v1_tag(&self, target: &str, label: &str) -> Result<()> {
         let tag = PubkySocialTag::new(target.to_string(), label.to_string());
-        let path = PubkySocialTag::create_path(&tag.create_id());
-        self.put_json(&path, &tag).await?;
-        Ok(path)
-    }
-
-    /// Removes this user's tag `label` on `target` from the `social/v1` app: the DEL of the tag
-    /// file, whose id derives from both.
-    pub async fn v1_untag(&self, target: &str, label: &str) -> Result<()> {
-        let tag = PubkySocialTag::new(target.to_string(), label.to_string());
-        self.delete(&PubkySocialTag::create_path(&tag.create_id()))
+        self.put_json(&PubkySocialTag::create_path(&tag.create_id()), &tag)
             .await
     }
 
-    pub async fn v1_profile(&self, name: &str) -> Result<()> {
-        self.v1_profile_with_image(name, None).await
-    }
-
-    pub async fn v1_profile_with_image(&self, name: &str, image: Option<String>) -> Result<()> {
+    pub async fn v1_profile(&self, name: &str, image: Option<String>) -> Result<()> {
         let profile = PubkySocialUser::new(
             name.to_string(),
             Some("spec migration suite".to_string()),
@@ -483,25 +405,6 @@ impl User {
             .put(path, serde_json::to_vec(object)?)
             .await
             .with_context(|| format!("PUT {path}"))?;
-        Ok(())
-    }
-
-    pub async fn get_json(&self, path: &str) -> Result<serde_json::Value> {
-        let response = self
-            .session
-            .storage()
-            .get(path)
-            .await
-            .with_context(|| format!("GET {path}"))?;
-        Ok(serde_json::from_slice(&response.bytes().await?)?)
-    }
-
-    pub async fn delete(&self, path: &str) -> Result<()> {
-        self.session
-            .storage()
-            .delete(path)
-            .await
-            .with_context(|| format!("DELETE {path}"))?;
         Ok(())
     }
 }
@@ -658,17 +561,15 @@ fn notification_kind(notification: &Notification) -> String {
 
 /// `(label, taggers)` of the tags on a post, sorted.
 pub async fn post_tags(author: &User, post_id: &str) -> Result<Vec<(String, Vec<String>)>> {
-    tag_list(served_post(author, post_id).await?.tags)
+    Ok(tag_list(served_post(author, post_id).await?.tags))
 }
 
 /// `(label, taggers)` of the tags on a user's profile, sorted.
 pub async fn profile_tags(user: &User) -> Result<Vec<(String, Vec<String>)>> {
-    tag_list(profile(user).await?.tags)
+    Ok(tag_list(profile(user).await?.tags))
 }
 
-fn tag_list(
-    tags: Vec<nexus_common::models::tag::TagDetails>,
-) -> Result<Vec<(String, Vec<String>)>> {
+fn tag_list(tags: Vec<TagDetails>) -> Vec<(String, Vec<String>)> {
     let mut list: Vec<_> = tags
         .into_iter()
         .map(|tag| {
@@ -678,7 +579,7 @@ fn tag_list(
         })
         .collect();
     list.sort();
-    Ok(list)
+    list
 }
 
 /// The in-memory retry queue, with a switch that makes the next fetch take every entry.

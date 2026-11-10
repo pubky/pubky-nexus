@@ -12,8 +12,13 @@
 //! The tests drive nexus one step at a time instead of running the periodic tasks: one poll of
 //! the primary, one per-user read of the external homeserver, one pass of the retry processor.
 //! The assertions describe what nexus serves (profiles, posts, counts, tags, streams,
-//! notifications), so they hold whatever the flip does inside. Correctness must not depend on
-//! when nexus reads relative to the copy, so the scenarios vary that moment.
+//! notifications), so they hold whatever the flip does inside.
+//!
+//! The epoch gate and each step of the flip are tested in the event processor suite. This one
+//! covers what only a whole migration shows: the flip of a user with a social graph around
+//! them ([`flip`]), the engine's copies reaching nexus after the flip ([`copies`]), and users of
+//! both epochs reaching each other ([`mixed`]). A scenario that fails on purpose is
+//! `#[ignore]`d with the reason; run it with `--run-ignored only`.
 //!
 //! Nexus's Pubky client is a process-wide singleton bound to the first testnet created in the
 //! process, so every test needs its own process: run the suite with nextest as CI does
@@ -21,8 +26,7 @@
 //! `cargo test`. Needs Redis, Neo4j and `TEST_PUBKY_CONNECTION_STRING` like the watcher suite;
 //! every test makes its own users, so the mock data does not matter.
 
-mod after;
-mod during;
+mod copies;
 mod fixtures;
 mod flip;
 mod harness;
