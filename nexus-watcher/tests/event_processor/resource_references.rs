@@ -1,12 +1,18 @@
 use super::posts::utils::v1_test_user;
 use super::utils::watcher::{generate_post_id, retrieve_and_handle_event_line, WatcherTest};
 use anyhow::Result;
-use nexus_common::db::{get_neo4j_graph, graph::Query, RedisOps};
+use futures::TryStreamExt;
+use nexus_common::db::kv::SortOrder;
+use nexus_common::db::{get_neo4j_graph, graph::Query, queries, RedisOps};
 use nexus_common::models::event::resource_changes::{
     ResourceChange, ResourceChangeKind, ResourceChangeOp,
 };
-use nexus_common::models::post::{PostDetails, PostRelationships};
+use nexus_common::models::post::{
+    KindFilter, PostCounts, PostDetails, PostKind, PostRelationships, StreamSource,
+};
 use nexus_common::models::resource::{references, view::ResourceView};
+use nexus_common::models::user::UserCounts;
+use nexus_common::types::{Pagination, StreamSorting};
 use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use nexus_common::utils::test_utils::{pause_references, ReferencePause};
 use pubky::{Keypair, ResourcePath};
@@ -559,6 +565,81 @@ async fn hard_delete_of_a_tombstoned_external_reply_leaves_author_replies() -> R
             .is_none(),
         "a hard-deleted tombstone stays in the author's replies"
     );
+    test.del(&key, &profile).await?;
+    Ok(())
+}
+
+/// A tombstoned external reply lost its Resource reply edge but is still a reply, as the
+/// author's replies set keeps it. The graph reads must classify it so too: a kind-filtered author
+/// stream lists root posts only, the ranking refresh's entries and the post's counts call it a
+/// reply, and the author's reply count keeps it.
+#[tokio_shared_rt::test(shared)]
+async fn tombstoned_external_reply_stays_out_of_root_graph_reads() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    test.register_user(&key).await?;
+    let author = key.public_key().to_z32();
+    let profile = test
+        .put_v1_profile(&key, &v1_test_user("Tombstone root reads", ""))
+        .await?;
+    super::utils::watcher::rank_user(&author).await?;
+    let root_id = generate_post_id();
+    let root: ResourcePath = format!("/pub/social/v1/posts/{root_id}/{root_id}.json").parse()?;
+    test.put(&key, &root, &json!({"kind":"note","content":"a root post"}))
+        .await?;
+    let id = generate_post_id();
+    let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
+    test.put(&key, &path, &json!({"kind":"note", "content":"reply", "parent":format!("https://example.com/tombstone-root-reads/{author}")})).await?;
+    let child_id = generate_post_id();
+    let child: ResourcePath = format!("/pub/social/v1/posts/{child_id}/{child_id}.json").parse()?;
+    test.put(&key, &child, &json!({"kind":"note","content":"keep the parent tombstone","parent":format!("pubky://{author}/pub/social/v1/posts/{id}")})).await?;
+    test.del(&key, &path).await?;
+    assert!(PostDetails::get_by_id(&author, &id).await?.unwrap().deleted);
+
+    let stream = queries::get::post_stream(
+        StreamSource::Author {
+            author_id: author.clone(),
+        },
+        StreamSorting::Timeline,
+        SortOrder::Descending,
+        &None,
+        Pagination::default(),
+        Some(KindFilter::Kind(PostKind::Short)),
+        None,
+    )?;
+    let mut rows = get_neo4j_graph()?.execute(stream).await?;
+    let mut streamed = Vec::new();
+    while let Some(row) = rows.try_next().await? {
+        streamed.push(row.get::<String>("post_id")?);
+    }
+    assert_eq!(streamed, std::slice::from_ref(&root_id), "root posts only");
+
+    let mut rows = get_neo4j_graph()?
+        .execute(queries::get::author_post_entries(
+            &author,
+            (i64::MIN, ""),
+            100,
+        ))
+        .await?;
+    let mut entries = std::collections::BTreeMap::new();
+    while let Some(row) = rows.try_next().await? {
+        entries.insert(row.get::<String>("post_id")?, row.get::<bool>("is_reply")?);
+    }
+    assert_eq!(
+        entries,
+        [(root_id, false), (id.clone(), true), (child_id, true)].into(),
+        "the ranking refresh keeps the tombstone out of the root sets"
+    );
+    assert!(PostCounts::get_from_graph(&author, &id).await?.unwrap().1);
+    assert_eq!(
+        UserCounts::get_by_id(&author).await?.unwrap().replies,
+        2,
+        "the tombstone and the child are both replies"
+    );
+
+    // The reply file is already deleted: the tombstone stays, as in the tests above.
+    test.del(&key, &child).await?;
+    test.del(&key, &root).await?;
     test.del(&key, &profile).await?;
     Ok(())
 }
