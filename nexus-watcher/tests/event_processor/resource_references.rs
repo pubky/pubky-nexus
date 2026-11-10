@@ -8,12 +8,14 @@ use nexus_common::models::event::resource_changes::{
 use nexus_common::models::post::{PostDetails, PostRelationships};
 use nexus_common::models::resource::{references, view::ResourceView};
 use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
+use nexus_common::utils::test_utils::{pause_references, ReferencePause};
 use pubky::{Keypair, ResourcePath};
 use pubky_social_specs::{
     traits::{HasIdPath, HashId},
     PubkySocialTag,
 };
 use serde_json::json;
+use std::time::Duration;
 
 #[tokio_shared_rt::test(shared)]
 async fn replies_embeds_and_collections_share_resources_and_replay_keys() -> Result<()> {
@@ -270,6 +272,158 @@ async fn graph_commit_before_append_replays_put_and_deleted_graph_replays_del() 
     )
     .await?
     .is_none());
+    test.del(&key, &profile).await?;
+    Ok(())
+}
+
+/// Handles `line` on its own task, as the live runners and the retry processor do.
+fn spawn_event_line(
+    line: String,
+    handler: std::sync::Arc<dyn nexus_watcher::events::EventHandler>,
+) -> tokio::task::JoinHandle<Result<(), nexus_watcher::EventProcessorError>> {
+    tokio::spawn(async move { retrieve_and_handle_event_line(&line, handler).await })
+}
+
+/// Live events and retries of one post run in parallel. A PUT can read the outbox a lost append
+/// left and pause before appending it, while a DEL of the post publishes that outbox, deletes the
+/// post and retracts its references: the PUT's append after that would bring the deleted
+/// reference back for feed readers. The post lock orders the two, so the feed ends with the
+/// retraction.
+#[tokio_shared_rt::test(shared)]
+async fn concurrent_delete_is_not_overtaken_by_an_outbox_append() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    test.register_user(&key).await?;
+    let author = key.public_key().to_z32();
+    let profile = test
+        .put_v1_profile(&key, &v1_test_user("Reference delete race", ""))
+        .await?;
+    super::utils::watcher::rank_user(&author).await?;
+    let target = format!("https://example.com/delete-race/{author}");
+    let rid = resource_id(&normalize_uri(&target).map_err(anyhow::Error::msg)?.0);
+    let id = generate_post_id();
+    let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
+    test.put(
+        &key,
+        &path,
+        &json!({"kind":"note","content":"raced","parent":target}),
+    )
+    .await?;
+    // A committed graph write whose feed append was lost leaves its outbox on the post.
+    let line = references::reference(
+        &author,
+        &format!("pubky://{author}{path}"),
+        &target,
+        ResourceChangeKind::Reply,
+    )?;
+    let post = PostDetails::get_by_id(&author, &id).await?.unwrap();
+    references::stage(&post, vec![line]).await?;
+    let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+
+    let handler = test.event_processor_runner.event_handler.clone();
+    let (reached, release) = pause_references(ReferencePause::Flush, &author);
+    let put = spawn_event_line(format!("PUT pubky://{author}{path}"), handler.clone());
+    // The PUT read the outbox, and has not appended it.
+    tokio::time::timeout(Duration::from_secs(30), reached)
+        .await
+        .map_err(|_| anyhow::anyhow!("the PUT never reached the outbox append"))??;
+    let mut del = spawn_event_line(format!("DEL pubky://{author}{path}"), handler);
+    // Unordered, the DEL runs to its end while the PUT is held.
+    let early = tokio::time::timeout(Duration::from_secs(3), &mut del).await;
+    let _ = release.send(());
+    let put_result = put.await?;
+    let del_result = match early {
+        Ok(joined) => joined?,
+        Err(_) => del.await?,
+    };
+
+    let ops: Vec<_> = ResourceChange::get_from_index(cursor, 1000)
+        .await?
+        .0
+        .lines
+        .iter()
+        .filter(|line| line.author == author && line.resource_id == rid)
+        .map(|line| line.op == ResourceChangeOp::Put)
+        .collect();
+    assert_eq!(
+        ops.last(),
+        Some(&false),
+        "the delete's retraction is the reference's last change (true = put): {ops:?}"
+    );
+    put_result?;
+    del_result?;
+    assert!(ResourceView::get_by_id(&rid, None, None, None, None)
+        .await?
+        .is_none());
+    test.del(&key, &profile).await?;
+    Ok(())
+}
+
+/// An older version's PUT that wrote the post and paused before its references must not, once
+/// a newer version's PUT finished, replace the newer version's references with its own: both
+/// versions have the same content and kind, so the post write tells them apart. The post lock
+/// orders the two handlers, and the post keeps the references of the version handled last.
+#[tokio_shared_rt::test(shared)]
+async fn older_version_does_not_replace_a_newer_versions_references() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    test.register_user(&key).await?;
+    let author = key.public_key().to_z32();
+    let profile = test
+        .put_v1_profile(&key, &v1_test_user("Reference edit race", ""))
+        .await?;
+    super::utils::watcher::rank_user(&author).await?;
+    let old_target = format!("https://example.com/older/{author}");
+    let new_target = format!("https://example.com/newer/{author}");
+    let id = generate_post_id();
+    let older: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
+    test.put(
+        &key,
+        &older,
+        &json!({"kind":"note","content":"same words","parent":old_target}),
+    )
+    .await?;
+    let edit = generate_post_id();
+    let newer: ResourcePath = format!("/pub/social/v1/posts/{id}/{edit}.json").parse()?;
+    test.put(
+        &key,
+        &newer,
+        &json!({"kind":"note","content":"same words","parent":new_target}),
+    )
+    .await?;
+
+    let handler = test.event_processor_runner.event_handler.clone();
+    let (reached, release) = pause_references(ReferencePause::Stage, &author);
+    let old_put = spawn_event_line(format!("PUT pubky://{author}{older}"), handler.clone());
+    // The older version's post write is done, its references are not.
+    tokio::time::timeout(Duration::from_secs(30), reached)
+        .await
+        .map_err(|_| anyhow::anyhow!("the older PUT never reached its references"))??;
+    let mut new_put = spawn_event_line(format!("PUT pubky://{author}{newer}"), handler);
+    // Unordered, the newer PUT runs to its end while the older one is held.
+    let early = tokio::time::timeout(Duration::from_secs(3), &mut new_put).await;
+    let _ = release.send(());
+    old_put.await??;
+    match early {
+        Ok(joined) => joined??,
+        Err(_) => new_put.await??,
+    }
+
+    assert_eq!(
+        PostRelationships::get_from_graph(&author, &id)
+            .await?
+            .unwrap()
+            .replied
+            .as_deref(),
+        Some(new_target.as_str()),
+        "the version handled last keeps its references"
+    );
+    assert!(
+        references::posts(&resource_id(&old_target), ResourceChangeKind::Reply, 0, 10)
+            .await?
+            .is_empty()
+    );
+    test.del(&key, &newer).await?;
     test.del(&key, &profile).await?;
     Ok(())
 }
