@@ -9,7 +9,11 @@ use crate::event_processor::posts::utils::{
 };
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
-use nexus_common::models::post::{PostCounts, PostDeleting, PostDetails, PostRelationships};
+use deadpool_redis::redis::AsyncCommands;
+use nexus_common::db::get_redis_conn;
+use nexus_common::models::post::{
+    PostCounts, PostDeleting, PostDetails, PostRelationships, POST_DELETING_TTL_SECS,
+};
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::handlers;
@@ -80,6 +84,18 @@ async fn assert_post_not_cached(
     Ok(())
 }
 
+/// Asserts that a finished delete left the marker with its short TTL: set by
+/// the delete itself, and shortened after the graph delete.
+async fn assert_marker_shortened(author_id: &str, post_id: &str) -> Result<()> {
+    let mut conn = get_redis_conn().await?;
+    let ttl: i64 = conn.ttl(PostDeleting::key(author_id, post_id)).await?;
+    assert!(
+        ttl > 0 && ttl <= POST_DELETING_TTL_SECS as i64,
+        "marker TTL for {author_id}:{post_id} should be in (0, {POST_DELETING_TTL_SECS}], got {ttl}"
+    );
+    Ok(())
+}
+
 /// Reads all three post models the way `PostView` does, and asserts each one
 /// still answers from the graph.
 async fn read_post(author_id: &str, post_id: &str) -> Result<()> {
@@ -113,7 +129,7 @@ async fn test_post_read_during_delete_does_not_recache() -> Result<()> {
         .await?;
 
     // The delete window: marker set, Redis cleared, graph node still there.
-    PostDeleting::mark(&user_id, &post_id).await?;
+    PostDeleting::mark_in_flight(&user_id, &post_id).await?;
     simulate_partial_del_cleanup_root(&user_id, &post_id).await?;
 
     read_post(&user_id, &post_id).await?;
@@ -127,6 +143,37 @@ async fn test_post_read_during_delete_does_not_recache() -> Result<()> {
     )
     .await?;
     assert!(find_post_details(&user_id, &post_id).await.is_err());
+    assert!(PostDetails::get_by_id(&user_id, &post_id).await?.is_none());
+    assert_post_not_cached(&user_id, &post_id, None).await?;
+    assert_marker_shortened(&user_id, &post_id).await?;
+
+    test.cleanup_user(&user_kp).await?;
+    Ok(())
+}
+
+/// A plain delete sets the marker itself: once it finishes, the marker holds
+/// its short TTL and nothing of the post is cached.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_del_sets_the_marker() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let user_kp = Keypair::random();
+    let user_id = test
+        .create_user(
+            &user_kp,
+            &test_user(
+                "Watcher:Post:DelMarker:User",
+                "test_post_del_sets_the_marker",
+            ),
+        )
+        .await?;
+    let (post_id, post_path) = test
+        .create_post(&user_kp, &short_post("Watcher:Post:DelMarker:Post"))
+        .await?;
+
+    test.cleanup_post(&user_kp, &post_path).await?;
+
+    assert_marker_shortened(&user_id, &post_id).await?;
     assert!(PostDetails::get_by_id(&user_id, &post_id).await?.is_none());
     assert_post_not_cached(&user_id, &post_id, None).await?;
 
@@ -175,7 +222,7 @@ async fn test_reply_read_during_delete_does_not_recache() -> Result<()> {
         )
         .await?;
 
-    PostDeleting::mark(&bob_id, &reply_id).await?;
+    PostDeleting::mark_in_flight(&bob_id, &reply_id).await?;
     simulate_partial_del_cleanup_child(&bob_id, &reply_id, &alice_id, &parent_id, ChildKind::Reply)
         .await?;
 
