@@ -29,6 +29,8 @@ pub const USER_FOLLOWERS_ROUTE: &str = concatcp!(USER_ROUTE, "/followers");
 pub const USER_FOLLOWING_ROUTE: &str = concatcp!(USER_ROUTE, "/following");
 pub const USER_FOLLOWING_DETAILS_ROUTE: &str = concatcp!(USER_FOLLOWING_ROUTE, "/details");
 pub const USER_FRIENDS_ROUTE: &str = concatcp!(USER_ROUTE, "/friends");
+/// Served under `/v1` only (`V1::own_routes`).
+pub const USER_REACH_SET_ROUTE: &str = concatcp!(USER_ROUTE, "/reach-set");
 
 // -- POST endpoints --
 pub const POST_PREFIX: &str = "/post";

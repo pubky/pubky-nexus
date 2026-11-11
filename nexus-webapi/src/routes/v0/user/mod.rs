@@ -12,6 +12,7 @@ use utoipa::OpenApi;
 pub mod counts;
 mod details;
 pub mod follows;
+pub mod reach_set;
 mod relationship;
 pub mod tags;
 pub mod view;
