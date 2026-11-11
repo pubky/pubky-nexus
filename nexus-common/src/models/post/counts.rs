@@ -4,7 +4,7 @@ use crate::models::error::ModelResult;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::PostStream;
+use super::{PostDeleting, PostStream};
 
 /// Backstop TTL for the read-through cache, in case an invalidation is ever missed.
 const POST_COUNTS_TTL_SECS: i64 = 600;
@@ -33,8 +33,16 @@ impl PostCounts {
             None => {
                 let graph_response = Self::get_from_graph(author_id, post_id).await?;
                 if let Some((post_counts, _is_reply)) = graph_response {
-                    // Cache miss: populate from the graph via cache_json (JSON only).
-                    post_counts.cache_json(author_id, post_id).await?;
+                    // Cache miss: populate from the graph (JSON only), skipped
+                    // while the post is being deleted (see `PostDeleting`).
+                    let guard = PostDeleting::key(author_id, post_id);
+                    post_counts
+                        .put_index_json_unless(
+                            &[author_id, post_id],
+                            &guard,
+                            Some(POST_COUNTS_TTL_SECS),
+                        )
+                        .await?;
                     return Ok(Some(post_counts));
                 }
                 Ok(None)

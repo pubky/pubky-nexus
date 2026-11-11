@@ -893,11 +893,33 @@ impl PostStream {
         Ok(Some(Self(post_views)))
     }
 
+    /// Adds `entry` to the sorted set at `key_parts`. With a `guard`, writes
+    /// nothing while that key exists (see [`crate::models::post::PostDeleting`]).
+    async fn add_member(
+        key_parts: &[&str],
+        entry: (f64, &str),
+        guard: Option<&str>,
+    ) -> RedisResult<()> {
+        match guard {
+            None => Self::put_index_sorted_set(key_parts, &[entry], None, None).await,
+            Some(guard) => Self::put_index_sorted_set_unless(key_parts, &[entry], guard)
+                .await
+                .map(|_| ()),
+        }
+    }
+
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
-    pub async fn add_to_timeline_sorted_set(details: &PostDetails) -> RedisResult<()> {
+    /// With a `guard`, writes nothing while that key exists.
+    pub async fn add_to_timeline_sorted_set(
+        details: &PostDetails,
+        guard: Option<&str>,
+    ) -> RedisResult<()> {
         let element = format!("{}:{}", details.author, details.id);
-        let score = details.indexed_at as f64;
-        trust_filter::add(&POST_TIMELINE_KEY_PARTS, &[(score, element.as_str())]).await
+        let entry = (details.indexed_at as f64, element.as_str());
+        match guard {
+            None => trust_filter::add(&POST_TIMELINE_KEY_PARTS, &[entry]).await,
+            Some(guard) => trust_filter::add_unless(&POST_TIMELINE_KEY_PARTS, entry, guard).await,
+        }
     }
 
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
@@ -911,10 +933,14 @@ impl PostStream {
     }
 
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
-    pub async fn add_to_per_user_sorted_set(details: &PostDetails) -> RedisResult<()> {
+    /// With a `guard`, writes nothing while that key exists.
+    pub async fn add_to_per_user_sorted_set(
+        details: &PostDetails,
+        guard: Option<&str>,
+    ) -> RedisResult<()> {
         let key_parts = [&POST_PER_USER_KEY_PARTS[..], &[details.author.as_str()]].concat();
         let score = details.indexed_at as f64;
-        Self::put_index_sorted_set(&key_parts, &[(score, details.id.as_str())], None, None).await
+        Self::add_member(&key_parts, (score, details.id.as_str()), guard).await
     }
 
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.
@@ -934,11 +960,12 @@ impl PostStream {
         author_id: &str,
         reply_id: &str,
         indexed_at: i64,
+        guard: Option<&str>,
     ) -> RedisResult<()> {
         let key_parts = [&POST_REPLIES_PER_POST_KEY_PARTS[..], parent_post_key_parts].concat();
         let score = indexed_at as f64;
         let element = format!("{author_id}:{reply_id}");
-        Self::put_index_sorted_set(&key_parts, &[(score, element.as_str())], None, None).await
+        Self::add_member(&key_parts, (score, element.as_str()), guard).await
     }
 
     /// Adds the post response to a Redis sorted set using the `indexed_at` timestamp as the score.
@@ -953,14 +980,18 @@ impl PostStream {
     }
 
     /// Adds the post to a Redis sorted set of replies per author using the `indexed_at` timestamp as the score.
-    pub async fn add_to_replies_per_user_sorted_set(details: &PostDetails) -> RedisResult<()> {
+    /// With a `guard`, writes nothing while that key exists.
+    pub async fn add_to_replies_per_user_sorted_set(
+        details: &PostDetails,
+        guard: Option<&str>,
+    ) -> RedisResult<()> {
         let key_parts = [
             &POST_REPLIES_PER_USER_KEY_PARTS[..],
             &[details.author.as_str()],
         ]
         .concat();
         let score = details.indexed_at as f64;
-        Self::put_index_sorted_set(&key_parts, &[(score, details.id.as_str())], None, None).await
+        Self::add_member(&key_parts, (score, details.id.as_str()), guard).await
     }
 
     /// Adds the post to a Redis sorted set using the `indexed_at` timestamp as the score.

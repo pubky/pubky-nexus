@@ -6,8 +6,8 @@ use nexus_common::db::queries::get::post_is_safe_to_delete;
 use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
 use nexus_common::models::notification::{Notification, PostChangedSource, PostChangedType};
 use nexus_common::models::post::{
-    collection_item_keys, sync_collected_edges, PostCounts, PostDetails, PostRelationships,
-    PostStream,
+    collection_item_keys, sync_collected_edges, PostCounts, PostDeleting, PostDetails,
+    PostRelationships, PostStream,
 };
 use nexus_common::models::user::UserIngestor;
 use pubky_app_specs::{
@@ -217,6 +217,7 @@ async fn sync_put_details(
                 &author_id,
                 &post_id,
                 post_details.indexed_at,
+                None,
             ),
             async {
                 let parent_kind = post_kind(&parent_author_id, &parent_post_id).await?;
@@ -602,10 +603,12 @@ pub async fn del(
     debug!("Deleting post");
 
     // The post's stored address: a tombstone keeps it, and a hard delete reports it.
-    // A post missing from the graph has nothing to delete.
+    // A post missing from the graph has nothing to delete in the graph, but may
+    // still be cached (see `clear_stale_index`).
     let Some((PostDetails { uri, .. }, _)) =
         PostDetails::get_from_graph(&author_id, &post_id).await?
     else {
+        clear_stale_index(&author_id, &post_id).await?;
         return Err(EventProcessorError::SkipIndexing);
     };
 
@@ -647,12 +650,44 @@ pub async fn del(
     Ok(())
 }
 
+/// Removes the cached copy of a post that is gone from the graph: its JSON
+/// records and its feed entries. A read that raced a delete before
+/// [`PostDeleting`] existed could have cached it again, and nothing else would
+/// ever remove it. Only idempotent removals, no counts or notifications: those
+/// ran with the delete that removed the node. The parent's reply set is only
+/// known when the relationships are cached too.
+async fn clear_stale_index(author_id: &str, post_id: &str) -> Result<(), EventProcessorError> {
+    let parent = PostRelationships::get_from_index(author_id, post_id)
+        .await?
+        .and_then(|relationships| relationships.replied)
+        .and_then(|replied| match replied.resource {
+            Resource::Post(parent_post_id) => Some((replied.user_id.to_string(), parent_post_id)),
+            _ => None,
+        });
+    let is_reply = parent.is_some();
+
+    PostRelationships::delete(author_id, post_id).await?;
+    PostCounts::delete(author_id, post_id, !is_reply).await?;
+    PostDetails::delete_from_index(author_id, post_id, parent).await?;
+    if !is_reply {
+        // Possibly a reply whose parent is unknown: its own reply feed is
+        // still reachable.
+        PostStream::remove_from_replies_per_user_sorted_set(author_id, post_id).await?;
+    }
+    Ok(())
+}
+
 /// `deleted_uri` is the post's stored address, read by the caller before the graph delete below.
 pub async fn sync_del(
     author_id: PubkyId,
     post_id: String,
     deleted_uri: String,
 ) -> Result<(), EventProcessorError> {
+    // 0. Turn off read-repair for this post before the first Redis cleanup, so a
+    //    read that misses Redis before the graph delete below cannot cache the
+    //    post again (see `PostDeleting`). Re-armed on every retry.
+    PostDeleting::mark(&author_id, &post_id).await?;
+
     // 1. Read PostRelationships from index — captures both the gate and the
     //    parent (replied/reposted) URIs needed for parent cleanup.
     //    NOTE: deliberately NOT using `get_by_id`, which would re-populate the

@@ -1,3 +1,4 @@
+use super::PostDeleting;
 use crate::db::kv::RedisResult;
 use crate::db::{fetch_row_from_graph, queries, GraphResult, RedisOps};
 use crate::models::error::ModelResult;
@@ -60,7 +61,11 @@ impl PostRelationships {
             None => {
                 let graph_response = Self::get_from_graph(author_id, post_id).await?;
                 if let Some(post_relationships) = graph_response {
-                    post_relationships.put_to_index(author_id, post_id).await?;
+                    // Skipped while the post is being deleted (see `PostDeleting`).
+                    let guard = PostDeleting::key(author_id, post_id);
+                    post_relationships
+                        .put_index_json_unless(&[author_id, post_id], &guard, None)
+                        .await?;
                     return Ok(Some(post_relationships));
                 }
                 Ok(None)
