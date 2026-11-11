@@ -46,15 +46,21 @@ impl GraphError {
     pub fn should_not_retry_now(&self) -> bool {
         match self {
             GraphError::ConnectionNotInitialized => true,
-            GraphError::QueryFailed(neo4rs::Error::Neo4j(e)) => !is_constraint_violation(e.code()),
-            GraphError::QueryFailed(_) => true,
+            GraphError::QueryFailed(e) => !is_constraint_violation(e),
             _ => false,
         }
     }
 }
 
-fn is_constraint_violation(code: &str) -> bool {
-    code == CONSTRAINT_VIOLATION_CODE
+fn is_constraint_violation(error: &neo4rs::Error) -> bool {
+    match error {
+        // `Graph::run` reports the server FAILURE as a typed error.
+        neo4rs::Error::Neo4j(e) => e.code() == CONSTRAINT_VIOLATION_CODE,
+        // `Graph::execute` sends only RUN; the write fails on PULL, and neo4rs 0.8 reports
+        // that FAILURE as `UnexpectedMessage` holding its Debug output, code included.
+        neo4rs::Error::UnexpectedMessage(msg) => msg.contains(CONSTRAINT_VIOLATION_CODE),
+        _ => false,
+    }
 }
 
 impl From<neo4rs::DeError> for GraphError {
@@ -67,17 +73,23 @@ impl From<neo4rs::DeError> for GraphError {
 mod tests {
     use super::*;
 
+    fn pull_failure(code: &str) -> GraphError {
+        // The shape neo4rs 0.8 gives a FAILURE answering PULL (`RowStream::next`).
+        GraphError::QueryFailed(neo4rs::Error::UnexpectedMessage(format!(
+            "unexpected response for PULL: Ok(Failure(Failure {{ metadata: BoltMap {{ value: {{BoltString {{ value: \"code\" }}: String(BoltString {{ value: \"{code}\" }})}} }} }}))"
+        )))
+    }
+
     #[test]
-    fn only_constraint_violation_code_matches() {
-        assert!(is_constraint_violation(
-            "Neo.ClientError.Schema.ConstraintValidationFailed"
-        ));
-        assert!(!is_constraint_violation(
-            "Neo.TransientError.Transaction.DeadlockDetected"
-        ));
-        assert!(!is_constraint_violation(
-            "Neo.ClientError.Statement.SyntaxError"
-        ));
+    fn constraint_violation_on_pull_does_not_stop_the_batch() {
+        assert!(
+            !pull_failure("Neo.ClientError.Schema.ConstraintValidationFailed")
+                .should_not_retry_now()
+        );
+        assert!(
+            pull_failure("Neo.TransientError.Transaction.DeadlockDetected").should_not_retry_now()
+        );
+        assert!(pull_failure("Neo.ClientError.Statement.SyntaxError").should_not_retry_now());
     }
 
     #[test]
@@ -85,5 +97,43 @@ mod tests {
         assert!(GraphError::QueryFailed(neo4rs::Error::ConnectionError).should_not_retry_now());
         assert!(GraphError::ConnectionNotInitialized.should_not_retry_now());
         assert!(!GraphError::QueryTimeout.should_not_retry_now());
+    }
+}
+
+/// Real constraint violations, through both ways Nexus sends a write.
+#[cfg(test)]
+mod db_tests {
+    use crate::db::{exec_single_row, fetch_row_from_graph, graph::Query};
+    use crate::types::DynError;
+    use crate::{StackConfig, StackManager};
+
+    /// Two nodes under the global `uniqueTakedownUri` constraint.
+    fn duplicate_takedown(uri: &str) -> Query {
+        Query::new(
+            "test_duplicate_takedown",
+            "CREATE (:Takedown {uri: $uri}) CREATE (:Takedown {uri: $uri}) RETURN true AS flag",
+        )
+        .param("uri", uri)
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn constraint_violation_is_per_event_on_execute_and_run() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let uri = format!(
+            "pubky://{}/pub/pubky.app/posts/0034FJVRPG4V0",
+            pubky::Keypair::random().public_key().to_z32()
+        );
+
+        let on_execute = fetch_row_from_graph(duplicate_takedown(&uri))
+            .await
+            .expect_err("the constraint rejects the write");
+        assert!(!on_execute.should_not_retry_now(), "{on_execute}");
+
+        let on_run = exec_single_row(duplicate_takedown(&uri))
+            .await
+            .expect_err("the constraint rejects the write");
+        assert!(!on_run.should_not_retry_now(), "{on_run}");
+
+        Ok(())
     }
 }

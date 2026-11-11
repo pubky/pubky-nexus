@@ -90,17 +90,17 @@ pub fn post_bookmark(author_id: &str, post_id: &str, viewer_id: &str) -> Query {
     .param("viewer_id", viewer_id)
 }
 
-// Keyset pagination on p.id (indexed).
-pub fn user_bookmarks(user_id: &str, cursor: &str, limit: i64) -> Query {
+// Keyset pagination on (p.id, author.id): post ids are unique per author only.
+pub fn user_bookmarks(user_id: &str, cursor: &[String], limit: i64) -> Query {
     Query::new(
         "user_bookmarks",
         "MATCH (u:User {id: $user_id})-[b:BOOKMARKED]->(p:Post)<-[:AUTHORED]-(author:User)
-         WHERE p.id > $cursor
-         RETURN b, p.id AS post_id, author.id AS author_id
-         ORDER BY p.id LIMIT $limit",
+         WHERE [p.id, author.id] > $cursor AND p.id IS NOT NULL AND author.id IS NOT NULL
+         RETURN b, p.id AS post_id, author.id AS author_id, [p.id, author.id] AS cursor
+         ORDER BY p.id, author.id LIMIT $limit",
     )
     .param("user_id", user_id)
-    .param("cursor", cursor)
+    .param("cursor", cursor.to_vec())
     .param("limit", limit)
 }
 
@@ -134,14 +134,14 @@ pub fn get_bookmark_target(user_id: &str, bookmark_id: &str) -> Query {
 }
 
 // Get all the reposts that a post has received (used for edit/delete notifications)
-// Keyset pagination on the repost Post id (globally unique + indexed).
+// Keyset pagination on (repost id, reposter id): post ids are unique per author only.
 pub fn get_post_reposts(author_id: &str, post_id: &str, cursor: &[String], limit: i64) -> Query {
     Query::new(
         "get_post_reposts",
         "MATCH (reposter:User)-[:AUTHORED]->(repost:Post)-[:REPOSTED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         WHERE [repost.id] > $cursor AND repost.id IS NOT NULL
-         RETURN reposter.id AS reposter_id, repost.uri AS repost_uri, [repost.id] AS cursor
-         ORDER BY repost.id
+         WHERE [repost.id, reposter.id] > $cursor AND repost.id IS NOT NULL AND reposter.id IS NOT NULL
+         RETURN reposter.id AS reposter_id, repost.uri AS repost_uri, [repost.id, reposter.id] AS cursor
+         ORDER BY repost.id, reposter.id
          LIMIT $limit",
     )
     .param("author_id", author_id)
@@ -151,14 +151,14 @@ pub fn get_post_reposts(author_id: &str, post_id: &str, cursor: &[String], limit
 }
 
 // Get all the replies that a post has received (used for edit/delete notifications)
-// Keyset pagination on the reply Post id (globally unique + indexed).
+// Keyset pagination on (reply id, replier id): post ids are unique per author only.
 pub fn get_post_replies(author_id: &str, post_id: &str, cursor: &[String], limit: i64) -> Query {
     Query::new(
         "get_post_replies",
         "MATCH (replier:User)-[:AUTHORED]->(reply:Post)-[:REPLIED]->(p:Post {id: $post_id})<-[:AUTHORED]-(author:User {id: $author_id})
-         WHERE [reply.id] > $cursor AND reply.id IS NOT NULL
-         RETURN replier.id AS replier_id, reply.uri AS reply_uri, [reply.id] AS cursor
-         ORDER BY reply.id
+         WHERE [reply.id, replier.id] > $cursor AND reply.id IS NOT NULL AND replier.id IS NOT NULL
+         RETURN replier.id AS replier_id, reply.uri AS reply_uri, [reply.id, replier.id] AS cursor
+         ORDER BY reply.id, replier.id
          LIMIT $limit",
     )
     .param("author_id", author_id)

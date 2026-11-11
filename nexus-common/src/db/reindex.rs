@@ -1,5 +1,5 @@
 use crate::db::graph::exec::fetch_all_rows_from_graph;
-use crate::db::graph::{keyset_scan, Query};
+use crate::db::graph::{keyset_scan, keyset_scan_composite, Query};
 use crate::models::follow::{Followers, Following, UserFollows};
 use crate::models::post::search::PostsByTagSearch;
 use crate::models::post::Bookmark;
@@ -144,23 +144,34 @@ async fn reindex_users_by_batch() -> Result<(), DynError> {
 }
 
 async fn reindex_posts_by_batch() -> Result<(), DynError> {
+    // Post ids are unique per author only, so the cursor pairs the id with the author.
     let query = Query::new(
         "get_all_post_ids",
-        "MATCH (u:User)-[:AUTHORED]->(p:Post) WHERE p.id > $cursor RETURN u.id AS author_id, p.id AS post_id ORDER BY p.id LIMIT $limit",
+        "MATCH (u:User)-[:AUTHORED]->(p:Post)
+         WHERE [p.id, u.id] > $cursor AND p.id IS NOT NULL AND u.id IS NOT NULL
+         RETURN u.id AS author_id, p.id AS post_id, [p.id, u.id] AS cursor
+         ORDER BY p.id, u.id LIMIT $limit",
     );
-    keyset_scan(REINDEX_BATCH_SIZE, "reindex_posts", |cursor| {
+    keyset_scan_composite(REINDEX_BATCH_SIZE, "reindex_posts", |cursor| {
         let query = query.clone();
         async move {
             let batch = fetch_all_rows_from_graph(
                 query
-                    .param("cursor", cursor.as_str())
+                    .param("cursor", cursor)
                     .param("limit", REINDEX_BATCH_SIZE as i64),
             )
             .await?;
             let count = batch.len();
             let mut post_ids: Vec<(String, String)> = Vec::with_capacity(count);
-            let mut last_id = String::new();
+            let mut last_cursor = None;
             for row in batch {
+                match row.get::<Vec<String>>("cursor") {
+                    Ok(v) => last_cursor = Some(v),
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Failed to extract cursor from graph row");
+                        continue;
+                    }
+                }
                 let post = match row.get::<String>("post_id") {
                     Ok(v) => v,
                     Err(e) => {
@@ -168,7 +179,6 @@ async fn reindex_posts_by_batch() -> Result<(), DynError> {
                         continue;
                     }
                 };
-                last_id = post.clone();
                 let author = match row.get::<String>("author_id") {
                     Ok(v) => v,
                     Err(e) => {
@@ -201,14 +211,7 @@ async fn reindex_posts_by_batch() -> Result<(), DynError> {
                     }
                 }
             }
-            Ok((
-                count,
-                if last_id.is_empty() {
-                    None
-                } else {
-                    Some(last_id)
-                },
-            ))
+            Ok((count, last_cursor))
         }
     })
     .await
