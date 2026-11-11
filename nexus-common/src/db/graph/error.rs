@@ -38,17 +38,52 @@ pub enum GraphError {
     Generic(String),
 }
 
+/// Neo4j rejected a write that breaks a schema constraint. Retrying the batch can
+/// never fix it, so it is a problem with that one event, not with the database.
+const CONSTRAINT_VIOLATION_CODE: &str = "Neo.ClientError.Schema.ConstraintValidationFailed";
+
 impl GraphError {
     pub fn should_not_retry_now(&self) -> bool {
-        matches!(
-            self,
-            GraphError::ConnectionNotInitialized | GraphError::QueryFailed(_)
-        )
+        match self {
+            GraphError::ConnectionNotInitialized => true,
+            GraphError::QueryFailed(neo4rs::Error::Neo4j(e)) => !is_constraint_violation(e.code()),
+            GraphError::QueryFailed(_) => true,
+            _ => false,
+        }
     }
+}
+
+fn is_constraint_violation(code: &str) -> bool {
+    code == CONSTRAINT_VIOLATION_CODE
 }
 
 impl From<neo4rs::DeError> for GraphError {
     fn from(e: neo4rs::DeError) -> Self {
         GraphError::DeserializationFailed(Box::new(e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_constraint_violation_code_matches() {
+        assert!(is_constraint_violation(
+            "Neo.ClientError.Schema.ConstraintValidationFailed"
+        ));
+        assert!(!is_constraint_violation(
+            "Neo.TransientError.Transaction.DeadlockDetected"
+        ));
+        assert!(!is_constraint_violation(
+            "Neo.ClientError.Statement.SyntaxError"
+        ));
+    }
+
+    #[test]
+    fn connection_level_query_failures_still_stop_the_batch() {
+        assert!(GraphError::QueryFailed(neo4rs::Error::ConnectionError).should_not_retry_now());
+        assert!(GraphError::ConnectionNotInitialized.should_not_retry_now());
+        assert!(!GraphError::QueryTimeout.should_not_retry_now());
     }
 }

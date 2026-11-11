@@ -60,7 +60,7 @@ pub fn create_post(
     cypher.push_str(
         "
         MATCH (author:User {id: $author_id})
-        OPTIONAL MATCH (u)-[:AUTHORED]->(existing_post:Post {id: $post_id})
+        OPTIONAL MATCH (author)-[:AUTHORED]->(existing_post:Post {id: $post_id})
         MERGE (author)-[:AUTHORED]->(new_post:Post {id: $post_id})
     ",
     );
