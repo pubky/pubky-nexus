@@ -277,6 +277,49 @@ async fn test_post_read_repair_still_caches_without_delete() -> Result<()> {
     Ok(())
 }
 
+/// A PUT that recreates a post while the cleanup after its delete runs keeps
+/// its cache: the cleanup finds the post back in the graph and rebuilds it.
+#[tokio_shared_rt::test(shared)]
+async fn test_post_cleanup_keeps_a_recreated_post() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let user_kp = Keypair::random();
+    let user_id = test
+        .create_user(
+            &user_kp,
+            &test_user(
+                "Watcher:Post:DelRecreate:User",
+                "test_post_cleanup_keeps_a_recreated_post",
+            ),
+        )
+        .await?;
+    // The recreated post, in the graph and cached, as the PUT left it.
+    let (post_id, _) = test
+        .create_post(&user_kp, &short_post("Watcher:Post:DelRecreate:Post"))
+        .await?;
+
+    handlers::post::clear_post_index(&user_id, &post_id, None).await?;
+
+    assert!(PostDetails::get_from_index(&user_id, &post_id)
+        .await?
+        .is_some());
+    assert!(PostCounts::get_from_index(&user_id, &post_id)
+        .await?
+        .is_some());
+    assert!(PostRelationships::get_from_index(&user_id, &post_id)
+        .await?
+        .is_some());
+    assert!(check_member_global_timeline_user_post(&user_id, &post_id)
+        .await?
+        .is_some());
+    assert!(check_member_user_post_timeline(&user_id, &post_id)
+        .await?
+        .is_some());
+
+    test.cleanup_user(&user_kp).await?;
+    Ok(())
+}
+
 /// A post cached again after its delete (a zombie from before the marker) is
 /// cleared by a replayed DEL, which still reports `SkipIndexing`.
 #[tokio_shared_rt::test(shared)]

@@ -902,9 +902,7 @@ impl PostStream {
     ) -> RedisResult<()> {
         match guard {
             None => Self::put_index_sorted_set(key_parts, &[entry], None, None).await,
-            Some(guard) => Self::put_index_sorted_set_unless(key_parts, &[entry], guard)
-                .await
-                .map(|_| ()),
+            Some(guard) => Self::put_index_sorted_set_unless(key_parts, &[entry], guard).await,
         }
     }
 

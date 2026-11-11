@@ -53,20 +53,18 @@ static PUT_UNLESS: LazyLock<Script> = LazyLock::new(|| {
     Script::new(
         r"if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
           redis.call('JSON.SET', KEYS[2], '$', ARGV[1])
-          if ARGV[2] then redis.call('EXPIRE', KEYS[2], ARGV[2]) end
-          return 1",
+          if ARGV[2] then redis.call('EXPIRE', KEYS[2], ARGV[2]) end",
     )
 });
 
-/// Like [`put`] for a JSON value, but writes nothing while the key `guard`
-/// exists. Returns whether it wrote.
+/// Like [`put`] for a JSON value, but writes nothing while the key `guard` exists.
 pub async fn put_unless<T: Serialize + Send + Sync>(
     guard: &str,
     prefix: &str,
     key: &str,
     value: &T,
     expiration: Option<i64>,
-) -> RedisResult<bool> {
+) -> RedisResult<()> {
     let index_key = format!("{prefix}:{key}");
     let json =
         serde_json::to_string(value).map_err(|e| RedisError::SerializationFailed(Box::new(e)))?;
@@ -77,8 +75,8 @@ pub async fn put_unless<T: Serialize + Send + Sync>(
     if let Some(exp) = expiration {
         call.arg(exp);
     }
-    let written: i64 = call.invoke_async(&mut redis_conn).await?;
-    Ok(written == 1)
+    let _: () = call.invoke_async(&mut redis_conn).await?;
+    Ok(())
 }
 
 /// Handles storing a boolean value in Redis with an optional expiration.

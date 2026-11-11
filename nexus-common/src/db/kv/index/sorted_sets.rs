@@ -118,21 +118,19 @@ pub async fn put(
 static PUT_UNLESS: LazyLock<Script> = LazyLock::new(|| {
     Script::new(
         r"if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
-          redis.call('ZADD', KEYS[2], unpack(ARGV))
-          return 1",
+          redis.call('ZADD', KEYS[2], unpack(ARGV))",
     )
 });
 
-/// Like [`put`] without a TTL, but writes nothing while the key `guard`
-/// exists. Returns whether it wrote.
+/// Like [`put`] without a TTL, but writes nothing while the key `guard` exists.
 pub async fn put_unless(
     guard: &str,
     prefix: &str,
     key: &str,
     items: &[(f64, &str)],
-) -> RedisResult<bool> {
+) -> RedisResult<()> {
     if items.is_empty() {
-        return Ok(false);
+        return Ok(());
     }
     let index_key = format!("{prefix}:{key}");
     let mut redis_conn = get_redis_conn().await?;
@@ -141,8 +139,8 @@ pub async fn put_unless(
     for (score, member) in items {
         call.arg(*score).arg(*member);
     }
-    let written: i64 = call.invoke_async(&mut redis_conn).await?;
-    Ok(written == 1)
+    let _: () = call.invoke_async(&mut redis_conn).await?;
+    Ok(())
 }
 
 /// Reads a sorted set's size and the scores of `members`, from one snapshot.

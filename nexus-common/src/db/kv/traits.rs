@@ -63,13 +63,13 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     }
 
     /// Like [`Self::put_index_json`], but writes nothing while the key `guard`
-    /// exists, checked in the same atomic step as the write. Returns whether it wrote.
+    /// exists, checked in the same atomic step as the write.
     async fn put_index_json_unless(
         &self,
         key_parts: &[&str],
         guard: &str,
         expiration: Option<i64>,
-    ) -> RedisResult<bool> {
+    ) -> RedisResult<()> {
         let prefix = Self::prefix().await;
         json::put_unless(guard, &prefix, &key_parts.join(":"), self, expiration).await
     }
@@ -599,13 +599,12 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     }
 
     /// Like [`Self::put_index_sorted_set`] without a TTL, but writes nothing
-    /// while the key `guard` exists, checked in the same atomic step as the
-    /// write. Returns whether it wrote.
+    /// while the key `guard` exists, checked in the same atomic step as the write.
     async fn put_index_sorted_set_unless(
         key_parts: &[&str],
         elements: &[(f64, &str)],
         guard: &str,
-    ) -> RedisResult<bool> {
+    ) -> RedisResult<()> {
         sorted_sets::put_unless(guard, SORTED_PREFIX, &key_parts.join(":"), elements).await
     }
 

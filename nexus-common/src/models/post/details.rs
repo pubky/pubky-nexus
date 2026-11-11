@@ -106,9 +106,7 @@ impl PostDetails {
         let key_parts = [author_id, self.id.as_str()];
         match guard {
             None => self.put_index_json(&key_parts, None, None).await?,
-            Some(guard) => {
-                self.put_index_json_unless(&key_parts, guard, None).await?;
-            }
+            Some(guard) => self.put_index_json_unless(&key_parts, guard, None).await?,
         }
         // When we delete a post that has ancestor, ignore other index updates
         if is_edit {
