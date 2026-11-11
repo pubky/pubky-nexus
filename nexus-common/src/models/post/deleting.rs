@@ -7,10 +7,10 @@
 //! exists: a write lands either before the marker, and the cleanup after it
 //! removes it, or after, and is refused.
 //!
-//! The marker is set with a TTL past the longest retry backoff at the start of
-//! every delete attempt, then shortened once the graph node is gone. It still
-//! refuses a reader that read the graph just before the delete; the cleanup
-//! that follows removes anything cached if it lapsed anyway.
+//! The marker is set at the start of every delete attempt, before its Redis
+//! cleanup, and shortened once the graph node is gone: it still refuses a
+//! reader that read the graph just before the delete. A copy cached between
+//! two attempts is removed by the next attempt's cleanup.
 //!
 //! Known gap: trust-filter reconcile writes posts it read from the graph into
 //! the shared sets without this guard.
@@ -20,8 +20,8 @@ use crate::db::get_redis_conn;
 use crate::db::kv::RedisResult;
 use deadpool_redis::redis::AsyncCommands;
 
-/// The marker's TTL while the graph node may still exist: the longest default
-/// gap between two retries of a failed delete.
+/// The marker's TTL while the graph node may still exist. It only has to
+/// outlast one delete attempt; the longest retry backoff is a safe bound.
 const POST_DELETING_IN_FLIGHT_TTL_SECS: u64 = DEFAULT_MAX_TRANSIENT_BACKOFF_SECS;
 
 /// The marker's TTL once the graph node is gone. It must outlast the gap

@@ -1,5 +1,4 @@
-//! A read during a post delete must not cache the post again (#1213), and a
-//! replayed DEL must clear a post that is cached but gone from the graph.
+//! A read during a post delete must not cache the post again (#1213).
 
 use crate::event_processor::posts::utils::{
     check_member_global_timeline_user_post, check_member_post_replies,
@@ -15,7 +14,6 @@ use nexus_common::models::post::{
     PostCounts, PostDeleting, PostDetails, PostRelationships, POST_DELETING_TTL_SECS,
 };
 use nexus_common::utils::test_utils::default_ingestor_tests;
-use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
 use pubky_app_specs::post_uri_builder;
@@ -274,130 +272,5 @@ async fn test_post_read_repair_still_caches_without_delete() -> Result<()> {
         .is_some());
 
     test.cleanup_user(&user_kp).await?;
-    Ok(())
-}
-
-/// A PUT that recreates a post while the cleanup after its delete runs keeps
-/// its cache: the cleanup finds the post back in the graph and rebuilds it.
-#[tokio_shared_rt::test(shared)]
-async fn test_post_cleanup_keeps_a_recreated_post() -> Result<()> {
-    let mut test = WatcherTest::setup(None).await?;
-
-    let user_kp = Keypair::random();
-    let user_id = test
-        .create_user(
-            &user_kp,
-            &test_user(
-                "Watcher:Post:DelRecreate:User",
-                "test_post_cleanup_keeps_a_recreated_post",
-            ),
-        )
-        .await?;
-    // The recreated post, in the graph and cached, as the PUT left it.
-    let (post_id, _) = test
-        .create_post(&user_kp, &short_post("Watcher:Post:DelRecreate:Post"))
-        .await?;
-
-    handlers::post::clear_post_index(&user_id, &post_id, None).await?;
-
-    assert!(PostDetails::get_from_index(&user_id, &post_id)
-        .await?
-        .is_some());
-    assert!(PostCounts::get_from_index(&user_id, &post_id)
-        .await?
-        .is_some());
-    assert!(PostRelationships::get_from_index(&user_id, &post_id)
-        .await?
-        .is_some());
-    assert!(check_member_global_timeline_user_post(&user_id, &post_id)
-        .await?
-        .is_some());
-    assert!(check_member_user_post_timeline(&user_id, &post_id)
-        .await?
-        .is_some());
-
-    test.cleanup_user(&user_kp).await?;
-    Ok(())
-}
-
-/// A post cached again after its delete (a zombie from before the marker) is
-/// cleared by a replayed DEL, which still reports `SkipIndexing`.
-#[tokio_shared_rt::test(shared)]
-async fn test_post_del_replay_clears_zombie() -> Result<()> {
-    let mut test = WatcherTest::setup(None).await?;
-
-    let alice_kp = Keypair::random();
-    let alice_id = test
-        .create_user(
-            &alice_kp,
-            &test_user(
-                "Watcher:Post:DelZombie:Alice",
-                "test_post_del_replay_clears_zombie",
-            ),
-        )
-        .await?;
-
-    let (root_id, root_path) = test
-        .create_post(&alice_kp, &short_post("Watcher:Post:DelZombie:Root"))
-        .await?;
-    let (parent_id, _) = test
-        .create_post(&alice_kp, &short_post("Watcher:Post:DelZombie:Parent"))
-        .await?;
-    let parent_uri = post_uri_builder(alice_id.clone(), parent_id.clone());
-    let (reply_id, reply_path) = test
-        .create_post(
-            &alice_kp,
-            &short_reply("Watcher:Post:DelZombie:Reply", parent_uri),
-        )
-        .await?;
-
-    // Keep the cached copies to write them back after the delete.
-    let mut cached = Vec::new();
-    for (post_id, parent) in [
-        (&root_id, None),
-        (&reply_id, Some((alice_id.clone(), parent_id.clone()))),
-    ] {
-        let details = PostDetails::get_from_index(&alice_id, post_id)
-            .await?
-            .unwrap();
-        let counts = PostCounts::get_from_index(&alice_id, post_id)
-            .await?
-            .unwrap();
-        let relationships = PostRelationships::get_from_index(&alice_id, post_id)
-            .await?
-            .unwrap();
-        cached.push((post_id.clone(), parent, details, counts, relationships));
-    }
-
-    test.cleanup_post(&alice_kp, &root_path).await?;
-    test.cleanup_post(&alice_kp, &reply_path).await?;
-
-    for (post_id, parent, details, counts, relationships) in &cached {
-        // Write the zombie the way the old read path did.
-        details
-            .put_to_index(&alice_id, parent.clone(), false)
-            .await?;
-        counts
-            .put_to_index(&alice_id, post_id, parent.is_some())
-            .await?;
-        relationships.put_to_index(&alice_id, post_id).await?;
-        assert!(PostDetails::get_by_id(&alice_id, post_id).await?.is_some());
-
-        let result = handlers::post::del(
-            pubky_id(&alice_id)?,
-            post_id.clone(),
-            &default_ingestor_tests(),
-        )
-        .await;
-        assert!(
-            matches!(result, Err(EventProcessorError::SkipIndexing)),
-            "a DEL of a post gone from the graph should skip, got: {result:?}"
-        );
-
-        let parent = parent.as_ref().map(|(a, p)| (a.as_str(), p.as_str()));
-        assert_post_not_cached(&alice_id, post_id, parent).await?;
-    }
-
-    test.cleanup_user(&alice_kp).await?;
     Ok(())
 }
