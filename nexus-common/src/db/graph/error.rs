@@ -136,4 +136,38 @@ mod db_tests {
 
         Ok(())
     }
+
+    /// Posts may share an id across authors, but never a `uri` (one author, one id).
+    #[tokio_shared_rt::test(shared)]
+    async fn post_uri_is_unique() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let post_id = "0034FJVRPG4V0";
+        let uri = |author: &str| format!("pubky://{author}/pub/pubky.app/posts/{post_id}");
+        let a = pubky::Keypair::random().public_key().to_z32();
+        let b = pubky::Keypair::random().public_key().to_z32();
+        let two_posts = |uri_a: String, uri_b: String| {
+            Query::new(
+                "test_two_posts",
+                "CREATE (:Post {id: $id, uri: $uri_a}) CREATE (:Post {id: $id, uri: $uri_b})",
+            )
+            .param("id", post_id)
+            .param("uri_a", uri_a)
+            .param("uri_b", uri_b)
+        };
+        let cleanup = Query::new(
+            "test_two_posts_cleanup",
+            "MATCH (p:Post) WHERE p.uri IN $uris DETACH DELETE p",
+        )
+        .param("uris", vec![uri(&a), uri(&b)]);
+
+        exec_single_row(two_posts(uri(&a), uri(&b))).await?;
+        exec_single_row(cleanup).await?;
+
+        let err = exec_single_row(two_posts(uri(&a), uri(&a)))
+            .await
+            .expect_err("uniquePostUri rejects the second post");
+        assert!(!err.should_not_retry_now(), "{err}");
+
+        Ok(())
+    }
 }

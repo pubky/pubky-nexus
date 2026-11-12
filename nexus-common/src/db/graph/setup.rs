@@ -19,13 +19,15 @@ pub async fn setup_graph() -> GraphResult<()> {
 
 async fn setup_graph_inner() -> GraphResult<()> {
     // Post ids are per-author timestamps, so two authors can share one: a post is
-    // unique per (author, id) through its AUTHORED edge, not by id alone. Drop the
-    // old global constraint (its backing index would block `postIdIndex` below).
+    // unique per (author, id), which its `uri` (`pubky://<author>/.../posts/<id>`)
+    // encodes. Drop the old global constraint (its backing index would block
+    // `postIdIndex` below).
     let drops = ["DROP CONSTRAINT uniquePostId IF EXISTS"];
 
     // Define unique constraints
     let constraints = [
         "CREATE CONSTRAINT uniqueUserId IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE",
+        "CREATE CONSTRAINT uniquePostUri IF NOT EXISTS FOR (p:Post) REQUIRE p.uri IS UNIQUE",
         "CREATE CONSTRAINT uniqueFileId IF NOT EXISTS FOR (f:File) REQUIRE (f.owner_id, f.id) IS UNIQUE",
         "CREATE CONSTRAINT uniqueHomeserverId IF NOT EXISTS FOR (hs:Homeserver) REQUIRE hs.id IS UNIQUE",
         "CREATE CONSTRAINT uniqueResourceId IF NOT EXISTS FOR (r:Resource) REQUIRE r.id IS UNIQUE",
