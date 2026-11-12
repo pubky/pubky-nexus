@@ -65,54 +65,132 @@ pub async fn user_reach_set_handler(
     Ok(([(ETAG, tag)], Json(set)).into_response())
 }
 
-/// Whether the `If-None-Match` fields, one list together (RFC 9110 5.3), name `etag` (weakly
-/// compared, 13.1.2) or are `*`.
+/// Whether the `If-None-Match` fields name `etag` or are `*` (RFC 9110 13.1.2). The fields are
+/// one list (5.3): `*` matches only as the whole value; otherwise each field lists entity tags,
+/// quoted strings that may hold commas, each optionally `W/`, compared weakly. A field that is
+/// not such a list makes the header invalid, so it is ignored and the set is sent.
 fn none_match<'a>(fields: impl IntoIterator<Item = &'a HeaderValue>, etag: &str) -> bool {
-    fn opaque(tag: &str) -> &str {
-        tag.strip_prefix("W/").unwrap_or(tag)
-    }
-    let etag = opaque(etag);
-    fields
+    let fields: Vec<&[u8]> = fields
         .into_iter()
-        .filter_map(|field| field.to_str().ok())
-        .flat_map(|list| list.split(','))
-        .map(str::trim)
-        .any(|tag| tag == "*" || opaque(tag) == etag)
+        .map(|field| field.as_bytes().trim_ascii())
+        .filter(|field| !field.is_empty())
+        .collect();
+    if fields == [b"*".as_slice()] {
+        return true;
+    }
+    let own = entity_tags(etag.as_bytes());
+    let Some([own]) = own.as_deref() else {
+        return false;
+    };
+    let mut held = Vec::new();
+    for field in fields {
+        match entity_tags(field) {
+            Some(tags) => held.extend(tags),
+            None => return false,
+        }
+    }
+    held.contains(own)
+}
+
+/// The opaque tags of an entity-tag list (RFC 9110 8.8.3, `#entity-tag`), without their `W/`
+/// prefix and quotes, or `None` when `list` is not one.
+fn entity_tags(list: &[u8]) -> Option<Vec<&[u8]>> {
+    let etagc = |c: &u8| *c == 0x21 || (0x23..=0x7e).contains(c) || *c >= 0x80;
+    let mut tags = Vec::new();
+    let mut rest = list;
+    loop {
+        rest = rest.trim_ascii_start();
+        let Some(&first) = rest.first() else {
+            return Some(tags);
+        };
+        if first == b',' {
+            rest = &rest[1..];
+            continue;
+        }
+        let quoted = rest.strip_prefix(b"W/").unwrap_or(rest);
+        let body = quoted.strip_prefix(b"\"")?;
+        let end = body.iter().position(|c| *c == b'"')?;
+        let tag = &body[..end];
+        if !tag.iter().all(etagc) {
+            return None;
+        }
+        tags.push(tag);
+        rest = body[end + 1..].trim_ascii_start();
+        match rest.first() {
+            None => return Some(tags),
+            Some(b',') => rest = &rest[1..],
+            Some(_) => return None,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn fields(values: &[&'static str]) -> Vec<HeaderValue> {
+        values
+            .iter()
+            .copied()
+            .map(HeaderValue::from_static)
+            .collect()
+    }
+
     #[test]
     fn none_match_reads_the_tag_list() {
         let etag = "W/\"abc\"";
-        let fields = |values: &[&'static str]| -> Vec<HeaderValue> {
-            values
-                .iter()
-                .copied()
-                .map(HeaderValue::from_static)
-                .collect()
-        };
         for values in [
+            // Weak comparison: the strong and the weak form of the tag both match
             &["\"abc\""][..],
             &["W/\"abc\""],
             &["\"x\", \"abc\""],
             &["\"x\",W/\"abc\""],
-            &["*"],
             &["\"x\"", "W/\"abc\""],
+            // Commas inside a quoted tag, and empty list elements
+            &["\"a,b\", \"abc\""],
+            &["\"other,*,tag\", W/\"abc\""],
+            &[", \"x\" ,, \"abc\" ,"],
+            // `*` as the whole value
+            &["*"],
+            &[" * "],
+            &["*", ""],
         ] {
             assert!(none_match(&fields(values), etag), "{values:?}");
         }
         for values in [
             &["\"abcd\""][..],
-            &["abc"],
             &["W/\"x\""],
-            &[""],
             &["\"x\"", "\"y\""],
+            &[""],
+            // A `*` inside a quoted tag is not the wildcard
+            &["\"other,*,tag\""],
+            &["\"*\""],
+            &["\"abc,x\""],
+            // `*` beside other tags, in one field or several, is not a valid header
+            &["\"x\", *"],
+            &["*, \"abc\""],
+            &["*", "\"x\""],
+            &["*, *"],
+            // Malformed lists are ignored, even when they hold the tag
+            &["abc"],
+            &["\"abc"],
+            &["w/\"abc\""],
+            &["W/ \"abc\""],
+            &["\"a bc\""],
+            &["\"x\" \"abc\""],
+            &["\"abc\" junk"],
+            &["\"abc\"", "junk"],
         ] {
             assert!(!none_match(&fields(values), etag), "{values:?}");
         }
         assert!(!none_match(&fields(&[]), etag));
+    }
+
+    #[test]
+    fn none_match_compares_a_strong_own_tag_weakly() {
+        for held in ["\"abc\"", "W/\"abc\""] {
+            assert!(none_match(&fields(&[held]), "\"abc\""), "{held}");
+        }
+        assert!(!none_match(&fields(&["W/\"abd\""]), "\"abc\""));
     }
 }
