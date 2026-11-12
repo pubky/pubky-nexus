@@ -23,6 +23,11 @@ pub enum PubkyClientError {
     #[error("Server error (5xx): {message}")]
     ServerError5xx { message: String },
 
+    /// A 4xx other than 404, 408 and 429: the server refused this request, so a retry
+    /// gets the same answer.
+    #[error("Client error ({status}): {message}")]
+    ClientError4xx { status: u16, message: String },
+
     #[error("Request failed: {message}")]
     RequestFailed { message: String },
 
@@ -46,6 +51,12 @@ impl From<pubky::Error> for PubkyClientError {
                 StatusCode::NOT_FOUND => Self::NotFound404 { message },
                 StatusCode::TOO_MANY_REQUESTS => Self::TooManyRequests429 { message },
                 s if s.is_server_error() => Self::ServerError5xx { message },
+                s if s.is_client_error() && s != StatusCode::REQUEST_TIMEOUT => {
+                    Self::ClientError4xx {
+                        status: s.as_u16(),
+                        message,
+                    }
+                }
                 _ => Self::RequestFailed { message },
             },
             pubky::Error::Request(RequestError::Transport(e)) => Self::RequestFailed {
