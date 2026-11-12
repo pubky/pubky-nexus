@@ -1,4 +1,4 @@
-use crate::db::graph::keyset_scan;
+use crate::db::graph::keyset_scan_composite;
 use crate::db::kv::RedisResult;
 use crate::db::{
     execute_graph_operation, fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphResult,
@@ -97,7 +97,7 @@ impl Bookmark {
     /// Paginates in batches to limit memory usage for users with many bookmarks.
     pub async fn reindex(user_id: &str) -> ModelResult<()> {
         let user_id = user_id.to_string();
-        keyset_scan(BOOKMARK_PAGE_SIZE, "bookmark_reindex", |cursor| {
+        keyset_scan_composite(BOOKMARK_PAGE_SIZE, "bookmark_reindex", |cursor| {
             let user_id = user_id.clone();
             async move {
                 let rows = fetch_all_rows_from_graph(queries::get::user_bookmarks(
@@ -107,10 +107,10 @@ impl Bookmark {
                 ))
                 .await?;
                 let count = rows.len();
-                let mut last_id = String::new();
+                let mut last_cursor = None;
                 for row in rows {
+                    last_cursor = Some(row.get::<Vec<String>>("cursor")?);
                     let post_id: String = row.get("post_id")?;
-                    last_id = post_id.clone();
                     if let Some(relation) = row.get::<Option<Relation>>("b")? {
                         let bookmark = Bookmark {
                             id: relation.get("id").unwrap_or_default(),
@@ -122,14 +122,7 @@ impl Bookmark {
                             .await?;
                     }
                 }
-                Ok::<(usize, Option<String>), ModelError>((
-                    count,
-                    if last_id.is_empty() {
-                        None
-                    } else {
-                        Some(last_id)
-                    },
-                ))
+                Ok::<(usize, Option<Vec<String>>), ModelError>((count, last_cursor))
             }
         })
         .await

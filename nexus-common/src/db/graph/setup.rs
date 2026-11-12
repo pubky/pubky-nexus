@@ -18,19 +18,26 @@ pub async fn setup_graph() -> GraphResult<()> {
 }
 
 async fn setup_graph_inner() -> GraphResult<()> {
+    // Post ids are per-author timestamps, so two authors can share one: a post is
+    // unique per (author, id), which its `uri` (`pubky://<author>/.../posts/<id>`)
+    // encodes. Drop the old global constraint (its backing index would block
+    // `postIdIndex` below).
+    let drops = ["DROP CONSTRAINT uniquePostId IF EXISTS"];
+
     // Define unique constraints
     let constraints = [
         "CREATE CONSTRAINT uniqueUserId IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE",
-        "CREATE CONSTRAINT uniquePostId IF NOT EXISTS FOR (p:Post) REQUIRE p.id IS UNIQUE",
+        "CREATE CONSTRAINT uniquePostUri IF NOT EXISTS FOR (p:Post) REQUIRE p.uri IS UNIQUE",
         "CREATE CONSTRAINT uniqueFileId IF NOT EXISTS FOR (f:File) REQUIRE (f.owner_id, f.id) IS UNIQUE",
         "CREATE CONSTRAINT uniqueHomeserverId IF NOT EXISTS FOR (hs:Homeserver) REQUIRE hs.id IS UNIQUE",
         "CREATE CONSTRAINT uniqueResourceId IF NOT EXISTS FOR (r:Resource) REQUIRE r.id IS UNIQUE",
         "CREATE CONSTRAINT uniqueTakedownUri IF NOT EXISTS FOR (t:Takedown) REQUIRE t.uri IS UNIQUE",
     ];
 
-    // User.id / Post.id / File.(owner_id,id) / Homeserver.id need no CREATE INDEX:
+    // User.id / File.(owner_id,id) / Homeserver.id need no CREATE INDEX:
     // the UNIQUE constraints above already create a backing index for them.
     let indexes = [
+        "CREATE INDEX postIdIndex IF NOT EXISTS FOR (p:Post) ON (p.id)",
         "CREATE INDEX postTimestampIndex IF NOT EXISTS FOR (p:Post) ON (p.indexed_at)",
         "CREATE INDEX postKindIndex IF NOT EXISTS FOR (p:Post) ON (p.kind)",
         "CREATE INDEX postLockIndex IF NOT EXISTS FOR (p:Post) ON (p.lock)",
@@ -40,7 +47,7 @@ async fn setup_graph_inner() -> GraphResult<()> {
         "CREATE INDEX taggedAppIndex IF NOT EXISTS FOR ()-[r:TAGGED]-() ON (r.app)",
     ];
 
-    let queries = constraints.iter().chain(indexes.iter());
+    let queries = drops.iter().chain(constraints.iter()).chain(indexes.iter());
 
     let graph = get_neo4j_graph()?;
 
