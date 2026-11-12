@@ -62,18 +62,6 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         json::put(&prefix, &key_parts.join(":"), self, None, expiration).await
     }
 
-    /// Like [`Self::put_index_json`], but writes nothing while the key `guard`
-    /// exists, checked in the same atomic step as the write.
-    async fn put_index_json_unless(
-        &self,
-        key_parts: &[&str],
-        guard: &str,
-        expiration: Option<i64>,
-    ) -> RedisResult<()> {
-        let prefix = Self::prefix().await;
-        json::put_unless(guard, &prefix, &key_parts.join(":"), self, expiration).await
-    }
-
     /// Retrieves data from Redis using the provided key parts.
     ///
     /// This method deserializes the data stored under the key generated from the provided `key_parts` in Redis.
@@ -596,16 +584,6 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         let key = key_parts.join(":");
         // Store the elements in the Redis sorted set
         sorted_sets::put(prefix, &key, elements, expiration).await
-    }
-
-    /// Like [`Self::put_index_sorted_set`] without a TTL, but writes nothing
-    /// while the key `guard` exists, checked in the same atomic step as the write.
-    async fn put_index_sorted_set_unless(
-        key_parts: &[&str],
-        elements: &[(f64, &str)],
-        guard: &str,
-    ) -> RedisResult<()> {
-        sorted_sets::put_unless(guard, SORTED_PREFIX, &key_parts.join(":"), elements).await
     }
 
     /// Rebuilds a Redis sorted set from scratch, atomically.

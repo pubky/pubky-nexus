@@ -79,20 +79,6 @@ pub(crate) async fn add(key_parts: &[&str], entries: &[(f64, &str)]) -> RedisRes
     Ok(())
 }
 
-/// Like [`add`] for one entry, but writes nothing while the key `guard`
-/// exists, checked in the same atomic step as the write.
-pub(crate) async fn add_unless(
-    key_parts: &[&str],
-    entry: (f64, &str),
-    guard: &str,
-) -> RedisResult<()> {
-    let mut call = add_call(&sorted_key(key_parts), [entry]);
-    call.key(guard);
-    let mut conn = get_redis_conn().await?;
-    let _: usize = call.invoke_async(&mut conn).await?;
-    Ok(())
-}
-
 /// Moves the score of `member` (`[author, post]`) in the shared sorted set at
 /// `key_parts` by `action`. A member that isn't there yet is created only by
 /// an increment, and only when the filter lets its author in.

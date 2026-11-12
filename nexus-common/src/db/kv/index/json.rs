@@ -1,8 +1,7 @@
 use crate::db::get_redis_conn;
 use crate::db::kv::error::{RedisError, RedisResult};
-use deadpool_redis::redis::{AsyncCommands, JsonAsyncCommands, Script};
+use deadpool_redis::redis::{AsyncCommands, JsonAsyncCommands};
 use serde::{de::DeserializeOwned, Serialize};
-use std::sync::LazyLock;
 use tracing::{trace, warn};
 
 /// Sets a value in Redis, supporting both JSON objects and boolean values.
@@ -44,38 +43,6 @@ pub async fn put<T: Serialize + Send + Sync>(
         index_key,
         expiration
     );
-    Ok(())
-}
-
-/// `JSON.SET` (and the optional `EXPIRE`) on `KEYS[2]` unless the guard key
-/// `KEYS[1]` exists. One script, so the check and the write are one atomic step.
-static PUT_UNLESS: LazyLock<Script> = LazyLock::new(|| {
-    Script::new(
-        r"if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
-          redis.call('JSON.SET', KEYS[2], '$', ARGV[1])
-          if ARGV[2] then redis.call('EXPIRE', KEYS[2], ARGV[2]) end",
-    )
-});
-
-/// Like [`put`] for a JSON value, but writes nothing while the key `guard` exists.
-pub async fn put_unless<T: Serialize + Send + Sync>(
-    guard: &str,
-    prefix: &str,
-    key: &str,
-    value: &T,
-    expiration: Option<i64>,
-) -> RedisResult<()> {
-    let index_key = format!("{prefix}:{key}");
-    let json =
-        serde_json::to_string(value).map_err(|e| RedisError::SerializationFailed(Box::new(e)))?;
-
-    let mut redis_conn = get_redis_conn().await?;
-    let mut call = PUT_UNLESS.key(guard);
-    call.key(&index_key).arg(json);
-    if let Some(exp) = expiration {
-        call.arg(exp);
-    }
-    let _: () = call.invoke_async(&mut redis_conn).await?;
     Ok(())
 }
 

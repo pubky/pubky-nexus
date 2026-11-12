@@ -1,4 +1,4 @@
-use super::{PostDeleting, PostRelationships, PostStream};
+use super::{PostRelationships, PostStream};
 use crate::db::kv::RedisResult;
 use crate::db::{
     execute_graph_operation, fetch_row_from_graph, queries, GraphResult, OperationOutcome, RedisOps,
@@ -36,23 +36,24 @@ pub struct PostDetails {
 impl RedisOps for PostDetails {}
 
 impl PostDetails {
-    /// Retrieves post details by author ID and post ID, first trying to get from Redis, then from Neo4j if not found.
-    /// The read-repair write is skipped while the post is being deleted (see [`PostDeleting`]).
+    /// Retrieves post details from Redis, or from the graph on a miss.
+    ///
+    /// A miss is not written back to Redis: the watcher owns the index. A read
+    /// during a post delete would otherwise cache the post again after its
+    /// cleanup (#1213), and a cached copy hides an unfinished PUT from its retry.
     pub async fn get_by_id(author_id: &str, post_id: &str) -> ModelResult<Option<PostDetails>> {
-        match Self::get_from_index(author_id, post_id).await? {
-            Some(details) => Ok(Some(details)),
-            None => {
-                let graph_response = Self::get_from_graph(author_id, post_id).await?;
-                if let Some((post_details, reply)) = graph_response {
-                    let guard = PostDeleting::key(author_id, post_id);
-                    post_details
-                        .write_index(author_id, reply, false, Some(&guard))
-                        .await?;
-                    return Ok(Some(post_details));
-                }
-                Ok(None)
-            }
+        if let Some(details) = Self::get_from_index(author_id, post_id).await? {
+            return Ok(Some(details));
         }
+        let details = Self::get_from_graph(author_id, post_id)
+            .await?
+            .map(|(details, _)| details);
+        if details.is_some() {
+            tracing::warn!(
+                "Post {author_id}:{post_id} is missing from Redis, served from the graph"
+            );
+        }
+        Ok(details)
     }
 
     pub async fn get_from_index(
@@ -89,25 +90,8 @@ impl PostDetails {
         parent_key_wrapper: Option<(String, String)>,
         is_edit: bool,
     ) -> RedisResult<()> {
-        self.write_index(author_id, parent_key_wrapper, is_edit, None)
-            .await
-    }
-
-    /// [`Self::put_to_index`], where each write is skipped while the key
-    /// `guard` exists. A guard that appears midway stops the remaining writes;
-    /// the ones before it are removed by the cleanup that follows the guard.
-    async fn write_index(
-        &self,
-        author_id: &str,
-        parent_key_wrapper: Option<(String, String)>,
-        is_edit: bool,
-        guard: Option<&str>,
-    ) -> RedisResult<()> {
-        let key_parts = [author_id, self.id.as_str()];
-        match guard {
-            None => self.put_index_json(&key_parts, None, None).await?,
-            Some(guard) => self.put_index_json_unless(&key_parts, guard, None).await?,
-        }
+        self.put_index_json(&[author_id, &self.id], None, None)
+            .await?;
         // When we delete a post that has ancestor, ignore other index updates
         if is_edit {
             return Ok(());
@@ -116,8 +100,8 @@ impl PostDetails {
         // per-parent reply set instead.
         match parent_key_wrapper {
             None => {
-                PostStream::add_to_timeline_sorted_set(self, guard).await?;
-                PostStream::add_to_per_user_sorted_set(self, guard).await?;
+                PostStream::add_to_timeline_sorted_set(self).await?;
+                PostStream::add_to_per_user_sorted_set(self).await?;
             }
             Some((parent_author_id, parent_post_id)) => {
                 PostStream::add_to_post_reply_sorted_set(
@@ -125,10 +109,9 @@ impl PostDetails {
                     author_id,
                     &self.id,
                     self.indexed_at,
-                    guard,
                 )
                 .await?;
-                PostStream::add_to_replies_per_user_sorted_set(self, guard).await?;
+                PostStream::add_to_replies_per_user_sorted_set(self).await?;
             }
         }
         Ok(())

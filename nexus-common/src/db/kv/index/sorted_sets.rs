@@ -113,36 +113,6 @@ pub async fn put(
     Ok(())
 }
 
-/// `ZADD` of the score/member pairs in `ARGV` to `KEYS[2]` unless the guard key
-/// `KEYS[1]` exists. One script, so the check and the write are one atomic step.
-static PUT_UNLESS: LazyLock<Script> = LazyLock::new(|| {
-    Script::new(
-        r"if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
-          redis.call('ZADD', KEYS[2], unpack(ARGV))",
-    )
-});
-
-/// Like [`put`] without a TTL, but writes nothing while the key `guard` exists.
-pub async fn put_unless(
-    guard: &str,
-    prefix: &str,
-    key: &str,
-    items: &[(f64, &str)],
-) -> RedisResult<()> {
-    if items.is_empty() {
-        return Ok(());
-    }
-    let index_key = format!("{prefix}:{key}");
-    let mut redis_conn = get_redis_conn().await?;
-    let mut call = PUT_UNLESS.key(guard);
-    call.key(&index_key);
-    for (score, member) in items {
-        call.arg(*score).arg(*member);
-    }
-    let _: () = call.invoke_async(&mut redis_conn).await?;
-    Ok(())
-}
-
 /// Reads a sorted set's size and the scores of `members`, from one snapshot.
 ///
 /// `MULTI`/`EXEC`, so the count and the scores cannot straddle a concurrent

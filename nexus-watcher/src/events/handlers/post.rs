@@ -6,8 +6,8 @@ use nexus_common::db::queries::get::post_is_safe_to_delete;
 use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
 use nexus_common::models::notification::{Notification, PostChangedSource, PostChangedType};
 use nexus_common::models::post::{
-    collection_item_keys, sync_collected_edges, PostCounts, PostDeleting, PostDetails,
-    PostRelationships, PostStream,
+    collection_item_keys, sync_collected_edges, PostCounts, PostDetails, PostRelationships,
+    PostStream,
 };
 use nexus_common::models::user::UserIngestor;
 use pubky_app_specs::{
@@ -217,7 +217,6 @@ async fn sync_put_details(
                 &author_id,
                 &post_id,
                 post_details.indexed_at,
-                None,
             ),
             async {
                 let parent_kind = post_kind(&parent_author_id, &parent_post_id).await?;
@@ -654,11 +653,6 @@ pub async fn sync_del(
     post_id: String,
     deleted_uri: String,
 ) -> Result<(), EventProcessorError> {
-    // 0. Turn off read-repair for this post before the first Redis cleanup, so
-    //    a read that misses Redis before the graph delete below cannot cache
-    //    the post again (see `PostDeleting`). Re-armed on every attempt.
-    PostDeleting::mark_in_flight(&author_id, &post_id).await?;
-
     // 1. Read PostRelationships from index — captures both the gate and the
     //    parent (replied/reposted) URIs needed for parent cleanup.
     //    NOTE: deliberately NOT using `get_by_id`, which would re-populate the
@@ -846,10 +840,6 @@ pub async fn sync_del(
     for parent in &parents_to_invalidate {
         PostCounts::invalidate(&[&parent[0], &parent[1]]).await?;
     }
-
-    // The node is gone: shorten the marker to the window that still refuses a
-    // reader that read the graph just before the delete.
-    PostDeleting::mark_deleted(&author_id, &post_id).await?;
 
     Ok(())
 }

@@ -30,14 +30,12 @@ end
 ";
 
 /// Adds the score/member pairs in `ARGV` to the shared set `KEYS[1]`, keeping
-/// only the members whose author is admitted. Returns how many it kept. With
-/// an optional guard key `KEYS[4]`, writes nothing while that key exists.
+/// only the members whose author is admitted. Returns how many it kept.
 pub(super) static ADD: LazyLock<Script> = LazyLock::new(|| {
     Script::new(
         &[
             HELPERS,
-            r"if KEYS[4] and redis.call('EXISTS', KEYS[4]) == 1 then return 0 end
-              local authors = {}
+            r"local authors = {}
               for i = 2, #ARGV, 2 do authors[#authors + 1] = author_of(ARGV[i]) end
               local ok = admitted(authors)
               local keep = {}

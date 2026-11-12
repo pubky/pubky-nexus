@@ -1,4 +1,3 @@
-use super::PostDeleting;
 use crate::db::kv::RedisResult;
 use crate::db::{fetch_row_from_graph, queries, GraphResult, RedisOps};
 use crate::models::error::ModelResult;
@@ -51,25 +50,15 @@ pub struct PostRelationships {
 impl RedisOps for PostRelationships {}
 
 impl PostRelationships {
-    /// Retrieves post relationships by user ID, first trying to get from Redis, then from Neo4j if not found.
+    /// Retrieves post relationships from Redis, or from the graph on a miss.
+    /// A miss is not written back, as in [`super::PostDetails::get_by_id`].
     pub async fn get_by_id(
         author_id: &str,
         post_id: &str,
     ) -> ModelResult<Option<PostRelationships>> {
         match Self::get_from_index(author_id, post_id).await? {
-            Some(counts) => Ok(Some(counts)),
-            None => {
-                let graph_response = Self::get_from_graph(author_id, post_id).await?;
-                if let Some(post_relationships) = graph_response {
-                    // Skipped while the post is being deleted (see `PostDeleting`).
-                    let guard = PostDeleting::key(author_id, post_id);
-                    post_relationships
-                        .put_index_json_unless(&[author_id, post_id], &guard, None)
-                        .await?;
-                    return Ok(Some(post_relationships));
-                }
-                Ok(None)
-            }
+            Some(relationships) => Ok(Some(relationships)),
+            None => Ok(Self::get_from_graph(author_id, post_id).await?),
         }
     }
 

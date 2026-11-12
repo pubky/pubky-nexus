@@ -1,4 +1,5 @@
-//! A read during a post delete must not cache the post again (#1213).
+//! A read must not index a post again: a read during a post delete would
+//! bring the deleted post back (#1213).
 
 use crate::event_processor::posts::utils::{
     check_member_global_timeline_user_post, check_member_post_replies,
@@ -10,9 +11,7 @@ use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::get_redis_conn;
-use nexus_common::models::post::{
-    PostCounts, PostDeleting, PostDetails, PostRelationships, POST_DELETING_TTL_SECS,
-};
+use nexus_common::models::post::{PostCounts, PostDetails, PostRelationships};
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
@@ -20,8 +19,9 @@ use pubky_app_specs::post_uri_builder;
 
 use super::{simulate_partial_del_cleanup_child, simulate_partial_del_cleanup_root, ChildKind};
 
-/// Asserts that nothing of `author_id:post_id` is cached: its three JSON
-/// records and its feed entries, including the reply set of `parent`.
+/// Asserts that `author_id:post_id` is not indexed: no details or
+/// relationships record and no feed entries, including the reply set of
+/// `parent`. Counts are a TTL'd read-through cache, see [`assert_counts_expire`].
 async fn assert_post_not_cached(
     author_id: &str,
     post_id: &str,
@@ -34,12 +34,6 @@ async fn assert_post_not_cached(
             .await?
             .is_none(),
         "PostDetails cached for {ctx}"
-    );
-    assert!(
-        PostCounts::get_from_index(author_id, post_id)
-            .await?
-            .is_none(),
-        "PostCounts cached for {ctx}"
     );
     assert!(
         PostRelationships::get_from_index(author_id, post_id)
@@ -82,14 +76,16 @@ async fn assert_post_not_cached(
     Ok(())
 }
 
-/// Asserts that a finished delete left the marker with its short TTL: set by
-/// the delete itself, and shortened after the graph delete.
-async fn assert_marker_shortened(author_id: &str, post_id: &str) -> Result<()> {
+/// Asserts that the counts a read cached carry their TTL, so a copy cached
+/// during a delete expires on its own.
+async fn assert_counts_expire(author_id: &str, post_id: &str) -> Result<()> {
     let mut conn = get_redis_conn().await?;
-    let ttl: i64 = conn.ttl(PostDeleting::key(author_id, post_id)).await?;
+    let ttl: i64 = conn
+        .ttl(format!("Post:Counts:{author_id}:{post_id}"))
+        .await?;
     assert!(
-        ttl > 0 && ttl <= POST_DELETING_TTL_SECS as i64,
-        "marker TTL for {author_id}:{post_id} should be in (0, {POST_DELETING_TTL_SECS}], got {ttl}"
+        ttl > 0 && ttl <= 600,
+        "PostCounts TTL for {author_id}:{post_id} should be in (0, 600], got {ttl}"
     );
     Ok(())
 }
@@ -105,9 +101,9 @@ async fn read_post(author_id: &str, post_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// A read that misses Redis while a delete is in flight (marker set, Redis
-/// cleared, graph node not yet deleted) gets the post from the graph but does
-/// not cache it, so nothing is left once the delete finishes.
+/// A read that misses Redis during a post delete (Redis cleared, graph node
+/// not yet deleted) gets the post from the graph but does not index it again,
+/// so nothing but its expiring counts is left once the delete finishes.
 #[tokio_shared_rt::test(shared)]
 async fn test_post_read_during_delete_does_not_recache() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -126,12 +122,12 @@ async fn test_post_read_during_delete_does_not_recache() -> Result<()> {
         .create_post(&user_kp, &short_post("Watcher:Post:DelRecache:Post"))
         .await?;
 
-    // The delete window: marker set, Redis cleared, graph node still there.
-    PostDeleting::mark_in_flight(&user_id, &post_id).await?;
+    // The delete window: Redis cleared, graph node still there.
     simulate_partial_del_cleanup_root(&user_id, &post_id).await?;
 
     read_post(&user_id, &post_id).await?;
     assert_post_not_cached(&user_id, &post_id, None).await?;
+    assert_counts_expire(&user_id, &post_id).await?;
 
     // The delete finishes: the graph node goes, and the index stays empty.
     handlers::post::del(
@@ -141,37 +137,6 @@ async fn test_post_read_during_delete_does_not_recache() -> Result<()> {
     )
     .await?;
     assert!(find_post_details(&user_id, &post_id).await.is_err());
-    assert!(PostDetails::get_by_id(&user_id, &post_id).await?.is_none());
-    assert_post_not_cached(&user_id, &post_id, None).await?;
-    assert_marker_shortened(&user_id, &post_id).await?;
-
-    test.cleanup_user(&user_kp).await?;
-    Ok(())
-}
-
-/// A plain delete sets the marker itself: once it finishes, the marker holds
-/// its short TTL and nothing of the post is cached.
-#[tokio_shared_rt::test(shared)]
-async fn test_post_del_sets_the_marker() -> Result<()> {
-    let mut test = WatcherTest::setup(None).await?;
-
-    let user_kp = Keypair::random();
-    let user_id = test
-        .create_user(
-            &user_kp,
-            &test_user(
-                "Watcher:Post:DelMarker:User",
-                "test_post_del_sets_the_marker",
-            ),
-        )
-        .await?;
-    let (post_id, post_path) = test
-        .create_post(&user_kp, &short_post("Watcher:Post:DelMarker:Post"))
-        .await?;
-
-    test.cleanup_post(&user_kp, &post_path).await?;
-
-    assert_marker_shortened(&user_id, &post_id).await?;
     assert!(PostDetails::get_by_id(&user_id, &post_id).await?.is_none());
     assert_post_not_cached(&user_id, &post_id, None).await?;
 
@@ -220,7 +185,6 @@ async fn test_reply_read_during_delete_does_not_recache() -> Result<()> {
         )
         .await?;
 
-    PostDeleting::mark_in_flight(&bob_id, &reply_id).await?;
     simulate_partial_del_cleanup_child(&bob_id, &reply_id, &alice_id, &parent_id, ChildKind::Reply)
         .await?;
 
@@ -229,48 +193,5 @@ async fn test_reply_read_during_delete_does_not_recache() -> Result<()> {
 
     test.cleanup_user(&bob_kp).await?;
     test.cleanup_user(&alice_kp).await?;
-    Ok(())
-}
-
-/// Without a delete in flight, a read that misses Redis still caches the post.
-#[tokio_shared_rt::test(shared)]
-async fn test_post_read_repair_still_caches_without_delete() -> Result<()> {
-    let mut test = WatcherTest::setup(None).await?;
-
-    let user_kp = Keypair::random();
-    let user_id = test
-        .create_user(
-            &user_kp,
-            &test_user(
-                "Watcher:Post:ReadRepair:User",
-                "test_post_read_repair_still_caches_without_delete",
-            ),
-        )
-        .await?;
-    let (post_id, _) = test
-        .create_post(&user_kp, &short_post("Watcher:Post:ReadRepair:Post"))
-        .await?;
-
-    simulate_partial_del_cleanup_root(&user_id, &post_id).await?;
-    assert_post_not_cached(&user_id, &post_id, None).await?;
-
-    read_post(&user_id, &post_id).await?;
-    assert!(PostDetails::get_from_index(&user_id, &post_id)
-        .await?
-        .is_some());
-    assert!(PostCounts::get_from_index(&user_id, &post_id)
-        .await?
-        .is_some());
-    assert!(PostRelationships::get_from_index(&user_id, &post_id)
-        .await?
-        .is_some());
-    assert!(check_member_global_timeline_user_post(&user_id, &post_id)
-        .await?
-        .is_some());
-    assert!(check_member_user_post_timeline(&user_id, &post_id)
-        .await?
-        .is_some());
-
-    test.cleanup_user(&user_kp).await?;
     Ok(())
 }
