@@ -148,6 +148,10 @@ impl From<HsError> for EventProcessorError {
             HsErrorKind::NotFound(_) => PubkyClientError::NotFound404 { message }.into(),
             HsErrorKind::RateLimited(_) => PubkyClientError::TooManyRequests429 { message }.into(),
             HsErrorKind::ServerError(..) => PubkyClientError::ServerError5xx { message }.into(),
+            // 408 is a timeout, retried like one.
+            HsErrorKind::Rejected(status, _) if (400..500).contains(&status) && status != 408 => {
+                PubkyClientError::ClientError4xx { status, message }.into()
+            }
             HsErrorKind::Rejected(..)
             | HsErrorKind::Transport(_)
             | HsErrorKind::Timeout
@@ -313,8 +317,8 @@ mod tests {
         }
     }
 
-    /// The same failures on a resource or blob fetch stay per-event, and a 404, a 403 or
-    /// an SDK failure on the event stream stays per-user.
+    /// The same failures on a resource or blob fetch stay per-event, and a 404 or an SDK
+    /// failure on the event stream stays per-user.
     #[test]
     fn other_failures_stay_per_event() {
         for (op, kind) in [
@@ -322,7 +326,6 @@ mod tests {
             (HsOp::GetBlob, HsErrorKind::transport("connection refused")),
             (HsOp::PollEvents, HsErrorKind::RateLimited("".into())),
             (HsOp::UserEvents, HsErrorKind::NotFound("".into())),
-            (HsOp::UserEvents, HsErrorKind::Rejected(403, "".into())),
             (
                 HsOp::UserEvents,
                 HsErrorKind::Sdk("could not resolve".into()),
@@ -357,12 +360,13 @@ mod tests {
         assert!(!RetryScheduler::should_enqueue_related_event(&err));
     }
 
-    /// A 4xx other than 404/429, or a timeout off the event stream, is a retried
-    /// `RequestFailed`, not a permanent failure.
+    /// A 408, a 3xx, or a timeout off the event stream is a retried `RequestFailed`,
+    /// not a permanent failure.
     #[test]
-    fn rejected_and_timed_out_fetches_are_retried() {
+    fn timed_out_and_redirected_fetches_are_retried() {
         for (op, kind) in [
-            (HsOp::GetResource, HsErrorKind::Rejected(403, "".into())),
+            (HsOp::GetResource, HsErrorKind::Rejected(408, "".into())),
+            (HsOp::GetResource, HsErrorKind::Rejected(302, "".into())),
             (HsOp::GetBlob, HsErrorKind::Timeout),
         ] {
             let err = hs_error(op, kind);
@@ -375,6 +379,26 @@ mod tests {
                 "{err:?}"
             );
             assert!(!err.should_not_retry_now(), "{err:?}");
+        }
+    }
+
+    /// Any other 4xx is the server refusing the request: never retried, and the run goes
+    /// on (a fetch drops its event, the event stream skips its user) (#1202).
+    #[test]
+    fn rejected_fetches_are_not_retried() {
+        for op in [HsOp::GetResource, HsOp::GetBlob, HsOp::UserEvents] {
+            for status in [400, 401, 403, 410] {
+                let err = hs_error(op, HsErrorKind::Rejected(status, "".into()));
+                assert!(
+                    matches!(&err, EventProcessorError::PubkyClientError(e) if matches!(e.as_ref(), PubkyClientError::ClientError4xx { status: s, .. } if *s == status)),
+                    "{err:?}"
+                );
+                assert!(
+                    !RetryScheduler::should_enqueue_related_event(&err),
+                    "{err:?}"
+                );
+                assert!(!err.should_not_retry_now(), "{err:?}");
+            }
         }
     }
 

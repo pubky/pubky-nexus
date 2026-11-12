@@ -262,6 +262,8 @@ mod tests {
             pair(&|| server(429)),
             pair(&|| server(503)),
             pair(&|| server(400)),
+            pair(&|| server(403)),
+            pair(&|| server(408)),
             pair(&|| {
                 pubky::Error::from(RequestError::Validation {
                     message: "bad".into(),
