@@ -1,9 +1,11 @@
 use crate::db::{fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphError};
 use crate::models::error::ModelResult;
-use crate::types::StreamReach;
+use crate::types::{StreamReach, WotDepth};
 use pubky_social_specs::PubkyId;
+use serde::Serialize;
 use tokio::time::{timeout, Duration};
 use tracing::warn;
+use utoipa::ToSchema;
 
 const REACH_QUERY_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -65,6 +67,68 @@ fn trim_to_limit(ids: Vec<String>, limit: usize) -> ReachAuthors {
         author_ids,
         met_limit,
     }
+}
+
+/// The users a Web of Trust reaches, as [`reach_set`] reads them.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, ToSchema)]
+pub struct ReachSet {
+    /// The reached users' ids, at most the limit asked: the users the observer follows first,
+    /// then the rest, each by id.
+    pub authors: Vec<String>,
+    /// The reach held more users than the limit, so `authors` is a subset.
+    pub truncated: bool,
+}
+
+impl ReachSet {
+    /// A weak entity tag of the set (weak because the response may be compressed): the same for
+    /// the same `authors` in the same order and the same `truncated`, so a client holding the set
+    /// can ask whether it changed.
+    pub fn etag(&self) -> String {
+        let mut hasher = blake3::Hasher::new();
+        for id in &self.authors {
+            hasher.update(id.as_bytes());
+            hasher.update(b"\n");
+        }
+        hasher.update(&[u8::from(self.truncated)]);
+        format!("W/\"{}\"", hasher.finalize().to_hex())
+    }
+}
+
+/// Resolves up to `limit` users in `observer_id`'s Web of Trust at `depth`: every user
+/// `source=wot` reads posts from, never the observer, whether or not they posted. The users the
+/// observer follows come first, so a reach over `limit` keeps them, then the rest, each by id;
+/// a longer reach is flagged `truncated`. `None` for an unknown observer.
+///
+/// # Errors
+/// Returns an error when the graph read fails, including
+/// `GraphError::QueryTimeout` for a traversal over its budget.
+pub async fn reach_set(
+    observer_id: &str,
+    depth: WotDepth,
+    limit: usize,
+) -> ModelResult<Option<ReachSet>> {
+    // One extra row tells a reach of exactly `limit` users from a larger one
+    let query = queries::get::get_reach_set(observer_id, depth, limit.saturating_add(1));
+    let rows = timeout(REACH_QUERY_TIMEOUT, fetch_all_rows_from_graph(query))
+        .await
+        .map_err(|_| GraphError::QueryTimeout)??;
+    if rows.is_empty() {
+        return Ok(None);
+    }
+    let ids = rows
+        .iter()
+        .map(|row| row.get::<Option<String>>("id"))
+        .filter_map(Result::transpose)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(GraphError::from)?;
+    let ReachAuthors {
+        author_ids,
+        met_limit,
+    } = trim_to_limit(ids, limit);
+    Ok(Some(ReachSet {
+        authors: author_ids.iter().map(ToString::to_string).collect(),
+        truncated: met_limit,
+    }))
 }
 
 /// Whether `user_id` is in `observer_id`'s `reach`, asked of the graph like
@@ -256,6 +320,69 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn reach_set_lists_every_reached_user_without_the_observer() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let set = |ids: &[&str], truncated| ReachSet {
+            authors: owned(ids),
+            truncated,
+        };
+        let depth = |d| WotDepth::new(d).expect("valid depth");
+        // The followed users first, by id, LURKER included although it never posted; D2 is two
+        // follows away. OBS is reached again through FRIEND and LURKER and stays out, and
+        // FOLLOWER, who follows OBS, is in no Web of Trust of it
+        let direct = [FRIEND, FOLLOWED, LURKER];
+        let two_steps = [FRIEND, FOLLOWED, LURKER, D2];
+        assert_eq!(
+            reach_set(OBS, depth(1), 1_000).await?,
+            Some(set(&direct, false))
+        );
+        for d in [2, 3] {
+            assert_eq!(
+                reach_set(OBS, depth(d), 1_000).await?,
+                Some(set(&two_steps, false)),
+                "depth {d}"
+            );
+        }
+
+        // A longer reach keeps the followed users first
+        assert_eq!(reach_set(OBS, depth(2), 3).await?, Some(set(&direct, true)));
+        assert_eq!(
+            reach_set(OBS, depth(2), 4).await?,
+            Some(set(&two_steps, false)),
+            "a reach of exactly `limit` users is complete"
+        );
+        assert_eq!(reach_set(OBS, depth(2), 0).await?, Some(set(&[], true)));
+
+        // A known user reaching nobody has an empty set, an unknown one none
+        assert_eq!(
+            reach_set(STRANGER, depth(3), 1_000).await?,
+            Some(ReachSet::default())
+        );
+        assert_eq!(reach_set(UNKNOWN, depth(3), 1_000).await?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn reach_set_etag_follows_the_set() {
+        let set = |ids: &[&str], truncated| ReachSet {
+            authors: owned(ids),
+            truncated,
+        };
+        let etag = set(&[FRIEND, D2], false).etag();
+        assert!(etag.starts_with("W/\"") && etag.ends_with('"') && etag.len() == 68);
+        assert_eq!(etag, set(&[FRIEND, D2], false).etag());
+        for other in [
+            set(&[FRIEND, D2], true),
+            set(&[D2, FRIEND], false),
+            set(&[FRIEND], false),
+            set(&[], false),
+        ] {
+            assert_ne!(etag, other.etag(), "{other:?}");
+        }
     }
 
     #[tokio_shared_rt::test(shared)]

@@ -6,7 +6,7 @@ use crate::media::{FailFastGate, MediaPermits, MediaSubprocess, QueuedGate, Vari
 use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, FromRequest, FromRequestParts};
 use axum::http::request::Parts;
-use axum::http::{HeaderName, Request, StatusCode};
+use axum::http::{header::ETAG, HeaderName, Request, StatusCode};
 use axum::Json as AxumJson;
 use axum::Router;
 use nexus_common::models::user::UserIngestor;
@@ -192,11 +192,13 @@ pub fn build_app(
         .allow_origin(Any) // Allow all origins
         .allow_methods(Any) // Allow all HTTP methods
         .allow_headers(Any) // Allow all headers
-        // Let browsers read the notification list's resume cursor and the event log headers.
+        // Let browsers read the notification list's resume cursor, the event log headers and
+        // the reach set's entity tag.
         .expose_headers([
             HeaderName::from_static(v0::notification::NEXT_START_HEADER),
             HeaderName::from_static("x-events-epoch"),
             HeaderName::from_static("x-events-length"),
+            ETAG,
         ]);
 
     // Layer the request limits innermost, so that tracing and CORS still apply to the

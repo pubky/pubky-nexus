@@ -1259,6 +1259,33 @@ pub fn reach_contains_user(user_id: &str, target_id: &str, reach: &StreamReach) 
         .param("target_id", target_id)
 }
 
+/// Up to `limit` distinct users `user_id`'s Web of Trust reaches within
+/// `depth` follows: the authors `source=wot` reads, every one of them, whether
+/// or not they posted. `user_id` is never in it, also when a follow cycle
+/// reaches it again. The users `user_id` follows come first, then the rest,
+/// each by id. An unknown user has no row; a known one reaching nobody has one
+/// row with a null `id`.
+pub fn get_reach_set(user_id: &str, depth: WotDepth, limit: usize) -> Query {
+    let cypher = format!(
+        "
+        MATCH (user:User {{id: $user_id}})
+        OPTIONAL MATCH (user)-[:FOLLOWS*1..{depth}]->(reach:User)
+        WHERE reach.id <> $user_id
+        WITH DISTINCT user, reach
+        WITH reach, reach IS NOT NULL AND EXISTS {{ (user)-[:FOLLOWS]->(reach) }} AS followed
+        ORDER BY followed DESC, reach.id ASC
+        LIMIT $limit
+        RETURN reach.id AS id
+        "
+    );
+    reach_attrs(
+        Query::new("get_reach_set", &cypher),
+        &StreamReach::Wot(depth),
+    )
+    .param("user_id", user_id)
+    .param("limit", i64::try_from(limit).unwrap_or(i64::MAX))
+}
+
 pub fn get_tags_by_label_prefix(label_prefix: &str) -> Query {
     Query::new(
         "get_tags_by_label_prefix",
@@ -2268,6 +2295,12 @@ mod tests {
             let reach_contains = reach_contains_user("user", "target", &reach);
             assert_eq!(reach_contains.label(), "reach_contains_user");
             assert_eq!(reach_contains.telemetry_attrs(), expected.as_slice());
+
+            if let StreamReach::Wot(depth) = &reach {
+                let reach_set = get_reach_set("user", *depth, 10);
+                assert_eq!(reach_set.label(), "get_reach_set");
+                assert_eq!(reach_set.telemetry_attrs(), expected.as_slice());
+            }
 
             let hot_tags_input = HotTagsInputDTO::new(Timeframe::AllTime, 10, 0, 5, None);
             let hot_tags = get_hot_tags_by_reach("user", reach, &hot_tags_input);
