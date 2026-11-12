@@ -16,6 +16,7 @@ use nexus_common::models::post::{PostCounts, PostDetails, PostRelationships, Pos
 
 mod del;
 mod put;
+mod recache;
 
 // ---------------------------------------------------------------------------
 // Idempotency-test partial-failure simulators

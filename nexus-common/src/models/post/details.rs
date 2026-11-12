@@ -36,19 +36,24 @@ pub struct PostDetails {
 impl RedisOps for PostDetails {}
 
 impl PostDetails {
-    /// Retrieves post details by author ID and post ID, first trying to get from Redis, then from Neo4j if not found.
+    /// Retrieves post details from Redis, or from the graph on a miss.
+    ///
+    /// A miss is not written back to Redis: the watcher owns the index. A read
+    /// during a post delete would otherwise cache the post again after its
+    /// cleanup (#1213), and a cached copy hides an unfinished PUT from its retry.
     pub async fn get_by_id(author_id: &str, post_id: &str) -> ModelResult<Option<PostDetails>> {
-        match Self::get_from_index(author_id, post_id).await? {
-            Some(details) => Ok(Some(details)),
-            None => {
-                let graph_response = Self::get_from_graph(author_id, post_id).await?;
-                if let Some((post_details, reply)) = graph_response {
-                    post_details.put_to_index(author_id, reply, false).await?;
-                    return Ok(Some(post_details));
-                }
-                Ok(None)
-            }
+        if let Some(details) = Self::get_from_index(author_id, post_id).await? {
+            return Ok(Some(details));
         }
+        let details = Self::get_from_graph(author_id, post_id)
+            .await?
+            .map(|(details, _)| details);
+        if details.is_some() {
+            tracing::warn!(
+                "Post {author_id}:{post_id} is missing from Redis, served from the graph"
+            );
+        }
+        Ok(details)
     }
 
     pub async fn get_from_index(
