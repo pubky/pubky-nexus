@@ -107,9 +107,12 @@ async fn test_reach_set_etag_and_not_modified() -> Result<()> {
         .await?;
     assert_eq!(repeated.status().as_u16(), 304);
 
-    // Another tag, or the tag of another set, is answered in full
-    let stale = get(Some("\"other\"".into()), 2).await?;
-    assert_eq!(stale.status().as_u16(), 200);
+    // Another tag, a quoted tag holding `*` and commas, or the tag of another set, is
+    // answered in full
+    for held in ["\"other\"", "\"other,*,tag\""] {
+        let stale = get(Some(held.into()), 2).await?;
+        assert_eq!(stale.status().as_u16(), 200, "{held}");
+    }
     let one_step = get(Some(etag.clone()), 1).await?;
     assert_eq!(one_step.status().as_u16(), 200);
     assert_ne!(one_step.headers()["etag"].to_str()?, etag);
