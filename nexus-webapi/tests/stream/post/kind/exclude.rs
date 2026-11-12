@@ -274,14 +274,42 @@ async fn test_exclude_kinds_rejects_invalid_values() -> Result<()> {
 
 /// Excluding every known kind is allowed, and `unknown` is not a name `/v0` can exclude, so
 /// the one seeded post of an unrecognised kind (Eixample's `7VNK1TGW5BKG1`, stored as
-/// `unknown`) is all that remains: a 200 with that post, not an error.
+/// `unknown`) is all that remains of Eixample's posts: a 200 with that post, not an error.
+///
+/// Over every author, what remains is what `/v0` shows as `unknown`: the seeded post and the
+/// posts other tests write concurrently in kinds `/v0` does not know (the event kinds), which
+/// it can neither name nor exclude. So the `all` stream is walked until the seeded post, and
+/// each page holds only `unknown` posts.
 #[tokio_shared_rt::test(shared)]
 async fn test_exclude_all_kinds_leaves_the_unknown_kind() -> Result<()> {
+    const ALL_KINDS: &str = "short,long,image,video,link,file,collection";
     let body = get_request(&format!(
-        "{ROOT_PATH}?source=all&exclude_kinds=short,long,image,video,link,file,collection&limit=10"
+        "{ROOT_PATH}?source=author&author_id={EIXAMPLE}&exclude_kinds={ALL_KINDS}&limit=10"
     ))
     .await?;
     assert_eq!(ids_in(&body), ["7VNK1TGW5BKG1"]);
     assert_eq!(body[0]["details"]["kind"], "unknown", "{body}");
+
+    const PAGE: usize = 50;
+    let mut found = false;
+    for page in 0..20 {
+        let body = get_request(&format!(
+            "{ROOT_PATH}?source=all&exclude_kinds={ALL_KINDS}&limit={PAGE}&skip={}",
+            page * PAGE
+        ))
+        .await?;
+        let posts = body.as_array().expect("Post stream should be an array");
+        for post in posts {
+            assert_eq!(post["details"]["kind"], "unknown", "{post}");
+        }
+        found = ids_in(&body).iter().any(|id| id == "7VNK1TGW5BKG1");
+        if found || posts.len() < PAGE {
+            break;
+        }
+    }
+    assert!(
+        found,
+        "the seeded unknown-kind post is missing from the `all` stream"
+    );
     Ok(())
 }

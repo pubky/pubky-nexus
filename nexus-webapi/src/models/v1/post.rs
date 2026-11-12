@@ -4,8 +4,9 @@ use std::sync::LazyLock;
 use nexus_common::models::post::{self, PostCounts, PostRelationships};
 use serde::de::{self, Deserializer, IgnoredAny};
 use serde::{Deserialize, Serialize, Serializer};
-use utoipa::openapi::path::{Parameter, ParameterIn};
+use utoipa::openapi::path::{Parameter, ParameterBuilder, ParameterIn};
 use utoipa::openapi::schema::{ObjectBuilder, Type};
+use utoipa::openapi::Required;
 use utoipa::openapi::{RefOr, Schema};
 use utoipa::{IntoParams, PartialSchema, ToSchema};
 
@@ -26,7 +27,8 @@ use crate::models::{PostStreamDetailed, PostViewDetailed};
 pub struct PostKind(pub post::PostKind);
 
 /// The `/v1` names a filter takes, as the parameter descriptions list them.
-pub const KIND_NAMES: &str = "note, article, image, video, link, file, collection, unknown";
+pub const KIND_NAMES: &str =
+    "note, article, image, video, link, file, collection, event, rsvp, rating, availability, unknown";
 
 impl PostKind {
     /// The `/v1` name of this kind.
@@ -149,6 +151,12 @@ impl From<post::PostDetails> for PostDetails {
 /// exist for it; and a tag's `tag_uri` says whether the viewer tagged it.
 #[derive(Serialize, ToSchema, Debug)]
 pub struct PostView {
+    /// The average of the ratings the post received, 1–10; 0 with none. `/v0`, frozen, does
+    /// not serve it. Plain fields, not the flattened summary: the view's schema stays an object
+    /// with its own properties.
+    pub rating_avg: f64,
+    /// How many ratings the post received.
+    pub rating_count: i64,
     pub details: PostDetails,
     pub counts: PostCounts,
     pub tags: Vec<TagDetails>,
@@ -164,6 +172,7 @@ impl From<PostViewDetailed> for PostView {
             attachments_metadata: _,
         } = detailed;
         let post::PostView {
+            rating,
             details,
             counts,
             tags,
@@ -171,6 +180,8 @@ impl From<PostViewDetailed> for PostView {
             bookmark: _,
         } = view;
         Self {
+            rating_avg: rating.rating_avg,
+            rating_count: rating.rating_count,
             details: details.into(),
             counts,
             tags: tags.into_iter().map(TagDetails::from).collect(),
@@ -198,6 +209,36 @@ impl From<NoAttachmentMetadata> for bool {
 impl IntoParams for NoAttachmentMetadata {
     fn into_params(_: impl Fn() -> Option<ParameterIn>) -> Vec<Parameter> {
         Vec::new()
+    }
+}
+
+/// `item_kind=` on the post streams, with `kind=collection`: the kind of post a listed
+/// Collection must hold, in the `/v1` names. `/v1` only: `/v0` is frozen and reads nothing
+/// under that name ([`NoItemKind`](crate::models::v0_frozen::NoItemKind)).
+#[derive(Deserialize, Debug, Clone, Copy, Default, PartialEq)]
+#[serde(transparent)]
+pub struct ItemKind(pub Option<PostKind>);
+
+/// The stored kind a listed post must have, for the graph query.
+impl From<ItemKind> for Option<post::PostKind> {
+    fn from(kind: ItemKind) -> Self {
+        kind.0.map(Into::into)
+    }
+}
+
+/// What `item_kind=` does, as the parameter description says it.
+pub const ITEM_KIND_DESCRIPTION: &str = "Requires `kind=collection`. Returns only Collection posts that list at least one live indexed post of this kind, e.g. `kind=collection&item_kind=event` for collections containing events (calendars). Each collection's upcoming events are served by `GET /v1/stream/events?collection=<collection URI>`. External (non-post) items do not count. Any other `kind` (or none) returns 400, and so does `unknown`.";
+
+/// The parameter, after the route's other query parameters, with the `/v1` kind names.
+impl IntoParams for ItemKind {
+    fn into_params(_: impl Fn() -> Option<ParameterIn>) -> Vec<Parameter> {
+        vec![ParameterBuilder::new()
+            .name("item_kind")
+            .parameter_in(ParameterIn::Query)
+            .description(Some(ITEM_KIND_DESCRIPTION))
+            .required(Required::False)
+            .schema(Some(PostKind::schema()))
+            .build()]
     }
 }
 
@@ -407,12 +448,20 @@ mod tests {
         v0.as_object_mut().unwrap().remove("attachments_metadata");
         v0.as_object_mut().unwrap().remove("bookmark");
         v0["details"]["kind"] = json!("note");
+        // The rating summary is `/v1`'s alone.
+        v0["rating_avg"] = json!(0.0);
+        v0["rating_count"] = json!(0);
         assert_eq!(v1, v0);
 
         let schema = serde_json::to_value(PostView::schema()).unwrap();
         let properties = schema["properties"].as_object().unwrap();
         assert!(!properties.contains_key("attachments_metadata"), "{schema}");
         assert!(!properties.contains_key("bookmark"), "{schema}");
+        // The rating summary is two of the view's own properties: an object schema, no `allOf`.
+        assert!(schema.get("allOf").is_none(), "{schema}");
+        for field in ["rating_avg", "rating_count"] {
+            assert!(properties.contains_key(field), "{field}: {schema}");
+        }
     }
 
     /// `NoAttachmentMetadata` reads whatever a client sends under the flag's name and never

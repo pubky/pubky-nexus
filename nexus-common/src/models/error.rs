@@ -19,6 +19,10 @@ pub enum ModelError {
     #[error("InvalidInput: {0}")]
     InvalidInput(String),
 
+    /// An indexed dependency must arrive before this projection can be applied.
+    #[error("MissingDependency: {0}")]
+    MissingDependency(String),
+
     #[error("Generic: {0}")]
     Generic(String),
 }

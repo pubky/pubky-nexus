@@ -732,6 +732,7 @@ pub fn resource_view(
             }) AS tags
         }
         RETURN r {.id, .uri, .scheme, .indexed_at} AS details, tags,
+          coalesce(r.rating_avg,0.0) AS rating_avg, coalesce(r.rating_count,0) AS rating_count,
           COUNT { (r)<-[:REPLIED]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS replies_count,
           COUNT { (r)<-[:EMBEDS]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS embeds_count,
           COUNT { (r)<-[:COLLECTED]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS collections_count
@@ -822,6 +823,7 @@ pub fn resource_stream(
         SortOrder::Ascending => (">=", "<="),
     };
 
+    // Every sorting orders the same rows: the tagged Resources, by label when given.
     let mut cypher = String::from("MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\n");
 
     if labels.is_some() {
@@ -830,6 +832,9 @@ pub fn resource_stream(
 
     let score_expr = match sorting {
         ResourceSorting::Timeline => "MAX(t.indexed_at)",
+        // Aggregated like the timeline score, so a resource matched through several
+        // tag edges is one row.
+        ResourceSorting::Rating => "max(coalesce(r.rating_avg,0.0))",
     };
     cypher.push_str(&format!("WITH r, {score_expr} AS score\n"));
 
@@ -1726,6 +1731,9 @@ pub fn post_stream(
         Some(KindFilter::Kind(_)) => {
             append_condition(&mut cypher, "p.kind = $kind", &mut where_clause_applied);
         }
+        Some(KindFilter::AnyOf(_)) => {
+            append_condition(&mut cypher, "p.kind IN $kinds", &mut where_clause_applied);
+        }
         // The IS NULL guard is load-bearing: with Cypher's three-valued logic,
         // `NOT p.kind IN [...]` evaluates to NULL (row dropped) for legacy
         // posts whose kind property was never set.
@@ -1738,6 +1746,15 @@ pub fn post_stream(
         }
         Some(KindFilter::Locked) => {
             append_condition(&mut cypher, "p.lock IS NOT NULL", &mut where_clause_applied);
+        }
+        // The kind index selects collections; each one is then checked by
+        // expanding its own COLLECTED edges, never by scanning items.
+        Some(KindFilter::CollectionsWith(_)) => {
+            append_condition(
+                &mut cypher,
+                "p.kind = 'collection' AND EXISTS { (p)-[:COLLECTED]->(item:Post) WHERE item.kind = $item_kind AND NOT coalesce(item.deleted, false) }",
+                &mut where_clause_applied,
+            );
         }
         None => {}
     }
@@ -1804,7 +1821,7 @@ pub fn post_stream(
         (Some(rule), StreamSorting::Timeline) => cypher.push_str(&format!(
             "WITH DISTINCT p\nORDER BY p.indexed_at {order_dir}, p.id {order_dir}\nMATCH (p)<-[:AUTHORED]-(author:User)\nWHERE {rule}\n"
         )),
-        (Some(rule), StreamSorting::TotalEngagement) => cypher.push_str(&format!(
+        (Some(rule), StreamSorting::TotalEngagement | StreamSorting::Rating) => cypher.push_str(&format!(
             "WITH DISTINCT p\nMATCH (p)<-[:AUTHORED]-(author:User)\nWHERE {rule}\n"
         )),
         (None, _) => cypher.push_str("WITH DISTINCT p, author\n"),
@@ -1816,6 +1833,28 @@ pub fn post_stream(
     // within a response (pagination across ties is still best-effort: the cursor
     // carries only the score, not the id).
     let (score_expr, order_clause) = match sorting {
+        StreamSorting::Rating => {
+            cypher.push_str("WITH p, author WHERE NOT coalesce(p.deleted,false) AND NOT coalesce(author.deleted,false)\nWITH p, author, coalesce(p.rating_avg,0.0) AS rating_score\n");
+            where_clause_applied = false;
+            if pagination.start.is_some() {
+                append_condition(
+                    &mut cypher,
+                    &format!("rating_score {start_op} $start"),
+                    &mut where_clause_applied,
+                );
+            }
+            if pagination.end.is_some() {
+                append_condition(
+                    &mut cypher,
+                    &format!("rating_score {end_op} $end"),
+                    &mut where_clause_applied,
+                );
+            }
+            (
+                "rating_score",
+                format!("ORDER BY rating_score {order_dir}, p.id {order_dir}"),
+            )
+        }
         StreamSorting::Timeline => (
             "p.indexed_at",
             format!("ORDER BY p.indexed_at {order_dir}, p.id {order_dir}"),
@@ -1950,12 +1989,22 @@ fn build_query_with_params(
         Some(KindFilter::Kind(post_kind)) => {
             query = query.param("kind", post_kind.to_string());
         }
+        Some(KindFilter::AnyOf(kinds)) => {
+            // Bare lowercase names, matching how `p.kind` is stored (see put.rs).
+            query = query.param(
+                "kinds",
+                kinds.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            );
+        }
         Some(KindFilter::Exclude(kinds)) => {
             // Bare lowercase names, matching how `p.kind` is stored (see put.rs).
             query = query.param(
                 "exclude_kinds",
                 kinds.iter().map(ToString::to_string).collect::<Vec<_>>(),
             );
+        }
+        Some(KindFilter::CollectionsWith(item_kind)) => {
+            query = query.param("item_kind", item_kind.to_string());
         }
         Some(KindFilter::Locked) | None => {}
     }
@@ -2231,6 +2280,21 @@ mod tests {
             None,
         );
         let clauses = ["p.lock IS NOT NULL", "WITH DISTINCT p, author", "ORDER BY"];
+        assert_in_order(&cypher, &clauses);
+    }
+
+    /// `item_kind` keeps the indexed kind predicate and checks items per collection.
+    #[test]
+    fn post_stream_collections_with_item_kind() {
+        let kind = Some(KindFilter::CollectionsWith(
+            crate::models::post::PostKind::Event,
+        ));
+        let cypher = all_stream(StreamSorting::Timeline, &None, kind, None);
+        let clauses = [
+            "MATCH (p:Post)<-[:AUTHORED]-(author:User)",
+            "p.kind = 'collection' AND EXISTS { (p)-[:COLLECTED]->(item:Post) WHERE item.kind = 'event' AND NOT coalesce(item.deleted, false) }",
+            "NOT ( EXISTS { (p)-[:REPLIED]->() } OR coalesce(p.resource_reply, false) )",
+        ];
         assert_in_order(&cypher, &clauses);
     }
 
@@ -2573,6 +2637,25 @@ mod tests {
         assert!(asc.contains("AS score\nWHERE score >= 200"));
         assert!(asc.contains("AND score <= 100\n"));
         assert!(asc.contains("ORDER BY score ASC, r.id ASC\nSKIP 5\nLIMIT 7"));
+    }
+
+    /// A sort orders the rows, it does not choose them: the rating sort lists the tagged
+    /// Resources the timeline lists, never every Resource node (a location, an availability
+    /// target or an external reply that nobody tagged).
+    #[test]
+    fn resource_stream_rating_lists_the_same_resources_as_the_timeline() {
+        let cypher = build_resource_stream(
+            None,
+            ResourceSorting::Rating,
+            SortOrder::Descending,
+            Pagination::default(),
+        );
+        assert!(
+            cypher.starts_with("MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\n"),
+            "{cypher}"
+        );
+        assert!(cypher.contains("AS score"));
+        assert!(cypher.contains("ORDER BY score DESC, r.id DESC"));
     }
 
     #[test]

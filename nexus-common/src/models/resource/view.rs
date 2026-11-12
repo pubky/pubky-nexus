@@ -11,6 +11,10 @@ use crate::models::tag::TagDetails;
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct ResourceView {
+    /// The resource's rating summary. Not serialized: `/v0` is frozen and serves this view as it
+    /// is, so the summary reaches a client only through the `/v1` views, which copy it.
+    #[serde(skip)]
+    pub rating: crate::models::social_event::RatingSummary,
     pub details: ResourceDetails,
     pub tags: Vec<TagDetails>,
     pub taggers_count: usize,
@@ -60,6 +64,10 @@ impl ResourceView {
         let tags = tag_details_from_row(row)?;
         let taggers_count = tags.iter().map(|tag| tag.taggers_count).sum();
         Ok(Some(Self {
+            rating: crate::models::social_event::RatingSummary {
+                rating_avg: row.get("rating_avg").unwrap_or(0.0),
+                rating_count: row.get("rating_count").unwrap_or(0),
+            },
             details,
             tags,
             taggers_count,

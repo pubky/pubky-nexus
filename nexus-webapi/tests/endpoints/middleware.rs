@@ -275,3 +275,60 @@ async fn test_request_timeout_response_has_cors_header() -> Result<()> {
 
     Ok(())
 }
+
+// =============================================
+// Rate limit buckets
+// =============================================
+
+/// The social event and availability routes run graph queries over up to 100 authors or
+/// locations, so they share the expensive bucket: with a burst of one there, a client's second
+/// request to any of them is refused, however generous the default bucket is. Each request is
+/// malformed, so its handler answers 400 without reading the graph.
+#[tokio::test]
+async fn test_social_event_routes_use_the_expensive_bucket() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let state = AppState::new(
+        temp_dir.path().to_path_buf(),
+        default_ingestor_tests(),
+        MediaPermits::new(1),
+        default_subprocess_tests(),
+    );
+    let rate_limit_config = RateLimitConfig {
+        enabled: true,
+        trust_proxy_headers: true,
+        default_bucket: nexus_common::RateLimitBucketConfig {
+            rate: 6000,
+            burst: 100,
+        },
+        expensive_bucket: nexus_common::RateLimitBucketConfig { rate: 20, burst: 1 },
+    };
+    let (_tx, rx) = watch::channel(false);
+    let app = build_app(
+        app_routes(state.clone(), &rate_limit_config, rx),
+        state,
+        30,
+        1024,
+    );
+
+    let paths = [
+        "/v1/stream/events?limit=0",
+        "/v1/stream/availability?limit=0",
+        "/v1/availability/not-a-key",
+        "/v1/event/not-a-key/0033SSE3B1FQ0",
+        "/v1/event/not-a-key/0033SSE3B1FQ0/attendees",
+    ];
+    for (n, path) in paths.iter().enumerate() {
+        let client = format!("10.0.0.{}", n + 1);
+        let request = || {
+            Request::builder()
+                .uri(*path)
+                .header("x-forwarded-for", client.as_str())
+                .body(Body::empty())
+        };
+        let first = app.clone().oneshot(request()?).await?;
+        assert_ne!(first.status(), StatusCode::TOO_MANY_REQUESTS, "{path}");
+        let second = app.clone().oneshot(request()?).await?;
+        assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS, "{path}");
+    }
+    Ok(())
+}

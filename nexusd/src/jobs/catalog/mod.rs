@@ -2,6 +2,7 @@
 
 mod hot_tags;
 mod resource_changes_seed;
+mod social_events;
 use resource_changes_seed::ResourceChangesSeedJob;
 mod influencers;
 mod most_followed;
@@ -35,6 +36,8 @@ impl JobRegistry {
             Arc::new(MostFollowedCacheJob),
             Arc::new(TrustRecomputeJob::build(trust_rank, LOCK_TTL_SECS)),
             Arc::new(ResourceChangesSeedJob),
+            Arc::new(social_events::EventOccurrencesJob),
+            Arc::new(social_events::OrphanRsvpsJob),
         ])
     }
 }
@@ -46,12 +49,13 @@ mod tests {
     use nexus_common::TrustRankConfig;
 
     #[test]
-    fn catalog_names_are_the_eleven_jobs() {
+    fn catalog_names_are_the_thirteen_jobs() {
         let mut names = JobRegistry::catalog(&TrustRankConfig::default()).job_names();
         names.sort_unstable();
         assert_eq!(
             names,
             [
+                "event-occurrences",
                 "hot-tags-cache-all-time",
                 "hot-tags-cache-this-month",
                 "hot-tags-cache-this-week",
@@ -61,6 +65,7 @@ mod tests {
                 "influencers-cache-this-week",
                 "influencers-cache-today",
                 "most-followed-cache",
+                "orphan-rsvps",
                 "resource-changes-seed",
                 "trust-recompute",
             ]

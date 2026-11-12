@@ -1,3 +1,4 @@
+use crate::models::v0_frozen::read_as_unknown;
 use crate::models::{
     BoundedLimit, BoundedPagination, BoundedSkip, GlobalPostId, GlobalPostIds, PostId,
     PostStreamDetailed, PubkyId, TagLabels,
@@ -21,6 +22,22 @@ use nexus_common::{
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::{OpenApi, ToSchema};
+
+/// What `/v0` answers `sorting=rating` with: the error it gave before the sorting existed, the
+/// query extractor's rejection when the sorting had no such variant, word for word (axum's
+/// `FailedToDeserializeQueryString` with the serde path, as `routes::Query` passes it on).
+pub(crate) const V0_NO_RATING_SORTING: &str = "Failed to deserialize query string: sorting: unknown variant `rating`, expected `timeline` or `total_engagement`";
+
+/// The filter for `kind=`, in the stored names. `/v0` shows an event post's kind as `unknown`,
+/// so its `unknown` takes the event kinds too ([`read_as_unknown`]), as it matched those posts
+/// when they were stored as `unknown`; every other kind, and every `/v1` kind, is itself.
+fn single_kind_filter<V: ApiVersion>(kind: nexus_common::models::post::PostKind) -> KindFilter {
+    if !V::SOCIAL_EVENTS && kind == nexus_common::models::post::PostKind::Unknown {
+        KindFilter::AnyOf(read_as_unknown())
+    } else {
+        KindFilter::Kind(kind)
+    }
+}
 
 /// Discriminant for the source of posts in a stream.
 /// Mirrors the variant structure of StreamSource but does not carry ID payloads,
@@ -209,6 +226,10 @@ pub struct PostStreamQuery<V: ApiVersion> {
     pub depth: Option<u8>,
     pub domain_tags: Option<V::Tags>,
     pub kind: Option<V::PostKind>,
+    /// With `kind=collection`, the kind a listed post must have, on `/v1`; nothing on `/v0`,
+    /// which has no `item_kind`.
+    #[serde(default)]
+    pub item_kind: V::ItemKind,
     pub exclude_kinds: Option<V::PostKinds>,
     #[serde(default)]
     pub locked: bool,
@@ -244,11 +265,20 @@ impl<V: ApiVersion> PostStreamQuery<V> {
         if self.locked {
             return Some(KindFilter::Locked);
         }
+        if let Some(item_kind) = self.item_kind() {
+            return Some(KindFilter::CollectionsWith(item_kind));
+        }
         match (&self.kind, &self.exclude_kinds) {
-            (Some(kind), _) => Some(KindFilter::Kind(kind.clone().into())),
+            (Some(kind), _) => Some(single_kind_filter::<V>(kind.clone().into())),
             (None, Some(exclude)) => Some(KindFilter::Exclude(exclude.clone().into())),
             (None, None) => None,
         }
+    }
+
+    /// The stored kind `item_kind=` names; always `None` on `/v0`, which reads no such
+    /// parameter.
+    fn item_kind(&self) -> Option<nexus_common::models::post::PostKind> {
+        self.item_kind.clone().into()
     }
 
     pub fn extract_stream_params(&self) -> AppResult<(StreamSource, StreamSorting, SortOrder)> {
@@ -262,6 +292,10 @@ impl<V: ApiVersion> PostStreamQuery<V> {
     /// Must run before `initialize_defaults()` — otherwise `sorting` would
     /// always read as `Some` and reject every collection request.
     pub fn validate_source_compat(&self) -> AppResult<()> {
+        // `/v0` is frozen: `rating` is no sorting it has, refused as before Nexus rated posts.
+        if !V::SOCIAL_EVENTS && self.sorting == Some(StreamSorting::Rating) {
+            return Err(Error::invalid_input(V0_NO_RATING_SORTING));
+        }
         if self.kind.is_some() && self.exclude_kinds.is_some() {
             return Err(Error::invalid_input(
                 "`kind` and `exclude_kinds` are mutually exclusive",
@@ -270,6 +304,19 @@ impl<V: ApiVersion> PostStreamQuery<V> {
         if self.locked && (self.kind.is_some() || self.exclude_kinds.is_some()) {
             return Err(Error::invalid_input(
                 "`locked` cannot be combined with `kind` or `exclude_kinds`",
+            ));
+        }
+        if self.item_kind().is_some()
+            && self.kind.clone().map(Into::into)
+                != Some(nexus_common::models::post::PostKind::Collection)
+        {
+            return Err(Error::invalid_input(
+                "`item_kind` requires `kind=collection`",
+            ));
+        }
+        if self.item_kind() == Some(nexus_common::models::post::PostKind::Unknown) {
+            return Err(Error::invalid_input(
+                "`item_kind` must be a known post kind",
             ));
         }
         let source = self.source();
@@ -283,6 +330,17 @@ impl<V: ApiVersion> PostStreamQuery<V> {
         {
             return Err(Error::invalid_input(
                 "`kind`, `exclude_kinds` and `locked` are not supported with `source=post_replies` or `source=author_replies`",
+            ));
+        }
+        // Rating order is computed on the graph too, so it would hit the same
+        // parents-only fallback.
+        if matches!(
+            source,
+            StreamSourceKind::PostReplies | StreamSourceKind::AuthorReplies
+        ) && self.sorting == Some(StreamSorting::Rating)
+        {
+            return Err(Error::invalid_input(
+                "`sorting=rating` is not supported with `source=post_replies` or `source=author_replies`",
             ));
         }
         // Every result is a Collection, so a kind filter can only no-op or
@@ -360,7 +418,7 @@ versioned_handlers! {
             ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
             ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
             ("post_id" = Option<PostId>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
-            ("sorting" = Option<StreamSorting>, Query, description = "Sort method (`timeline` or `total_engagement`). Ties are broken by post id; pagination across equal scores is best-effort."),
+            ("sorting" = Option<StreamSorting>, Query, description = concatcp!(shapes::POST_SORTING, " Ties are broken by post id; pagination across equal scores is best-effort.")),
             ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
             ("tags" = Option<shapes::Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
             ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),
@@ -373,6 +431,7 @@ versioned_handlers! {
             ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
             ("end" = Option<f64>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
             shapes::IncludeAttachmentMetadata,
+            shapes::ItemKind,
         ),
         description = concatcp!(r#"Stream Posts: Retrieve a stream of posts.
 
@@ -440,7 +499,7 @@ versioned_handlers! {
         ("observer_id" = Option<PubkyId>, Query, description = "Observer Pubky ID. The central point for streams with Reach"),
         ("author_id" = Option<PubkyId>, Query, description = "Filter posts by an specific author User ID"),
         ("post_id" = Option<PostId>, Query, description = "This parameter is needed when we want to retrieve the replies stream for a post"),
-        ("sorting" = Option<StreamSorting>, Query, description = "Sort method (`timeline` or `total_engagement`). Ties are broken by post id; pagination across equal scores is best-effort."),
+        ("sorting" = Option<StreamSorting>, Query, description = concatcp!(shapes::POST_SORTING, " Ties are broken by post id; pagination across equal scores is best-effort.")),
         ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
         ("tags" = Option<shapes::Tags>, Query, description = "Filter by a list of comma-separated tags (max 5). E.g.,`&tags=dev,free,opensource`. Only posts matching at least one of the tags will be returned."),
         ("depth" = Option<u8>, Query, description = "WoT traversal depth. For `source=wot`: 1-3, default 2. For `source=wot_domain`: 0-3, default 2, where `depth=0` is the observer-only (\"Me\") trust set (posts by authors the observer tagged directly, no follow traversal). `depth=0` is invalid for `source=wot`. Ignored for other sources."),
@@ -452,6 +511,7 @@ versioned_handlers! {
         ("limit" = Option<BoundedLimit<10, 50>>, Query, description = "Retrieve N posts (1–50, default 10)"),
         ("start" = Option<f64>, Query, description = "The start of the stream timeframe or score. Posts with a timestamp/score greater than this value will be excluded from the results"),
         ("end" = Option<f64>, Query, description = "The end of the stream timeframe or score. Posts with a timestamp/score less than this value will be excluded from the results"),
+        shapes::ItemKind,
     ),
     description = concatcp!(r#"Stream Post Keys: Retrieve a stream of post keys
 
@@ -561,7 +621,8 @@ mod tests {
         parse::<V>(query).expect(query).kind_filter()
     }
 
-    /// `/v0` reads the stored names, and any other name in `kind=` as `unknown`.
+    /// `/v0` reads the stored names, and any other name in `kind=` as `unknown`, which takes
+    /// every post it shows as `unknown`: the stored `unknown` and the event kinds.
     #[test]
     fn v0_kind_is_lenient_and_exclude_kinds_strict() {
         assert!(matches!(
@@ -570,7 +631,7 @@ mod tests {
         ));
         assert!(matches!(
             kind_filter::<V0>("kind=note"),
-            Some(KindFilter::Kind(PostKind::Unknown))
+            Some(KindFilter::AnyOf(kinds)) if kinds == read_as_unknown()
         ));
         assert!(matches!(
             kind_filter::<V0>("exclude_kinds=short,long"),
@@ -578,6 +639,110 @@ mod tests {
         ));
         assert!(parse::<V0>("exclude_kinds=note").is_err());
         assert!(parse::<V0>("exclude_kinds=unknown").is_err());
+    }
+
+    /// `/v0` is frozen: an event kind's name is a name it does not know, read as `unknown` in
+    /// `kind=` and refused in `exclude_kinds=`; `/v1` reads them all.
+    #[test]
+    fn event_kinds_are_v1_names_only() {
+        for name in ["event", "rsvp", "rating", "availability"] {
+            assert!(
+                matches!(
+                    kind_filter::<V0>(&format!("kind={name}")),
+                    Some(KindFilter::AnyOf(kinds)) if kinds == read_as_unknown()
+                ),
+                "{name}"
+            );
+            assert!(
+                parse::<V0>(&format!("exclude_kinds={name}")).is_err(),
+                "{name}"
+            );
+            let stored: PostKind = serde_json::from_value(name.into()).unwrap();
+            assert!(
+                matches!(
+                    kind_filter::<V1>(&format!("kind={name}")),
+                    Some(KindFilter::Kind(kind)) if kind == stored
+                ),
+                "{name}"
+            );
+            assert!(
+                matches!(
+                    kind_filter::<V1>(&format!("exclude_kinds={name}")),
+                    Some(KindFilter::Exclude(kinds)) if kinds == [stored]
+                ),
+                "{name}"
+            );
+        }
+    }
+
+    /// `/v1` reads `item_kind` in its kind names, with `kind=collection` only and never
+    /// `unknown`; `/v0` is frozen and reads nothing under that name, whatever the value.
+    #[test]
+    fn item_kind_is_v1_only() {
+        assert!(matches!(
+            parse::<V1>("kind=collection&item_kind=event")
+                .unwrap()
+                .kind_filter(),
+            Some(KindFilter::CollectionsWith(PostKind::Event))
+        ));
+        assert!(matches!(
+            parse::<V1>("kind=collection&item_kind=note")
+                .unwrap()
+                .kind_filter(),
+            Some(KindFilter::CollectionsWith(PostKind::Short))
+        ));
+        assert!(parse::<V1>("kind=collection&item_kind=short").is_err());
+        for query in [
+            "item_kind=event",
+            "kind=note&item_kind=event",
+            "kind=collection&item_kind=unknown",
+        ] {
+            parse::<V1>(query)
+                .unwrap()
+                .validate_source_compat()
+                .expect_err(query);
+        }
+        for query in [
+            "kind=collection&item_kind=event",
+            "item_kind=event",
+            "item_kind=not-a-kind",
+        ] {
+            let v0 = parse::<V0>(query).expect(query);
+            v0.validate_source_compat().expect(query);
+            assert!(
+                !matches!(v0.kind_filter(), Some(KindFilter::CollectionsWith(_))),
+                "{query}"
+            );
+        }
+        assert!(matches!(
+            kind_filter::<V0>("kind=collection&item_kind=event"),
+            Some(KindFilter::Kind(PostKind::Collection))
+        ));
+    }
+
+    /// `/v0` refuses `sorting=rating` with the error it gave before the sorting existed; `/v1`
+    /// takes it.
+    #[test]
+    fn rating_sorting_is_v1_only() {
+        let error = parse::<V0>("sorting=rating")
+            .expect("the shared sorting parses")
+            .validate_source_compat()
+            .expect_err("v0 refuses rating")
+            .to_string();
+        assert_eq!(
+            error,
+            "Invalid input: Failed to deserialize query string: sorting: unknown variant `rating`, expected `timeline` or `total_engagement`"
+        );
+        for sorting in ["timeline", "total_engagement"] {
+            parse::<V0>(&format!("sorting={sorting}"))
+                .unwrap()
+                .validate_source_compat()
+                .expect(sorting);
+        }
+        parse::<V1>("sorting=rating")
+            .unwrap()
+            .validate_source_compat()
+            .expect("v1 takes rating");
     }
 
     /// `/v1` reads the `social/v1` names, `unknown` included, into the stored kinds.

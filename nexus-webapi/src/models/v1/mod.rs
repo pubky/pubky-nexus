@@ -20,15 +20,20 @@ mod notification;
 mod post;
 mod post_kinds;
 mod resource;
+mod social_event;
 mod stream;
 mod tag;
 mod user;
 
 pub use bootstrap::Bootstrap;
 pub use notification::{Notification, NotificationBody};
-pub use post::{NoAttachmentMetadata, PostDetails, PostKind, PostStream, PostView, KIND_NAMES};
+pub use post::{
+    ItemKind, NoAttachmentMetadata, PostDetails, PostKind, PostStream, PostView,
+    ITEM_KIND_DESCRIPTION, KIND_NAMES,
+};
 pub use post_kinds::{PostKinds, V1KindToken};
 pub use resource::{ResourceTagsResponse, ResourceView};
+pub use social_event::EventView;
 pub use stream::{PostStreamByIdsRequest, StreamSourceKind, SOURCE_NAMES};
 pub use tag::{TagDetails, TagLabel, TaggersInfoResponse, Tags};
 pub use user::{UserCounts, UserStream, UserView};
