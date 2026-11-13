@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::watch::Receiver;
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// Counter for cursor lines the Primary HS sent that could not be applied.
 ///
@@ -192,10 +192,8 @@ impl TEventProcessor for HsEventProcessor {
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {
-        let event_lines = self
-            .poll_events()
-            .await
-            .inspect_err(|e| error!(error = ?e, "Error polling events"))?;
+        // A failed poll is logged once, by `run`, as the run's failure.
+        let event_lines = self.poll_events().await?;
 
         if event_lines.is_empty() {
             debug!("No new events");
@@ -241,15 +239,25 @@ impl HsEventProcessor {
     /// Polls new events from the homeserver, from the current cursor on.
     ///
     /// Returns the event lines and the cursor line closing them, or no lines
-    /// when there is nothing new.
+    /// when there is nothing new. A shutdown stops the poll, which may be waiting out a
+    /// rate limit, with no lines.
     #[tracing::instrument(name = "events.poll", skip_all)]
     async fn poll_events(&self) -> Result<Vec<String>, EventProcessorError> {
         debug!(cursor = %self.homeserver.cursor, "Polling events");
 
-        Ok(self
+        let mut shutdown_rx = self.shutdown_rx.clone();
+        let poll = self
             .client
-            .poll_events(&self.homeserver.id, self.homeserver.cursor, self.limit)
-            .await?)
+            .poll_events(&self.homeserver.id, self.homeserver.cursor, self.limit);
+        tokio::select! {
+            biased;
+            // A closed channel can no longer signal a shutdown: the poll goes on.
+            Ok(_) = shutdown_rx.wait_for(|shutdown| *shutdown) => {
+                debug!("Shutdown received; stopping the events poll");
+                Ok(Vec::new())
+            }
+            lines = poll => Ok(lines?),
+        }
     }
 
     /// Processes a batch of event lines retrieved from the homeserver.
