@@ -965,6 +965,42 @@ async fn test_shutdown_stops_the_poll() -> Result<()> {
     Ok(())
 }
 
+/// A shutdown stops a poll already in flight, such as one waiting out a rate limit: the
+/// run ends promptly, without failing, and the stored cursor stays where it was.
+#[tokio_shared_rt::test(shared)]
+async fn test_shutdown_stops_a_waiting_poll() -> Result<()> {
+    setup().await?;
+
+    let client = Arc::new(MockHomeserverClient::default().with_hanging_poll());
+    let homeserver = Homeserver {
+        id: random_pubky_id(),
+        cursor: 42,
+    };
+    homeserver.put_to_index().await?;
+    let hs_id = homeserver.id.to_string();
+    let processor = processor_with_client(
+        homeserver,
+        create_mock_handler(Ok(()), None),
+        client.clone(),
+    );
+    let mut processor = Arc::into_inner(processor).expect("only reference");
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    processor.shutdown_rx = shutdown_rx;
+
+    let run = tokio::spawn(Arc::new(processor).run());
+    client.poll_started().await;
+    shutdown_tx.send(true)?;
+
+    tokio::time::timeout(std::time::Duration::from_secs(5), run)
+        .await
+        .expect("the run ends once shutdown is sent")??;
+
+    assert_eq!(client.polls().await, vec![(hs_id.clone(), 42, 100)]);
+    assert_eq!(stored_cursor(&hs_id).await?, 42);
+
+    Ok(())
+}
+
 /// A failed poll fails the run with the poll's error and leaves the stored cursor where
 /// the run started.
 #[tokio_shared_rt::test(shared)]

@@ -164,7 +164,11 @@ impl PubkyHomeserverClient {
             .subscribe()
             .await
             .map_err(HsErrorKind::from_sdk)
-            .inspect_err(|e| error!(error = %e, "Failed to subscribe to event stream"))?;
+            .inspect_err(|e| match e {
+                // `retry_rate_limited` logs it, at WARN: the homeserver asks us to slow down.
+                HsErrorKind::RateLimited(_) => {}
+                _ => error!(error = %e, "Failed to subscribe to event stream"),
+            })?;
 
         read_user_events(&mut stream, limit, hs, user).await
     }

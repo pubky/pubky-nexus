@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 
 use nexus_common::db::PubkyClientResult;
 use nexus_common::models::user::{PkdnsHomeserverResolver, PkdnsRecord};
@@ -19,6 +19,12 @@ pub struct MockHomeserverClient {
 
     /// The failure every poll returns instead, when set.
     poll_error: Option<HsErrorKind>,
+
+    /// Whether every poll stays pending, as one waiting out a rate limit does.
+    poll_hangs: bool,
+
+    /// Notified when a poll starts.
+    poll_started: Notify,
 
     /// Homeserver IDs, cursors, and limits polled, in order.
     polls: Mutex<Vec<(String, u64, u16)>>,
@@ -47,6 +53,17 @@ impl MockHomeserverClient {
     pub fn with_lines(mut self, lines: Vec<String>) -> Self {
         *self.lines.get_mut() = lines;
         self
+    }
+
+    /// Makes every poll stay pending, once it has been recorded and notified.
+    pub fn with_hanging_poll(mut self) -> Self {
+        self.poll_hangs = true;
+        self
+    }
+
+    /// Waits until a poll has started.
+    pub async fn poll_started(&self) {
+        self.poll_started.notified().await;
     }
 
     pub fn with_poll_error(mut self, kind: HsErrorKind) -> Self {
@@ -136,6 +153,10 @@ impl HomeserverClient for MockHomeserverClient {
             .lock()
             .await
             .push((hs.to_string(), cursor, limit));
+        self.poll_started.notify_one();
+        if self.poll_hangs {
+            std::future::pending::<()>().await;
+        }
         if let Some(kind) = &self.poll_error {
             return Err(HsError::new(hs, HsOp::PollEvents, kind.clone()));
         }
