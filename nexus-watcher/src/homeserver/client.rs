@@ -19,16 +19,8 @@ use super::{HsError, HsErrorKind, HsOp};
 use crate::events::EventType;
 use crate::METER_NAME;
 
-/// Waits between the retries of a rate-limited `/events-stream` request.
-const USER_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
-
-/// Waits between the retries of a rate-limited `/events/` poll, used when the homeserver
-/// sends no usable `Retry-After`. One retry per entry.
-const POLL_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
-
-/// The longest a rate-limited `/events/` poll waits before retrying, whatever `Retry-After`
-/// asks for: the poll holds the primary homeserver's loop, and a shutdown, while it waits.
-const POLL_EVENTS_429_MAX_WAIT: Duration = Duration::from_secs(10);
+/// Waits between the retries of a rate-limited `/events/` poll or `/events-stream` request.
+const RATE_LIMITED_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
 
 /// Counter for events permanently rejected for exceeding a fetch size limit.
 static REJECTED: LazyLock<Counter<u64>> = LazyLock::new(|| {
@@ -164,11 +156,7 @@ impl PubkyHomeserverClient {
             .subscribe()
             .await
             .map_err(HsErrorKind::from_sdk)
-            .inspect_err(|e| match e {
-                // `retry_rate_limited` logs it, at WARN: the homeserver asks us to slow down.
-                HsErrorKind::RateLimited(_) => {}
-                _ => error!(error = %e, "Failed to subscribe to event stream"),
-            })?;
+            .inspect_err(|e| error!(error = %e, "Failed to subscribe to event stream"))?;
 
         read_user_events(&mut stream, limit, hs, user).await
     }
@@ -229,8 +217,7 @@ impl HomeserverClient for PubkyHomeserverClient {
         limit: u16,
     ) -> Result<Vec<String>, HsError> {
         let url = events_url(hs, cursor, limit);
-        let send = || self.pubky.client().request(Method::GET, &url).send();
-        poll_events_with(hs, send).await
+        poll_events_with(hs, || self.pubky.client().request(Method::GET, &url).send()).await
     }
 
     async fn user_events(
@@ -252,48 +239,22 @@ impl HomeserverClient for PubkyHomeserverClient {
     }
 }
 
-/// Reads the lines of the `/events/` poll `send` makes, labelling a failure as `hs`'s poll.
-///
-/// A 429 is retried, once per [`POLL_EVENTS_429_BACKOFF_SECS`] entry, after the wait its
-/// `Retry-After` asks for (that entry's when it has none), at most
-/// [`POLL_EVENTS_429_MAX_WAIT`]. Returns the last 429 once the retries run out.
+/// Reads the lines of the `/events/` poll `send` makes, retrying while rate limited, and
+/// labels a failure as `hs`'s poll.
 async fn poll_events_with<F, Fut>(hs: &PubkyId, mut send: F) -> Result<Vec<String>, HsError>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<reqwest::Response, reqwest::Error>>,
 {
-    let error = |kind| HsError::new(hs, HsOp::PollEvents, kind);
-    let mut backoffs = POLL_EVENTS_429_BACKOFF_SECS.into_iter();
-    loop {
-        let response = send()
-            .await
-            .map_err(|e| error(HsErrorKind::from_reqwest(&e)))?;
-        let retry_after = retry_after(&response);
-        let kind = match event_lines_from_response(response).await {
-            Ok(lines) => return Ok(lines),
-            Err(kind) => kind,
-        };
-        let (HsErrorKind::RateLimited(_), Some(backoff_secs)) = (&kind, backoffs.next()) else {
-            return Err(error(kind));
-        };
-
-        let wait = retry_after
-            .unwrap_or(Duration::from_secs(backoff_secs))
-            .min(POLL_EVENTS_429_MAX_WAIT);
-        warn!(
-            hs_id = %hs, retry_after_secs = wait.as_secs(),
-            "Homeserver rate-limited the events poll; retrying",
-        );
-        tokio::time::sleep(wait).await;
-    }
-}
-
-/// The wait a response's `Retry-After` header asks for, when it is a number of seconds.
-/// The HTTP-date form is not read: the homeserver's rate limiter sends seconds.
-fn retry_after(response: &reqwest::Response) -> Option<Duration> {
-    let value = response.headers().get(reqwest::header::RETRY_AFTER)?;
-    let secs = value.to_str().ok()?.trim().parse::<u64>().ok()?;
-    Some(Duration::from_secs(secs))
+    retry_rate_limited("events poll", hs.as_ref(), || {
+        let sent = send();
+        async move {
+            let response = sent.await.map_err(|e| HsErrorKind::from_reqwest(&e))?;
+            event_lines_from_response(response).await
+        }
+    })
+    .await
+    .map_err(|kind| HsError::new(hs, HsOp::PollEvents, kind))
 }
 
 /// Fetches a user's events with `fetch`, retrying while rate limited, and labels a failure
@@ -307,7 +268,7 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<Vec<HsStreamEvent>, HsErrorKind>>,
 {
-    retry_rate_limited(user, fetch)
+    retry_rate_limited("user event fetch", &user.z32(), fetch)
         .await
         .map_err(|kind| HsError::new(hs, HsOp::UserEvents, kind))
 }
@@ -350,13 +311,18 @@ fn owner_error(resource: &PubkyResource, op: HsOp, kind: HsErrorKind) -> HsError
 }
 
 /// Calls `fetch` and, while it is rate limited, again after each of
-/// [`USER_EVENTS_429_BACKOFF_SECS`]. Returns the last 429 once they run out.
-async fn retry_rate_limited<T, F, Fut>(user: &PublicKey, mut fetch: F) -> Result<T, HsErrorKind>
+/// [`RATE_LIMITED_BACKOFF_SECS`]. Returns the last 429 once they run out. `request` and
+/// `id` (the user or homeserver asked about) label the retry's log line.
+async fn retry_rate_limited<T, F, Fut>(
+    request: &str,
+    id: &str,
+    mut fetch: F,
+) -> Result<T, HsErrorKind>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, HsErrorKind>>,
 {
-    let mut backoffs = USER_EVENTS_429_BACKOFF_SECS.into_iter();
+    let mut backoffs = RATE_LIMITED_BACKOFF_SECS.into_iter();
     loop {
         let kind = match fetch().await {
             Ok(value) => return Ok(value),
@@ -367,8 +333,10 @@ where
         };
 
         warn!(
-            user_id = %user.z32(), retry_after_secs = backoff_secs,
-            "Homeserver rate-limited user event fetch; retrying",
+            id,
+            request,
+            retry_after_secs = backoff_secs,
+            "Homeserver rate-limited the request; retrying",
         );
         tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
     }
@@ -491,104 +459,42 @@ mod tests {
         assert!(matches!(error.kind, HsErrorKind::Transport(_)), "{error:?}");
     }
 
-    /// A 429 answer to the `/events/` poll, with `retry_after` as its `Retry-After`.
-    fn rate_limited_response(retry_after: Option<&str>) -> reqwest::Response {
-        let mut builder = http::Response::builder().status(429);
-        if let Some(value) = retry_after {
-            builder = builder.header("Retry-After", value);
-        }
-        reqwest::Response::from(
-            builder
-                .body(reqwest::Body::from("Rate limit exceeded"))
-                .expect("valid response"),
-        )
-    }
-
-    /// Polls with a `send` that answers 429 (with `retry_after`) `failures` times, then a
-    /// batch. Returns the outcome, how many requests were sent and how long it took.
-    async fn poll_rate_limited(
-        failures: usize,
-        retry_after: Option<&str>,
-    ) -> (Result<Vec<String>, HsError>, usize, Duration) {
+    /// #1216: a homeserver that rate-limits the poll for a moment is waited out, and the
+    /// retry gets the batch.
+    #[tokio::test(start_paused = true)]
+    async fn rate_limited_poll_is_retried() {
         let sends = AtomicUsize::new(0);
         let started = Instant::now();
-        let result = poll_events_with(&hs_id(), || async {
-            match sends.fetch_add(1, Ordering::SeqCst) < failures {
-                true => Ok(rate_limited_response(retry_after)),
-                false => Ok(response(200, "PUT pubky://a/pub/x\ncursor: 7")),
+
+        let lines = poll_events_with(&hs_id(), || async {
+            match sends.fetch_add(1, Ordering::SeqCst) {
+                0 => Ok(response(429, "Rate limit exceeded")),
+                _ => Ok(response(200, "cursor: 7")),
             }
         })
-        .await;
-        (result, sends.load(Ordering::SeqCst), started.elapsed())
+        .await
+        .unwrap();
+
+        assert_eq!(lines, ["cursor: 7"]);
+        assert_eq!(sends.load(Ordering::SeqCst), 2);
+        assert_eq!(started.elapsed(), Duration::from_secs(1));
     }
 
-    /// #1216: the homeserver rate-limits the poll for a few seconds. The poll waits what
-    /// `Retry-After` asks, and the retry gets the batch.
-    #[tokio::test(start_paused = true)]
-    async fn rate_limited_poll_waits_retry_after_then_retries() {
-        let (result, sends, waited) = poll_rate_limited(1, Some("2")).await;
-
-        assert_eq!(result.unwrap(), ["PUT pubky://a/pub/x", "cursor: 7"]);
-        assert_eq!(sends, 2);
-        assert_eq!(waited, Duration::from_secs(2));
-    }
-
-    /// Without a usable `Retry-After`, the fixed backoffs apply.
-    #[tokio::test(start_paused = true)]
-    async fn rate_limited_poll_without_retry_after_uses_the_backoffs() {
-        for retry_after in [None, Some("Wed, 21 Oct 2026 07:28:00 GMT"), Some("soon")] {
-            let (result, sends, waited) = poll_rate_limited(2, retry_after).await;
-
-            assert!(result.is_ok(), "{retry_after:?}: {result:?}");
-            assert_eq!(sends, 3, "{retry_after:?}");
-            assert_eq!(waited, Duration::from_secs(1 + 2), "{retry_after:?}");
-        }
-    }
-
-    /// A long `Retry-After` is capped, so the poll never holds the loop for long.
-    #[tokio::test(start_paused = true)]
-    async fn rate_limited_poll_caps_a_long_retry_after() {
-        let (result, _, waited) = poll_rate_limited(1, Some("3600")).await;
-
-        assert!(result.is_ok(), "{result:?}");
-        assert_eq!(waited, POLL_EVENTS_429_MAX_WAIT);
-    }
-
-    /// A homeserver that keeps rate-limiting fails the poll with its 429 once the
-    /// retries run out, which leaves the cursor for the next tick.
+    /// A homeserver that keeps rate-limiting fails the poll with its 429, labelled as
+    /// the homeserver's poll, once the retries run out.
     #[tokio::test(start_paused = true)]
     async fn rate_limited_poll_gives_up_after_the_retries() {
-        let (result, sends, waited) = poll_rate_limited(usize::MAX, Some("1")).await;
+        let error = poll_events_with(&hs_id(), || async {
+            Ok(response(429, "Rate limit exceeded"))
+        })
+        .await
+        .unwrap_err();
 
-        let error = result.unwrap_err();
         assert_eq!(error.op, HsOp::PollEvents);
         assert!(
             matches!(error.kind, HsErrorKind::RateLimited(_)),
             "{error:?}"
         );
-        assert_eq!(sends, 1 + POLL_EVENTS_429_BACKOFF_SECS.len());
-        assert_eq!(
-            waited,
-            Duration::from_secs(POLL_EVENTS_429_BACKOFF_SECS.len() as u64)
-        );
-    }
-
-    /// Only a 429 is retried: any other failed poll fails at once.
-    #[tokio::test(start_paused = true)]
-    async fn other_failed_polls_are_not_retried() {
-        let sends = AtomicUsize::new(0);
-        let error = poll_events_with(&hs_id(), || async {
-            sends.fetch_add(1, Ordering::SeqCst);
-            Ok(response(503, "down"))
-        })
-        .await
-        .unwrap_err();
-
-        assert!(
-            matches!(error.kind, HsErrorKind::ServerError(503, _)),
-            "{error:?}"
-        );
-        assert_eq!(sends.load(Ordering::SeqCst), 1);
     }
 
     // --- event_lines_from_response ---
@@ -911,10 +817,9 @@ mod tests {
     /// Calls `retry_rate_limited` over a fetch that fails with `failures` in order,
     /// then succeeds, and returns its result and the number of calls it made.
     async fn retry_over(failures: Vec<HsErrorKind>) -> (Result<(), HsErrorKind>, usize) {
-        let user = pubky::Keypair::random().public_key();
         let calls = AtomicUsize::new(0);
 
-        let result = retry_rate_limited(&user, || {
+        let result = retry_rate_limited("fetch", "id", || {
             let call = calls.fetch_add(1, Ordering::SeqCst);
             let outcome = failures.get(call).cloned().map_or(Ok(()), Err);
             async move { outcome }

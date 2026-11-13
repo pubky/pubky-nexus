@@ -242,17 +242,6 @@ impl EventProcessorError {
         )
     }
 
-    /// Returns whether this error is a homeserver's 429, retries included.
-    pub fn is_rate_limited(&self) -> bool {
-        match self {
-            Self::HsEventsStreamRateLimitExhausted => true,
-            Self::PubkyClientError(e) => {
-                matches!(e.as_ref(), PubkyClientError::TooManyRequests429 { .. })
-            }
-            _ => false,
-        }
-    }
-
     pub fn is_missing_dependency(&self) -> bool {
         matches!(self, Self::MissingDependency { .. })
     }
@@ -289,24 +278,6 @@ mod tests {
         )
         .unwrap();
         HsError::new(&hs, op, kind).into()
-    }
-
-    /// A homeserver's 429 is recognised whichever request it answered, so a run it fails
-    /// is logged as rate-limited, not as an error.
-    #[test]
-    fn rate_limits_are_recognised() {
-        for op in [HsOp::PollEvents, HsOp::UserEvents, HsOp::GetResource] {
-            let error = hs_error(op, HsErrorKind::RateLimited("".into()));
-            assert!(error.is_rate_limited(), "{op:?}: {error:?}");
-        }
-        for kind in [
-            HsErrorKind::ServerError(503, "".into()),
-            HsErrorKind::NotFound("".into()),
-            HsErrorKind::Timeout,
-        ] {
-            let error = hs_error(HsOp::PollEvents, kind);
-            assert!(!error.is_rate_limited(), "{error:?}");
-        }
     }
 
     /// On the event stream, a 5xx, a transport failure or an exhausted 429 fail the

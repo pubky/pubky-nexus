@@ -134,16 +134,6 @@ pub trait TEventProcessor: Send + Sync + 'static {
         match run_internal_result {
             Ok(RunOutcome::Completed) => Ok(()),
             Ok(RunOutcome::BudgetSpent) => Err(RunError::BudgetSpent),
-            // A homeserver that rate-limits us is asking us to slow down, not failing.
-            Err(e) if e.is_rate_limited() => {
-                warn!(
-                    service = %instance_name,
-                    homeserver,
-                    error = ?e,
-                    "Event processor rate-limited by the homeserver"
-                );
-                Err(RunError::Internal(e))
-            }
             Err(e) => {
                 error!(
                     service = %instance_name,

@@ -239,25 +239,15 @@ impl HsEventProcessor {
     /// Polls new events from the homeserver, from the current cursor on.
     ///
     /// Returns the event lines and the cursor line closing them, or no lines
-    /// when there is nothing new. A shutdown stops the poll, which may be waiting out a
-    /// rate limit, with no lines.
+    /// when there is nothing new.
     #[tracing::instrument(name = "events.poll", skip_all)]
     async fn poll_events(&self) -> Result<Vec<String>, EventProcessorError> {
         debug!(cursor = %self.homeserver.cursor, "Polling events");
 
-        let mut shutdown_rx = self.shutdown_rx.clone();
-        let poll = self
+        Ok(self
             .client
-            .poll_events(&self.homeserver.id, self.homeserver.cursor, self.limit);
-        tokio::select! {
-            biased;
-            // A closed channel can no longer signal a shutdown: the poll goes on.
-            Ok(_) = shutdown_rx.wait_for(|shutdown| *shutdown) => {
-                debug!("Shutdown received; stopping the events poll");
-                Ok(Vec::new())
-            }
-            lines = poll => Ok(lines?),
-        }
+            .poll_events(&self.homeserver.id, self.homeserver.cursor, self.limit)
+            .await?)
     }
 
     /// Processes a batch of event lines retrieved from the homeserver.

@@ -134,17 +134,10 @@ impl TEventProcessor for KeyBasedEventProcessor {
                 Ok(()) => self.user_not_found_backoff.record_success(user_pk).await,
                 Err(err) => {
                     if err.should_not_retry_now() {
-                        // A homeserver still rate-limiting us asks us to slow down: not an error.
-                        match err.is_rate_limited() {
-                            true => warn!(
-                                %user_id, action = "abort_hs", ?err,
-                                "Homeserver still rate-limiting after retries; aborting homeserver run",
-                            ),
-                            false => error!(
-                                %user_id, action = "abort_hs", ?err,
-                                "Got should-not-retry-now error while processing user; aborting homeserver run",
-                            ),
-                        }
+                        error!(
+                            %user_id, action = "abort_hs", ?err,
+                            "Got should-not-retry-now error while processing user; aborting homeserver run",
+                        );
                         return Err(err);
                     }
 
