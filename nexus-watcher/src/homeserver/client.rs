@@ -19,8 +19,8 @@ use super::{HsError, HsErrorKind, HsOp};
 use crate::events::EventType;
 use crate::METER_NAME;
 
-/// Waits between the retries of a rate-limited `/events-stream` request.
-const USER_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
+/// Waits between the retries of a rate-limited `/events/` poll or `/events-stream` request.
+const RATE_LIMITED_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
 
 /// Counter for events permanently rejected for exceeding a fetch size limit.
 static REJECTED: LazyLock<Counter<u64>> = LazyLock::new(|| {
@@ -216,12 +216,8 @@ impl HomeserverClient for PubkyHomeserverClient {
         cursor: u64,
         limit: u16,
     ) -> Result<Vec<String>, HsError> {
-        let send = self
-            .pubky
-            .client()
-            .request(Method::GET, &events_url(hs, cursor, limit))
-            .send();
-        poll_events_with(hs, send).await
+        let url = events_url(hs, cursor, limit);
+        poll_events_with(hs, || self.pubky.client().request(Method::GET, &url).send()).await
     }
 
     async fn user_events(
@@ -243,16 +239,22 @@ impl HomeserverClient for PubkyHomeserverClient {
     }
 }
 
-/// Reads the lines of the `/events/` poll `send` makes, labelling a failure as `hs`'s poll.
-async fn poll_events_with(
-    hs: &PubkyId,
-    send: impl Future<Output = Result<reqwest::Response, reqwest::Error>>,
-) -> Result<Vec<String>, HsError> {
-    let error = |kind| HsError::new(hs, HsOp::PollEvents, kind);
-    let response = send
-        .await
-        .map_err(|e| error(HsErrorKind::from_reqwest(&e)))?;
-    event_lines_from_response(response).await.map_err(error)
+/// Reads the lines of the `/events/` poll `send` makes, retrying while rate limited, and
+/// labels a failure as `hs`'s poll.
+async fn poll_events_with<F, Fut>(hs: &PubkyId, mut send: F) -> Result<Vec<String>, HsError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<reqwest::Response, reqwest::Error>>,
+{
+    retry_rate_limited("events poll", hs.as_ref(), || {
+        let sent = send();
+        async move {
+            let response = sent.await.map_err(|e| HsErrorKind::from_reqwest(&e))?;
+            event_lines_from_response(response).await
+        }
+    })
+    .await
+    .map_err(|kind| HsError::new(hs, HsOp::PollEvents, kind))
 }
 
 /// Fetches a user's events with `fetch`, retrying while rate limited, and labels a failure
@@ -266,7 +268,7 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<Vec<HsStreamEvent>, HsErrorKind>>,
 {
-    retry_rate_limited(user, fetch)
+    retry_rate_limited("user event fetch", &user.z32(), fetch)
         .await
         .map_err(|kind| HsError::new(hs, HsOp::UserEvents, kind))
 }
@@ -309,13 +311,18 @@ fn owner_error(resource: &PubkyResource, op: HsOp, kind: HsErrorKind) -> HsError
 }
 
 /// Calls `fetch` and, while it is rate limited, again after each of
-/// [`USER_EVENTS_429_BACKOFF_SECS`]. Returns the last 429 once they run out.
-async fn retry_rate_limited<T, F, Fut>(user: &PublicKey, mut fetch: F) -> Result<T, HsErrorKind>
+/// [`RATE_LIMITED_BACKOFF_SECS`]. Returns the last 429 once they run out. `request` and
+/// `id` (the user or homeserver asked about) label the retry's log line.
+async fn retry_rate_limited<T, F, Fut>(
+    request: &str,
+    id: &str,
+    mut fetch: F,
+) -> Result<T, HsErrorKind>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, HsErrorKind>>,
 {
-    let mut backoffs = USER_EVENTS_429_BACKOFF_SECS.into_iter();
+    let mut backoffs = RATE_LIMITED_BACKOFF_SECS.into_iter();
     loop {
         let kind = match fetch().await {
             Ok(value) => return Ok(value),
@@ -326,8 +333,10 @@ where
         };
 
         warn!(
-            user_id = %user.z32(), retry_after_secs = backoff_secs,
-            "Homeserver rate-limited user event fetch; retrying",
+            id,
+            request,
+            retry_after_secs = backoff_secs,
+            "Homeserver rate-limited the request; retrying",
         );
         tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
     }
@@ -415,7 +424,7 @@ mod tests {
     async fn error_page_fails_the_poll_with_status_and_body() {
         let html = "<html>\n<head><title>502 Bad Gateway</title></head>\n<body>bad gateway</body>\n</html>";
 
-        let error = poll_events_with(&hs_id(), async { Ok(response(502, html)) })
+        let error = poll_events_with(&hs_id(), || async { Ok(response(502, html)) })
             .await
             .unwrap_err();
 
@@ -441,13 +450,51 @@ mod tests {
     /// transport failure.
     #[tokio::test]
     async fn unanswered_poll_is_a_transport_failure_of_the_homeserver() {
-        let error = poll_events_with(&hs_id(), async { Err(transport_error().await) })
+        let error = poll_events_with(&hs_id(), || async { Err(transport_error().await) })
             .await
             .unwrap_err();
 
         assert_eq!(error.hs, HS_ID);
         assert_eq!(error.op, HsOp::PollEvents);
         assert!(matches!(error.kind, HsErrorKind::Transport(_)), "{error:?}");
+    }
+
+    /// #1216: a homeserver that rate-limits the poll for a moment is waited out, and the
+    /// retry gets the batch.
+    #[tokio::test(start_paused = true)]
+    async fn rate_limited_poll_is_retried() {
+        let sends = AtomicUsize::new(0);
+        let started = Instant::now();
+
+        let lines = poll_events_with(&hs_id(), || async {
+            match sends.fetch_add(1, Ordering::SeqCst) {
+                0 => Ok(response(429, "Rate limit exceeded")),
+                _ => Ok(response(200, "cursor: 7")),
+            }
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(lines, ["cursor: 7"]);
+        assert_eq!(sends.load(Ordering::SeqCst), 2);
+        assert_eq!(started.elapsed(), Duration::from_secs(1));
+    }
+
+    /// A homeserver that keeps rate-limiting fails the poll with its 429, labelled as
+    /// the homeserver's poll, once the retries run out.
+    #[tokio::test(start_paused = true)]
+    async fn rate_limited_poll_gives_up_after_the_retries() {
+        let error = poll_events_with(&hs_id(), || async {
+            Ok(response(429, "Rate limit exceeded"))
+        })
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.op, HsOp::PollEvents);
+        assert!(
+            matches!(error.kind, HsErrorKind::RateLimited(_)),
+            "{error:?}"
+        );
     }
 
     // --- event_lines_from_response ---
@@ -770,10 +817,9 @@ mod tests {
     /// Calls `retry_rate_limited` over a fetch that fails with `failures` in order,
     /// then succeeds, and returns its result and the number of calls it made.
     async fn retry_over(failures: Vec<HsErrorKind>) -> (Result<(), HsErrorKind>, usize) {
-        let user = pubky::Keypair::random().public_key();
         let calls = AtomicUsize::new(0);
 
-        let result = retry_rate_limited(&user, || {
+        let result = retry_rate_limited("fetch", "id", || {
             let call = calls.fetch_add(1, Ordering::SeqCst);
             let outcome = failures.get(call).cloned().map_or(Ok(()), Err);
             async move { outcome }

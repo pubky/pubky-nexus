@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::watch::Receiver;
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// Counter for cursor lines the Primary HS sent that could not be applied.
 ///
@@ -192,10 +192,8 @@ impl TEventProcessor for HsEventProcessor {
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {
-        let event_lines = self
-            .poll_events()
-            .await
-            .inspect_err(|e| error!(error = ?e, "Error polling events"))?;
+        // A failed poll is logged once, by `run`, as the run's failure.
+        let event_lines = self.poll_events().await?;
 
         if event_lines.is_empty() {
             debug!("No new events");
