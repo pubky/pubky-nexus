@@ -36,7 +36,7 @@ impl KeyRepublisher {
     pub async fn start(context: &KeyRepublisherContext) -> Result<Self, DynError> {
         let signed_packet = create_signed_packet(context)?;
         let pkarr_client = context.pkarr_client.clone();
-        let join_handle = Self::start_periodic_republish(pkarr_client, &signed_packet).await?;
+        let join_handle = Self::start_periodic_republish(pkarr_client, &signed_packet).await;
         Ok(Self { join_handle })
     }
 
@@ -55,18 +55,27 @@ impl KeyRepublisher {
     }
 
     /// Start the periodic republish task which will republish the server packet to the DHT every hour.
-    ///
-    /// # Errors
-    /// - Throws an error if the initial publish fails.
-    /// - Throws an error if the periodic republish task is already running.
     async fn start_periodic_republish(
         client: pkarr::Client,
         signed_packet: &SignedPacket,
-    ) -> Result<JoinHandle<()>, DynError> {
-        // Publish once to make sure the packet is published to the DHT before this
-        // function returns.
-        // Throws an error if the packet is not published to the DHT.
-        Self::publish_once(&client, signed_packet).await?;
+    ) -> JoinHandle<()> {
+        let mut delay = Duration::from_secs(2);
+        const MAX_ATTEMPTS: u32 = 7;
+        for attempt in 1..=MAX_ATTEMPTS {
+            match Self::publish_once(&client, signed_packet).await {
+                Ok(()) => break,
+                Err(e) if attempt == MAX_ATTEMPTS => {
+                    tracing::warn!("Initial DHT publish failed after {MAX_ATTEMPTS} attempts: {e}; continuing with periodic republish.");
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Initial DHT publish attempt {attempt}/{MAX_ATTEMPTS} failed: {e}"
+                    );
+                    tokio::time::sleep(delay).await;
+                    delay *= 2;
+                }
+            }
+        }
 
         // Start the periodic republish task.
         let signed_packet = signed_packet.clone();
@@ -79,7 +88,7 @@ impl KeyRepublisher {
             }
         });
 
-        Ok(handle)
+        handle
     }
 
     /// Stop the periodic republish task.
