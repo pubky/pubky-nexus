@@ -4,6 +4,7 @@ use crate::service::utils::{
     create_mock_event_processors, setup, MockEventProcessorRunner, MockHomeserverClient,
 };
 
+use crate::service::utils::hs_id;
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::db::graph::exec::exec_single_row;
@@ -67,7 +68,7 @@ async fn test_event_processor_runner_primary_homeserver_excluded() -> Result<(),
     // The primary homeserver should be excluded from the list
     let hs_ids = runner.pre_run().await?;
     assert!(
-        !hs_ids.contains(&HS_IDS[3].to_string()),
+        !hs_ids.contains(&hs_id(HS_IDS[3])),
         "Primary homeserver should be excluded from pre_run"
     );
 
@@ -123,13 +124,13 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
 
     let hs_ids = runner.pre_run().await?;
     assert!(
-        !hs_ids.contains(&blacklisted_hs.to_string()),
+        !hs_ids.contains(&blacklisted_hs),
         "Blacklisted HS should be excluded from pre_run"
     );
     // The non-blacklisted active HS must still be present, proving the blacklist
     // (not just inactivity) removed the other one.
     assert!(
-        hs_ids.contains(&allowed_hs.to_string()),
+        hs_ids.contains(&allowed_hs),
         "Non-blacklisted active HS should be included in pre_run"
     );
 
@@ -161,7 +162,7 @@ async fn test_mock_event_processor_runner_primary_homeserver_excluded() -> Resul
     // The primary homeserver (HS_IDS[0]) should be excluded from the list
     let hs_ids = runner.hs_by_priority().await?;
     assert!(
-        !hs_ids.contains(&HS_IDS[0].to_string()),
+        !hs_ids.contains(&hs_id(HS_IDS[0])),
         "Primary homeserver should be excluded from hs_by_priority"
     );
 
@@ -207,7 +208,7 @@ async fn test_event_processor_runner_orders_homeservers_by_hosted_trust() -> Res
     let rank = |id: &PubkyId| {
         hs_ids
             .iter()
-            .position(|hs| hs == id.as_ref())
+            .position(|hs| *hs == *id)
             .unwrap_or_else(|| panic!("{id} should be active, got {hs_ids:?}"))
     };
 

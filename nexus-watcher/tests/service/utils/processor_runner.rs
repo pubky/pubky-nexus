@@ -2,6 +2,7 @@ use crate::service::utils::processor::MockEventProcessor;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_watcher::service::{TEventProcessor, TEventProcessorRunner};
+use pubky_app_specs::PubkyId;
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;
 
@@ -30,14 +31,14 @@ impl MockEventProcessorRunner {
             shutdown_rx,
         }
     }
-    pub async fn hs_by_priority(&self) -> Result<Vec<String>, DynError> {
+    pub async fn hs_by_priority(&self) -> Result<Vec<PubkyId>, DynError> {
         let persisted_hs_ids = Homeserver::get_all_active_from_graph().await?;
 
         let mut hs_ids = vec![];
 
         for mock_event_processor in self.event_processors.iter() {
-            let hs_id = mock_event_processor.homeserver_id.to_string();
-            if persisted_hs_ids.contains(&hs_id) && hs_id != self.primary_homeserver() {
+            let hs_id = mock_event_processor.homeserver_id.clone();
+            if persisted_hs_ids.contains(&hs_id) && hs_id.as_ref() != self.primary_homeserver() {
                 hs_ids.push(hs_id);
             }
         }
@@ -63,18 +64,18 @@ impl TEventProcessorRunner for MockEventProcessorRunner {
     /// Returns the event processor for the specified homeserver.
     ///
     /// The mock event processor was pre-built and given to the mock runner on initialization, so this returns a reference to it.
-    async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError> {
+    async fn build(&self, hs_id: &PubkyId) -> Result<Arc<dyn TEventProcessor>, DynError> {
         let mock_event_processor = self
             .event_processors
             .iter()
-            .find(|p| p.homeserver_id.to_string() == hs_id)
+            .find(|p| &p.homeserver_id == hs_id)
             .cloned()
             .ok_or(format!("No MockEventProcessor for HS ID: {hs_id}"))?;
 
         Ok(mock_event_processor)
     }
 
-    async fn pre_run(&self) -> Result<Vec<String>, DynError> {
+    async fn pre_run(&self) -> Result<Vec<PubkyId>, DynError> {
         let hs_ids = self.hs_by_priority().await?;
         let max_index = std::cmp::min(self.monitored_hs_limit, hs_ids.len());
         Ok(hs_ids[..max_index].to_vec())
