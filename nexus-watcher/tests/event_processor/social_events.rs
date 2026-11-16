@@ -1460,3 +1460,174 @@ async fn event_locations_make_resources_of_external_uris_only() -> Result<()> {
     test.del(&key, &event_path).await?;
     Ok(())
 }
+
+/// The occurrence sweep walks every event series a page of 100 at a time, and the orphan RSVP
+/// prune works in batches of 1000 until one comes up short: both reach a second page.
+/// The sweep also rebuilds a family whose posts' addresses sort unlike their indexing order,
+/// which its snapshot check compares in address order.
+#[tokio_shared_rt::test(shared)]
+async fn occurrence_sweep_and_rsvp_prune_walk_past_one_page() -> Result<()> {
+    use nexus_common::db::{exec_single_row, fetch_all_rows_from_graph};
+
+    WatcherTest::setup(None).await?;
+    let run = format!("zz-sweep-{}", Keypair::random().public_key().to_z32());
+    exec_single_row(
+        Query::new(
+            "test_sweep_series",
+            "UNWIND range(0, 100) AS i
+             CREATE (:EventSeries {uri: $run + '-' + toString(1000 + i)})",
+        )
+        .param("run", run.clone()),
+    )
+    .await?;
+    // A family whose posts' address order is not their indexing order: an override at a
+    // later address, indexed before its master
+    let master = content();
+    let mut overriding = master.clone();
+    overriding["recurrenceId"] = master["start"].clone();
+    overriding["title"] = json!("Overridden");
+    exec_single_row(
+        Query::new(
+            "test_sweep_family",
+            "CREATE (u:User {id: $run + '-author'}), (:EventSeries {uri: $run + '-family-a'})
+             CREATE (u)-[:AUTHORED]->(:Post {id: $run + '-A', uri: $run + '-family-a', indexed_at: 2000,
+                 event_content: $master})
+             CREATE (u)-[:AUTHORED]->(:Post {id: $run + '-B', uri: $run + '-family-b', indexed_at: 1000,
+                 event_content: $overriding, event_master: $run + '-family-a'})",
+        )
+        .param("run", run.clone())
+        .param("master", master.to_string())
+        .param("overriding", overriding.to_string()),
+    )
+    .await?;
+    let now = Utc::now();
+    social_event::maintain_occurrences(now).await?;
+    let family = fetch_row_from_graph(
+        Query::new(
+            "test_sweep_family_occurrence",
+            "MATCH (o:EventOccurrence {family: $root}) RETURN collect(o.post_uri) AS posts",
+        )
+        .param("root", format!("{run}-family-a")),
+    )
+    .await?
+    .unwrap();
+    assert_eq!(
+        family.get::<Vec<String>>("posts")?,
+        [format!("{run}-family-b")],
+        "the override stands for its occurrence"
+    );
+    let rolled = fetch_all_rows_from_graph(
+        Query::new(
+            "test_sweep_rolled",
+            "MATCH (s:EventSeries) WHERE s.uri STARTS WITH $run
+             RETURN s.uri AS uri, s.rolled_at AS rolled_at",
+        )
+        .param("run", run.clone()),
+    )
+    .await?;
+    assert_eq!(rolled.len(), 101 + 1, "every series and the family");
+    for row in &rolled {
+        assert_eq!(
+            row.get::<Option<i64>>("rolled_at")?,
+            Some(now.timestamp_millis()),
+            "{}",
+            row.get::<String>("uri")?
+        );
+    }
+
+    // RSVPs to a series that generates none of their occurrences
+    let target = format!("{run}-target");
+    exec_single_row(
+        Query::new(
+            "test_prune_orphans",
+            "CREATE (:EventSeries {uri: $target, generated_keys: []}), (:Post {uri: $target})
+             WITH 1 AS one
+             UNWIND range(0, 1000) AS i
+             CREATE (:Post {id: $run + '-' + toString(i), social_kind: 'rsvp',
+                 rsvp_status: 'accepted', recurrence_id: 'none', rsvp_target: $target})",
+        )
+        .param("run", run.clone())
+        .param("target", target.clone()),
+    )
+    .await?;
+    social_event::prune_orphan_rsvps().await?;
+    let left = fetch_row_from_graph(
+        Query::new(
+            "test_prune_left",
+            "MATCH (p:Post) WHERE p.id STARTS WITH $run AND p.rsvp_target IS NOT NULL
+             RETURN count(p) AS left",
+        )
+        .param("run", run.clone()),
+    )
+    .await?
+    .unwrap();
+    assert_eq!(left.get::<i64>("left")?, 0);
+
+    exec_single_row(
+        Query::new(
+            "test_sweep_cleanup",
+            "MATCH (n) WHERE (n:EventSeries AND n.uri STARTS WITH $run)
+                 OR (n:EventOccurrence AND n.family STARTS WITH $run)
+                 OR (n:Post AND (n.id STARTS WITH $run OR n.uri STARTS WITH $run))
+                 OR (n:User AND n.id STARTS WITH $run)
+             DETACH DELETE n",
+        )
+        .param("run", run),
+    )
+    .await?;
+    Ok(())
+}
+
+/// An attendee's newest RSVP to an event is their answer: one who accepted and then, in
+/// another RSVP post, declined is counted and listed as declined, and is not going.
+#[tokio_shared_rt::test(shared)]
+async fn an_attendees_newest_rsvp_wins_over_their_older_one() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let owner = Keypair::random();
+    let author = create_v1_user(&mut test, &owner, &v1_test_user("Newest RSVP owner", "")).await?;
+    let attendee = Keypair::random();
+    let a = create_v1_user(&mut test, &attendee, &v1_test_user("Newest RSVP", "")).await?;
+    let (id, event_path, uri) = put(&mut test, &owner, "event", &content(), None).await?;
+    let mut rsvps = Vec::new();
+    for status in ["accepted", "declined"] {
+        let (_, rsvp_path, _) = put(
+            &mut test,
+            &attendee,
+            "rsvp",
+            &json!({ "status": status }),
+            Some(&uri),
+        )
+        .await?;
+        rsvps.push(rsvp_path);
+    }
+
+    let view = social_event::event_view(&author, &id, None).await?.unwrap();
+    assert_eq!(
+        (
+            view.counts.accepted,
+            view.counts.declined,
+            view.counts.going
+        ),
+        (0, 1, 0)
+    );
+    let listed = social_event::attendees(&uri, None, None, 0, 100).await?;
+    assert_eq!(
+        listed
+            .iter()
+            .map(|p| (p.author.as_str(), p.status.as_str()))
+            .collect::<Vec<_>>(),
+        [(a.as_str(), "declined")]
+    );
+    let going = social_event::stream(EventQuery {
+        going: Some(a.clone()),
+        ..query(&author)
+    })
+    .await?;
+    assert!(going.is_empty(), "{going:?}");
+
+    for path in &rsvps {
+        test.del(&attendee, path).await?;
+    }
+    test.del(&owner, &event_path).await?;
+    Ok(())
+}

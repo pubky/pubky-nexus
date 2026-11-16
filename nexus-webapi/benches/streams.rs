@@ -31,6 +31,7 @@ criterion_group! {
               reach::bench_stream_friends_total_engagement,
               sorting::bench_stream_all_timeline,
               sorting::bench_stream_all_total_engagement,
+              sorting::bench_stream_all_rating,
               post_keys::bench_stream_post_keys_all_timeline,
               tag::bench_stream_tag_timeline,
               tag::bench_stream_tag_total_engagement,
@@ -76,6 +77,8 @@ criterion_group! {
               wot::bench_stream_wot_domain_depth2,
               resource::bench_stream_resources_all_timeline,
               resource::bench_stream_resources_tag_timeline,
+              resource::bench_stream_resources_all_rating,
+              resource::bench_stream_resources_tag_rating,
               resource::bench_stream_resources_by_ids
 }
 

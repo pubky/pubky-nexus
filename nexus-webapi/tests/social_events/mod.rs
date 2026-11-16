@@ -243,6 +243,27 @@ async fn event_routes_filters_rating_sorts_and_invalid_queries() -> Result<()> {
     ))
     .await?;
     assert_eq!(keys["last_post_score"].as_f64(), Some(8.25));
+    // The next page resumes from that score
+    let next = get_request(&format!(
+        "/v1/stream/posts/keys?source=author&author_id={author}&sorting=rating&limit=1&start=8.25&skip=1"
+    ))
+    .await?;
+    assert_eq!(next["post_keys"], json!([format!("{author}:{}", ids[0])]));
+    assert_eq!(next["last_post_score"].as_f64(), Some(3.5));
+    // A cursor alone leaves out what scores above it, and an end bound what scores below it
+    let bounded = get_request(&format!(
+        "/v1/stream/posts/keys?source=author&author_id={author}&sorting=rating&start=8"
+    ))
+    .await?;
+    assert_eq!(
+        bounded["post_keys"],
+        json!([format!("{author}:{}", ids[0])])
+    );
+    let ended = get_request(&format!(
+        "/v1/stream/posts/keys?source=author&author_id={author}&sorting=rating&end=5"
+    ))
+    .await?;
+    assert_eq!(ended["post_keys"], json!([format!("{author}:{}", ids[1])]));
     // `/v0` is frozen: an event post is a post of a kind it does not know, `unknown`, with no
     // rating; an event kind's name is read as `unknown` in `kind=` and refused in
     // `exclude_kinds=`, and `sorting=rating` is refused as the unknown sorting it is to `/v0`.
@@ -488,6 +509,22 @@ async fn event_routes_filters_rating_sorts_and_invalid_queries() -> Result<()> {
     ))
     .await?;
     assert_eq!(keys["last_score"].as_f64(), Some(8.25));
+    let next = get_request(&format!(
+        "/v1/stream/resources/ids?sorting=rating&tags={label}&limit=1&start=8.25&skip=1"
+    ))
+    .await?;
+    assert_eq!(next["resource_ids"], json!([resource_ids[0]]));
+    assert_eq!(next["last_score"].as_f64(), Some(3.5));
+    let bounded = get_request(&format!(
+        "/v1/stream/resources/ids?sorting=rating&tags={label}&start=8"
+    ))
+    .await?;
+    assert_eq!(bounded["resource_ids"], json!([resource_ids[0]]));
+    let ended = get_request(&format!(
+        "/v1/stream/resources/ids?sorting=rating&tags={label}&end=5"
+    ))
+    .await?;
+    assert_eq!(ended["resource_ids"], json!([resource_ids[1]]));
     for q in [
         "source=following",
         "source=unknown",
