@@ -3,12 +3,12 @@ use std::sync::Arc;
 use pubky_app_specs::{ParsedUri, PubkyId};
 
 use super::{PkdnsHomeserverResolver, StoredRecord};
-use crate::db::{fetch_key_from_graph, fetch_row_from_graph, queries};
+use crate::db::{fetch_row_from_graph, queries};
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
 use crate::models::scope::{scope_from_config, EverythingScope, Scope};
 use crate::models::traits::Collection;
-use crate::models::user::outsider::{admit_outsider, create_outsider};
+use crate::models::user::outsider::create_outsider;
 use crate::models::user::{set_user_homeserver_from_record, UserDetails, UserHsCursor};
 use crate::{ScopeConfig, StackConfig};
 
@@ -92,9 +92,26 @@ impl UserIngestor {
 
     /// The user's published HS and the record naming it, unless the user's own
     /// key or that HS is blacklisted. `None` when the user publishes no HS.
-    async fn resolve_unless_blacklisted(
+    pub async fn resolve_unless_blacklisted(
         &self,
         user_id: &PubkyId,
+    ) -> ModelResult<Option<(String, StoredRecord)>> {
+        self.resolve_with(user_id, false).await
+    }
+
+    /// [`Self::resolve_unless_blacklisted`] from the user's newest record, past any cached
+    /// one: for a user that may have just moved.
+    pub async fn resolve_latest_unless_blacklisted(
+        &self,
+        user_id: &PubkyId,
+    ) -> ModelResult<Option<(String, StoredRecord)>> {
+        self.resolve_with(user_id, true).await
+    }
+
+    async fn resolve_with(
+        &self,
+        user_id: &PubkyId,
+        latest: bool,
     ) -> ModelResult<Option<(String, StoredRecord)>> {
         // `user_id` may itself be an HS PK (e.g. a file `src` of the form
         // `pubky://<hs_pk>/...` that addresses the HS directly). The resolver
@@ -106,11 +123,13 @@ impl UserIngestor {
             });
         }
 
-        let record = self
-            .resolver
-            .resolve_own_record(&user_id.to_public_key())
-            .await
-            .map_err(ModelError::from_generic)?;
+        let user_pk = user_id.to_public_key();
+        let record = if latest {
+            self.resolver.resolve_own_latest_record(&user_pk).await
+        } else {
+            self.resolver.resolve_own_record(&user_pk).await
+        }
+        .map_err(ModelError::from_generic)?;
         let (Some(stored), Some(hs_pk)) = (record.stored(), record.homeserver()) else {
             return Ok(None);
         };
@@ -200,37 +219,6 @@ impl UserIngestor {
                 None => Ok(true),
             },
         }
-    }
-
-    /// Makes sure a user that must be in the scope (the moderator) is known and polled.
-    ///
-    /// If its HS can't be resolved right now, the bare node is still created: the HS
-    /// resolver binds it on a later run, and polling starts from there. A node kept as an
-    /// outsider (the API ingests with the plain scope, which doesn't pin the moderator) is
-    /// brought back into the scope.
-    pub async fn ensure_in_scope(&self, user_id: &PubkyId) -> ModelResult<()> {
-        self.maybe_ingest_user(user_id).await?;
-        if UserDetails::get_by_id(user_id).await?.is_none() {
-            UserDetails::from_pubky(user_id.clone())
-                .put_to_graph()
-                .await?;
-        }
-
-        let query = queries::get::get_user_scope_state(user_id);
-        let scope_state: Option<Option<String>> =
-            fetch_key_from_graph(query, "scope_state").await?;
-        if scope_state.flatten().is_none() {
-            return Ok(());
-        }
-        // Bound first and let in last, so a failure before leaves it an outsider (never
-        // polled meanwhile) and the next start retries the whole of it.
-        if let Some((hs_id, record)) = self.resolve_unless_blacklisted(user_id).await? {
-            set_user_homeserver_from_record(user_id, &hs_id, &record).await?;
-            UserHsCursor::init(user_id, &hs_id).await?;
-        }
-        admit_outsider(user_id).await?;
-        tracing::info!("Brought {user_id} back into the scope: it must always be read");
-        Ok(())
     }
 }
 

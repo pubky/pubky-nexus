@@ -131,6 +131,7 @@ impl KeyBasedEventProcessorRunner {
         let result_hs_ids: Vec<String> = active_hs_ids
             .into_iter()
             // Exclude the HSs whose whole feed is read, as they are processed separately
+            // (also the users there catching up, see `HsEventProcessor`)
             .filter(|hs_id| {
                 !self
                     .full_feeds
@@ -156,6 +157,7 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
 
         Ok(Arc::new(KeyBasedEventProcessor {
             homeserver_id,
+            catch_up_only: false,
             limit: self.limit,
             event_handler: self.event_handler.clone(),
             client: self.client.clone(),

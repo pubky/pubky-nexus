@@ -50,6 +50,44 @@ impl TryFrom<RawScopeConfig> for ScopeConfig {
     }
 }
 
+/// How often the watcher re-checks who is in scope, set in the watcher's
+/// `[scope_maintenance]` (`[watcher.scope_maintenance]` in a combined config).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScopeMaintenanceConfig {
+    #[serde(
+        default = "default_scope_maintenance_interval_ms",
+        deserialize_with = "positive_interval_ms"
+    )]
+    pub interval_ms: u64,
+}
+
+const DEFAULT_SCOPE_MAINTENANCE_INTERVAL_MS: u64 = 300_000;
+
+impl Default for ScopeMaintenanceConfig {
+    fn default() -> Self {
+        Self {
+            interval_ms: DEFAULT_SCOPE_MAINTENANCE_INTERVAL_MS,
+        }
+    }
+}
+
+fn default_scope_maintenance_interval_ms() -> u64 {
+    DEFAULT_SCOPE_MAINTENANCE_INTERVAL_MS
+}
+
+/// Refuses `0`, which the task's timer can't run on: it would panic and stop the watcher.
+fn positive_interval_ms<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    match u64::deserialize(deserializer)? {
+        0 => Err(serde::de::Error::custom(
+            "scope_maintenance.interval_ms must be greater than 0",
+        )),
+        interval_ms => Ok(interval_ms),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,6 +145,18 @@ mod tests {
             let error = parse(&toml_text).expect_err(&toml_text);
             assert!(error.contains(expected), "{toml_text:?} gave {error:?}");
         }
+    }
+
+    #[test]
+    fn maintenance_interval_must_be_positive() {
+        let parse = |text: &str| toml::from_str::<ScopeMaintenanceConfig>(text);
+        assert_eq!(parse("interval_ms = 1000").unwrap().interval_ms, 1000);
+        assert_eq!(
+            parse("").unwrap().interval_ms,
+            DEFAULT_SCOPE_MAINTENANCE_INTERVAL_MS
+        );
+        let error = parse("interval_ms = 0").unwrap_err();
+        assert!(error.message().contains("greater than 0"), "{error}");
     }
 
     #[test]
