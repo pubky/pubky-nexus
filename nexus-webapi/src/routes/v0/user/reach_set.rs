@@ -193,4 +193,23 @@ mod tests {
         }
         assert!(!none_match(&fields(&["W/\"abd\""]), "\"abc\""));
     }
+
+    #[test]
+    fn none_match_takes_obs_text_and_rejects_controls_in_a_tag() {
+        fn field(value: &[u8]) -> Vec<HeaderValue> {
+            vec![HeaderValue::from_bytes(value).expect("field value")]
+        }
+        // obs-text is etagc: the list parses, and such a tag matches its own bytes
+        assert!(none_match(&field(b"\"\xc3\xa9\", \"abc\""), "W/\"abc\""));
+        assert!(none_match(&field(b"\"\xc3\xa9\""), "W/\"\u{e9}\""));
+        assert!(!none_match(&field(b"\"\xc3\xa9\""), "W/\"abc\""));
+        // HTAB is not etagc, so the header is ignored
+        assert!(!none_match(&field(b"\"a\tbc\", \"abc\""), "W/\"abc\""));
+        // DEL can't be in a header value; the list parser rejects it all the same
+        assert!(entity_tags(b"\"a\x7fbc\"").is_none());
+        assert_eq!(
+            entity_tags(b"\"a\x80\", W/\"b\""),
+            Some(vec![b"a\x80".as_slice(), b"b".as_slice()])
+        );
+    }
 }
