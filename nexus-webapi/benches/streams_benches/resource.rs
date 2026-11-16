@@ -61,6 +61,24 @@ pub fn bench_stream_resources_tag_timeline(c: &mut Criterion) {
     );
 }
 
+pub fn bench_stream_resources_all_rating(c: &mut Criterion) {
+    bench_resource_keys(
+        c,
+        "stream_resources_all_rating",
+        None,
+        ResourceSorting::Rating,
+    );
+}
+
+pub fn bench_stream_resources_tag_rating(c: &mut Criterion) {
+    bench_resource_keys(
+        c,
+        "stream_resources_tag_rating",
+        Some(TAG),
+        ResourceSorting::Rating,
+    );
+}
+
 /// Hydrate the maximum batch size, using the same loader as `POST /v1/stream/resources/by_ids`.
 pub fn bench_stream_resources_by_ids(c: &mut Criterion) {
     run_setup();

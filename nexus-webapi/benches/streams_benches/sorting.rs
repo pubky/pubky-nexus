@@ -67,3 +67,30 @@ pub fn bench_stream_all_total_engagement(c: &mut Criterion) {
         });
     });
 }
+
+pub fn bench_stream_all_rating(c: &mut Criterion) {
+    println!("******************************************************************************");
+    println!("Benchmarking the post streams with reach 'All' sorting 'Rating'.");
+    println!("******************************************************************************");
+
+    run_setup();
+
+    let rt = Runtime::new().unwrap();
+
+    c.bench_function("stream_posts_all_rating", |b| {
+        b.to_async(&rt).iter(|| async {
+            let post_stream = PostStream::get_posts(
+                StreamSource::All,
+                LIMIT_20,
+                SortOrder::Descending,
+                StreamSorting::Rating,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+            std::hint::black_box(post_stream);
+        });
+    });
+}

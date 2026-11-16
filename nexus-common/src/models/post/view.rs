@@ -96,6 +96,81 @@ mod tests {
     use crate::{StackConfig, StackManager};
     use tracing_test::traced_test;
 
+    /// A post with replies whose rating cannot be read is viewed all the same, without a
+    /// rating.
+    #[tokio_shared_rt::test(shared)]
+    #[traced_test]
+    async fn a_post_whose_rating_read_fails_is_viewed_without_a_rating(
+    ) -> Result<(), crate::types::DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let author = pubky::Keypair::random().public_key().to_z32();
+        let id = format!("{:013X}", chrono::Utc::now().timestamp_micros());
+        get_neo4j_graph()?
+            .run(
+                Query::new("view_rating_user", "CREATE (:User {id:$author})")
+                    .param("author", author.clone()),
+            )
+            .await?;
+        let post = PostDetails {
+            id: id.clone(),
+            author: author.clone(),
+            uri: format!("pubky://{author}/pub/social/v1/posts/{id}"),
+            content: "unreadable rating".into(),
+            indexed_at: 1234,
+            kind: PostKind::Short,
+            attachments: vec![],
+            lock: None,
+            deleted: false,
+        };
+        post.put_to_graph(None, None).await?;
+        // Indexed as an edit, its details alone: the view then reads them from the index and
+        // puts the post in no shared sorted set
+        post.put_to_index(&author, None, true, None).await?;
+        PostCounts {
+            replies: 1,
+            ..Default::default()
+        }
+        .put_to_index(&author, &id, true)
+        .await?;
+        // A rating that is not a number fails the read
+        get_neo4j_graph()?
+            .run(
+                Query::new(
+                    "view_rating_broken",
+                    "MATCH (p:Post {uri:$uri}) SET p.rating_avg = 'broken'",
+                )
+                .param("uri", post.uri.clone()),
+            )
+            .await?;
+
+        let view = PostView::get_by_id(&author, &id, None, None, None)
+            .await?
+            .expect("the post is viewed");
+        assert_eq!(view.counts.replies, 1);
+        assert_eq!(
+            serde_json::to_value(&view.rating)?,
+            serde_json::to_value(crate::models::social_event::RatingSummary::default())?
+        );
+        assert!(logs_contain("Rating summary unavailable"));
+
+        {
+            use crate::db::RedisOps;
+            let key: &[&str] = &[&author, &id];
+            PostDetails::remove_from_index_multiple_json(&[key]).await?;
+            PostCounts::remove_from_index_multiple_json(&[key]).await?;
+        }
+        get_neo4j_graph()?
+            .run(
+                Query::new(
+                    "view_rating_cleanup",
+                    "MATCH (u:User {id:$author}) OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post) DETACH DELETE p,u",
+                )
+                .param("author", author),
+            )
+            .await?;
+        Ok(())
+    }
+
     /// Every rating is a reply, so a post with no replies has no rating: its view is served
     /// without reading one from the graph.
     #[tokio_shared_rt::test(shared)]
