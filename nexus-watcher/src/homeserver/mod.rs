@@ -4,7 +4,7 @@
 
 mod client;
 mod error;
-mod fetch;
+pub(crate) mod fetch;
 
 pub use client::{HomeserverClient, HsStreamEvent, PubkyHomeserverClient};
 pub use error::{HsError, HsErrorKind, HsOp};
