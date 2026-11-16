@@ -30,6 +30,8 @@ impl TagView {
             tagged_uri.ok_or_else(|| ModelError::from_generic("Tagged post has no uri"))?
         } else if tagged_labels.iter().any(|label| label == "User") {
             tagged_uri.unwrap_or_default()
+        } else if tagged_labels.iter().any(|label| label == "Resource") {
+            tagged_uri.ok_or_else(|| ModelError::from_generic("Tagged resource has no uri"))?
         } else {
             return Err(ModelError::from_generic(format!(
                 "Tagged resource has unsupported labels: {:?}",
