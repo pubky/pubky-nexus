@@ -122,8 +122,9 @@ impl WatcherTest {
             event_handler,
             client,
             shutdown_rx,
-            primary_homeserver,
+            full_feeds: vec![primary_homeserver],
             retry_scheduler,
+            ingestor: default_ingestor_tests(),
         }
     }
 

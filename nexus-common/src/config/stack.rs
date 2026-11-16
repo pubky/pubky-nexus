@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::{fmt::Debug, path::PathBuf};
 
 use super::net::NetConfig;
+use super::scope::ScopeConfig;
 use super::{file::validate_and_expand_path, Level, LOG_LEVEL};
 
 /// Media processing concurrency configuration.
@@ -122,6 +123,14 @@ pub struct StackConfig {
     pub net: NetConfig,
     #[serde(default)]
     pub media: MediaConfig,
+    /// Which users this Nexus indexes. See [ScopeConfig].
+    ///
+    /// Here rather than in the watcher's config because the API decides it too: its
+    /// ingest-user endpoint makes a new user a member or an outsider, and `/v0/info`
+    /// publishes it. Read from one place, the two can't disagree, as with the HS
+    /// blacklist in [NetConfig].
+    #[serde(default)]
+    pub scope: ScopeConfig,
 }
 
 /// Utility function
@@ -138,6 +147,7 @@ impl Default for StackConfig {
             db: DatabaseConfig::default(),
             net: NetConfig::default(),
             media: MediaConfig::default(),
+            scope: ScopeConfig::default(),
         }
     }
 }

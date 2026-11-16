@@ -3,6 +3,7 @@ pub mod event_processor_prioritization;
 pub mod hs_event_processor;
 pub mod key_based_event_processor;
 pub mod mock_event_processor;
+pub mod prepare_scope;
 pub mod retry_processor;
 pub mod signal;
 pub mod utils;
