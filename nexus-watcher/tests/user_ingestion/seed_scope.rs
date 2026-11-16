@@ -19,8 +19,9 @@ use nexus_common::{ScopeConfig, WatcherConfig};
 use nexus_watcher::events::{handlers, DefaultEventHandler, Event, EventHandler, ParseResult};
 use nexus_watcher::homeserver::PubkyHomeserverClient;
 use nexus_watcher::scope::{seed_members, MAX_SEED_MEMBERS};
+use nexus_watcher::service::big_nexus::NexusAnswer;
 use nexus_watcher::service::scope_bootstrap::{
-    bootstrap_seed_scope, suggest_members, FollowingPage, FollowingSource,
+    bootstrap_seed_scope, suggest_members, FollowingSource,
 };
 use nexus_watcher::service::scope_maintenance::{ScopeChange, ScopeMaintainer};
 use nexus_watcher::service::user_hs_resolver::get_user_ids_by_homeserver;
@@ -605,16 +606,14 @@ impl FollowingSource for FakeBigNexus {
         &self,
         user_id: &str,
         skip: usize,
-    ) -> Result<FollowingPage, nexus_common::types::DynError> {
+    ) -> Result<NexusAnswer<Vec<String>>, nexus_common::types::DynError> {
         self.requests.fetch_add(1, Ordering::Relaxed);
         let followees = self.followees.as_ref().ok_or("the big Nexus is down")?;
-        Ok(FollowingPage::Followees(
-            if user_id == self.seed && skip == 0 {
-                followees.clone()
-            } else {
-                Vec::new()
-            },
-        ))
+        Ok(NexusAnswer::Found(if user_id == self.seed && skip == 0 {
+            followees.clone()
+        } else {
+            Vec::new()
+        }))
     }
 }
 

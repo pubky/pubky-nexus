@@ -136,6 +136,80 @@ impl TryFrom<RawScopeBootstrapConfig> for ScopeBootstrapConfig {
     }
 }
 
+/// The inbound bridge of a seed scope, set in the watcher's `[inbound_bridge]`
+/// (`[watcher.inbound_bridge]` in a combined config).
+///
+/// A seed scope never reads users outside it, so their replies, mentions, reposts, tags
+/// and follows of the seed would never be seen. The bridge asks big Nexus instances for
+/// the seed's notifications and fetches each record they point at from its author's
+/// homeserver. Off without `nexus_urls`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "RawInboundBridgeConfig")]
+pub struct InboundBridgeConfig {
+    pub nexus_urls: Vec<String>,
+    pub interval_ms: u64,
+    /// How far back the first poll of each Nexus reads, in days; 0 reads everything.
+    pub lookback_days: u32,
+}
+
+const DEFAULT_INBOUND_BRIDGE_INTERVAL_MS: u64 = 300_000;
+
+impl Default for InboundBridgeConfig {
+    fn default() -> Self {
+        Self {
+            nexus_urls: Vec::new(),
+            interval_ms: DEFAULT_INBOUND_BRIDGE_INTERVAL_MS,
+            lookback_days: 0,
+        }
+    }
+}
+
+impl InboundBridgeConfig {
+    pub fn is_on(&self) -> bool {
+        !self.nexus_urls.is_empty()
+    }
+}
+
+/// What the config file may hold, before the rules are checked.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawInboundBridgeConfig {
+    #[serde(default)]
+    nexus_urls: Vec<String>,
+    #[serde(default = "default_inbound_bridge_interval_ms")]
+    interval_ms: u64,
+    #[serde(default)]
+    lookback_days: u32,
+}
+
+fn default_inbound_bridge_interval_ms() -> u64 {
+    DEFAULT_INBOUND_BRIDGE_INTERVAL_MS
+}
+
+impl TryFrom<RawInboundBridgeConfig> for InboundBridgeConfig {
+    type Error = String;
+
+    fn try_from(raw: RawInboundBridgeConfig) -> Result<Self, Self::Error> {
+        if raw.interval_ms == 0 {
+            return Err("inbound_bridge.interval_ms must be greater than 0".into());
+        }
+        let mut nexus_urls: Vec<String> = Vec::new();
+        for url in &raw.nexus_urls {
+            let url = http_url(url, "inbound_bridge.nexus_urls")?;
+            // Each Nexus keeps its own position, keyed by its URL.
+            if nexus_urls.contains(&url) {
+                return Err(format!("inbound_bridge.nexus_urls lists {url} twice"));
+            }
+            nexus_urls.push(url);
+        }
+        Ok(Self {
+            nexus_urls,
+            interval_ms: raw.interval_ms,
+            lookback_days: raw.lookback_days,
+        })
+    }
+}
+
 /// Checks `value` is an http(s) URL an API path can be appended to (no query or
 /// fragment, which the path would land in), and drops its trailing slash.
 fn http_url(value: &str, field: &str) -> Result<String, String> {
@@ -327,6 +401,43 @@ mod tests {
                 "must not have a query or fragment",
             ),
             ("source = \"ask\"", "unknown scope_bootstrap.source"),
+        ];
+        for (text, expected) in cases {
+            let error = parse(text).expect_err(text);
+            assert!(error.contains(expected), "{text:?} gave {error:?}");
+        }
+    }
+
+    #[test]
+    fn reads_the_inbound_bridge() {
+        let parse = |text: &str| {
+            toml::from_str::<InboundBridgeConfig>(text).map_err(|e| e.message().to_string())
+        };
+        assert!(!InboundBridgeConfig::default().is_on(), "off by default");
+        let bridge = parse(
+            "nexus_urls = [\"https://a.example/\", \"https://b.example\"]\nlookback_days = 30",
+        )
+        .unwrap();
+        assert!(bridge.is_on());
+        assert_eq!(
+            bridge.nexus_urls,
+            ["https://a.example", "https://b.example"]
+        );
+        assert_eq!(bridge.interval_ms, DEFAULT_INBOUND_BRIDGE_INTERVAL_MS);
+        assert_eq!(bridge.lookback_days, 30);
+
+        let cases = [
+            ("interval_ms = 0", "must be greater than 0"),
+            ("nexus_urls = [\"nexus\"]", "not an http(s) URL"),
+            (
+                "nexus_urls = [\"https://a.example/?x=1\"]",
+                "must not have a query or fragment",
+            ),
+            (
+                "nexus_urls = [\"https://a.example\", \"https://a.example/\"]",
+                "twice",
+            ),
+            ("nexus_url = \"https://a.example\"", "unknown field"),
         ];
         for (text, expected) in cases {
             let error = parse(text).expect_err(text);
