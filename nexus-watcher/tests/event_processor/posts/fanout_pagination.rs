@@ -1,12 +1,12 @@
-use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
+use crate::event_processor::utils::watcher::{generate_post_id, HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use nexus_common::db::graph::keyset_scan_composite;
 use nexus_common::db::{fetch_all_rows_from_graph, queries::get};
 use nexus_common::models::error::ModelError;
-use pubky::Keypair;
+use pubky::{Keypair, ResourcePath};
 use pubky_app_specs::{
-    post_uri_builder, PubkyAppBookmark, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind,
-    PubkyAppUser,
+    post_uri_builder, traits::HasIdPath, PubkyAppBookmark, PubkyAppPost, PubkyAppPostEmbed,
+    PubkyAppPostKind, PubkyAppUser,
 };
 use std::cell::RefCell;
 
@@ -60,11 +60,15 @@ async fn test_fanout_queries_paginate_across_pages() -> Result<()> {
         test.put(&kp, &path, bookmark).await?;
     }
 
+    // Post ids are unique per author only. The two replies share one id, and so do the
+    // two reposts, so a cursor on the post id alone would skip the second of each.
+    let reply_path: ResourcePath = PubkyAppPost::create_path(&generate_post_id()).parse()?;
     for name in ["ReplierA", "ReplierB"] {
         let (kp, user) = new_user(name);
         test.create_user(&kp, &user).await?;
-        test.create_post(
+        test.put(
             &kp,
+            &reply_path,
             &PubkyAppPost {
                 content: format!("FanoutPag reply from {name}"),
                 kind: PubkyAppPostKind::Short,
@@ -77,11 +81,13 @@ async fn test_fanout_queries_paginate_across_pages() -> Result<()> {
         .await?;
     }
 
+    let repost_path: ResourcePath = PubkyAppPost::create_path(&generate_post_id()).parse()?;
     for name in ["ReposterA", "ReposterB"] {
         let (kp, user) = new_user(name);
         test.create_user(&kp, &user).await?;
-        test.create_post(
+        test.put(
             &kp,
+            &repost_path,
             &PubkyAppPost {
                 content: format!("FanoutPag repost from {name}"),
                 kind: PubkyAppPostKind::Short,
@@ -136,6 +142,78 @@ async fn test_fanout_queries_paginate_across_pages() -> Result<()> {
         assert_eq!(seen.len(), 2, "{label}: expected 2 rows, got {seen:?}");
         assert!(seen[0] < seen[1], "{label}: rows not ordered: {seen:?}");
     }
+
+    Ok(())
+}
+
+/// A user's bookmarks are scanned by `(post id, author id)`: two bookmarked posts that share
+/// an id (different authors) must both be read when they straddle a page boundary.
+#[tokio_shared_rt::test(shared)]
+async fn test_user_bookmarks_paginate_across_shared_post_ids() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let new_user = |name: &str| PubkyAppUser {
+        bio: None,
+        image: None,
+        links: None,
+        name: format!("BookmarkPag:{name}"),
+        status: None,
+    };
+
+    let post_id = generate_post_id();
+    let post_path: ResourcePath = PubkyAppPost::create_path(&post_id).parse()?;
+    let (bookmarker_kp, bookmarker_id) = {
+        let kp = Keypair::random();
+        let id = test.create_user(&kp, &new_user("Bookmarker")).await?;
+        (kp, id)
+    };
+
+    let mut expected = Vec::new();
+    for name in ["AuthorA", "AuthorB"] {
+        let kp = Keypair::random();
+        let author_id = test.create_user(&kp, &new_user(name)).await?;
+        test.put(
+            &kp,
+            &post_path,
+            &PubkyAppPost {
+                content: format!("BookmarkPag post from {name}"),
+                kind: PubkyAppPostKind::Short,
+                parent: None,
+                embed: None,
+                attachments: None,
+                lock: None,
+            },
+        )
+        .await?;
+        let bookmark = PubkyAppBookmark {
+            uri: post_uri_builder(author_id.clone(), post_id.clone()),
+            created_at: 0,
+        };
+        let path = bookmark.hs_path();
+        test.put(&bookmarker_kp, &path, bookmark).await?;
+        expected.push(author_id);
+    }
+    expected.sort();
+
+    let seen: RefCell<Vec<String>> = RefCell::new(Vec::new());
+    keyset_scan_composite(1, "user_bookmarks", |cursor| {
+        let seen = &seen;
+        let bookmarker_id = bookmarker_id.clone();
+        async move {
+            let rows =
+                fetch_all_rows_from_graph(get::user_bookmarks(&bookmarker_id, &cursor, 1)).await?;
+            let count = rows.len();
+            let mut last_cursor = None;
+            for row in &rows {
+                seen.borrow_mut().push(row.get::<String>("author_id")?);
+                last_cursor = Some(row.get::<Vec<String>>("cursor")?);
+            }
+            Ok::<(usize, Option<Vec<String>>), ModelError>((count, last_cursor))
+        }
+    })
+    .await?;
+
+    assert_eq!(seen.into_inner(), expected);
 
     Ok(())
 }
