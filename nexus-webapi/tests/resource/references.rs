@@ -8,6 +8,109 @@ use nexus_common::models::resource::references;
 use nexus_common::universal_tag::normalize::resource_id;
 use serde_json::{json, Value};
 
+/// A resource's replies are newest first, and replies of one time are ordered by author and
+/// then by post id: pages of one walk them all, none skipped or repeated.
+#[tokio_shared_rt::test(shared)]
+async fn resource_reference_routes_order_ties_by_author_then_post() -> Result<()> {
+    crate::utils::server::TestServiceServer::get_test_server().await;
+    let mut authors = [(); 2].map(|_| pubky::Keypair::random().public_key().to_z32());
+    authors.sort();
+    let [first, second] = &authors;
+    let target = format!("https://example.com/api-reference-ties/{first}");
+    let rid = resource_id(&target);
+    let graph = get_neo4j_graph()?;
+    for author in &authors {
+        graph
+            .run(
+                Query::new("reference_ties_user", "CREATE (:User {id: $author})")
+                    .param("author", author.clone()),
+            )
+            .await?;
+    }
+    let stamp = chrono::Utc::now().timestamp_micros();
+    let post_id = |n: i64| format!("{:013X}", stamp + 2 * n);
+    // Written in an order unlike the one they are listed in
+    let written = [
+        (second, post_id(0), 2000),
+        (first, post_id(2), 2000),
+        (first, post_id(1), 2000),
+        (second, post_id(3), 3000),
+    ];
+    for (author, id, indexed_at) in &written {
+        let uri = format!("pubky://{author}/pub/social/v1/posts/{id}");
+        let post = PostDetails {
+            author: author.to_string(),
+            id: id.clone(),
+            uri: uri.clone(),
+            content: "tied reply".into(),
+            indexed_at: *indexed_at,
+            kind: nexus_common::models::post::PostKind::Short,
+            attachments: vec![],
+            lock: None,
+            deleted: false,
+        };
+        post.put_to_graph(None, None).await?;
+        references::sync(
+            &post,
+            vec![references::reference(
+                author,
+                &format!("{uri}/{id}.json"),
+                &target,
+                ResourceChangeKind::Reply,
+            )?],
+        )
+        .await?;
+    }
+    let listed = [
+        (second.clone(), post_id(3)),
+        (first.clone(), post_id(1)),
+        (first.clone(), post_id(2)),
+        (second.clone(), post_id(0)),
+    ];
+    let keys = |page: &Value| -> Vec<(String, String)> {
+        page.as_array()
+            .unwrap()
+            .iter()
+            .map(|post| {
+                (
+                    post["details"]["author"].as_str().unwrap().to_string(),
+                    post["details"]["id"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect()
+    };
+    let mut paged = Vec::new();
+    for skip in 0..listed.len() {
+        let page = get_request(&format!("/v1/resource/{rid}/replies?skip={skip}&limit=1")).await?;
+        paged.extend(keys(&page));
+    }
+    assert_eq!(paged, listed);
+    let all = get_request(&format!("/v1/resource/{rid}/replies")).await?;
+    assert_eq!(keys(&all), listed);
+    assert_eq!(
+        get_request(&format!("/v1/resource/{rid}/replies?skip={}", listed.len())).await?,
+        json!([])
+    );
+
+    for (author, id, _) in &written {
+        references::prepare_delete(author, id).await?;
+        references::finish_delete(author, id).await?;
+    }
+    for author in &authors {
+        graph.run(Query::new("reference_ties_cleanup", "MATCH (u:User {id:$author}) OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post) DETACH DELETE p, u").param("author", author.clone())).await?;
+    }
+    graph
+        .run(
+            Query::new(
+                "reference_ties_resource_cleanup",
+                "MATCH (r:Resource {id: $rid}) DETACH DELETE r",
+            )
+            .param("rid", rid),
+        )
+        .await?;
+    Ok(())
+}
+
 #[tokio_shared_rt::test(shared)]
 async fn resource_reference_routes_counts_pagination_and_validation() -> Result<()> {
     crate::utils::server::TestServiceServer::get_test_server().await;
