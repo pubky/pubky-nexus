@@ -3,12 +3,12 @@ use super::utils::{
     check_member_global_timeline_user_post, check_member_user_post_timeline, find_post_counts,
 };
 use crate::event_processor::users::utils::find_user_counts;
-use crate::event_processor::utils::watcher::WatcherTest;
+use crate::event_processor::utils::watcher::{generate_post_id, WatcherTest};
 use anyhow::Result;
 use nexus_common::models::event::EventLine;
 use nexus_common::models::post::{PostCounts, PostDetails};
-use pubky::Keypair;
-use pubky_app_specs::{PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
+use pubky::{Keypair, ResourcePath};
+use pubky_app_specs::{traits::HasIdPath, PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_post_event() -> Result<()> {
@@ -99,6 +99,57 @@ async fn test_homeserver_put_post_event() -> Result<()> {
     //     .unwrap();
 
     // assert!(result_post.is_none(), "The post should have been deleted");
+
+    Ok(())
+}
+
+/// Post ids are per-author timestamps, so two authors can publish the same id.
+/// Both posts must be indexed as separate posts, and the second must be indexed
+/// as a new post, not as an edit of the first (regression for #1229).
+#[tokio_shared_rt::test(shared)]
+async fn test_two_authors_same_post_id() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let author_a_kp = Keypair::random();
+    let author_b_kp = Keypair::random();
+    let author_a_id = test
+        .create_user(
+            &author_a_kp,
+            &super::utils::test_user("SameId:A", "same post id"),
+        )
+        .await?;
+    let author_b_id = test
+        .create_user(
+            &author_b_kp,
+            &super::utils::test_user("SameId:B", "same post id"),
+        )
+        .await?;
+
+    let post_id = generate_post_id();
+    let post_path: ResourcePath = PubkyAppPost::create_path(&post_id).parse()?;
+    let post_a = super::utils::short_post("SameId:A:Post");
+    let post_b = super::utils::short_post("SameId:B:Post");
+    test.put(&author_a_kp, &post_path, &post_a).await?;
+    test.put(&author_b_kp, &post_path, &post_b).await?;
+
+    for (author_id, post) in [(&author_a_id, &post_a), (&author_b_id, &post_b)] {
+        let details = find_post_details(author_id, &post_id).await?;
+        assert_eq!(details.content, post.content);
+        assert_eq!(
+            details.uri,
+            format!("pubky://{author_id}/pub/pubky.app/posts/{post_id}")
+        );
+        // Indexed as a new post: counted and on the author's timeline.
+        assert_eq!(find_user_counts(author_id).await.posts, 1);
+        assert!(check_member_user_post_timeline(author_id, &post_id)
+            .await?
+            .is_some());
+    }
+
+    test.cleanup_post(&author_a_kp, &post_path).await?;
+    test.cleanup_post(&author_b_kp, &post_path).await?;
+    test.cleanup_user(&author_a_kp).await?;
+    test.cleanup_user(&author_b_kp).await?;
 
     Ok(())
 }
