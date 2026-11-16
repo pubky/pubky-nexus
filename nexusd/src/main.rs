@@ -8,8 +8,15 @@ use nexusd::jobs::JobRegistry;
 use nexusd::migrations::{import_migrations, MigrationBuilder, MigrationManager};
 use nexusd::DaemonLauncher;
 
-#[tokio::main]
-async fn main() -> Result<(), DynError> {
+fn main() -> Result<(), DynError> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(nexus_watcher::WORKER_STACK_SIZE)
+        .build()?
+        .block_on(run())
+}
+
+async fn run() -> Result<(), DynError> {
     let cli = Cli::parse();
     let config_dir = cli.config_dir;
 
