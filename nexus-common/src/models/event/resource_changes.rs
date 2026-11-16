@@ -664,4 +664,84 @@ mod tests {
         ResourceChange::reseed().await?;
         Ok(())
     }
+
+    // Runs exclusively via nextest: it replaces the shared feed and writes, then deletes, its
+    // own graph edges.
+    #[tokio_shared_rt::test(shared)]
+    async fn live_seed_writes_and_copies_past_one_batch() -> Result<(), crate::types::DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let mut conn = get_redis_conn().await?;
+        let graph = get_neo4j_graph()?;
+        let author = pubky::Keypair::random().public_key().to_z32();
+        // One edge more than a seed batch, then two edges written before tags kept their
+        // address: one of another app, one of pubky.app
+        let edges = BATCH_SIZE + 1;
+        graph
+            .run(
+                Query::new(
+                    "seed_batches_test_edges",
+                    r"
+            MERGE (u:User {id: $author})
+            WITH u
+            UNWIND range(0, $edges + 1) AS i
+            CREATE (r:Resource {id: $author + ':' + toString(i), scheme: 'https',
+                uri: 'https://example.com/seed-batches/' + $author + '/' + toString(i)})
+            CREATE (u)-[t:TAGGED {id: 'seed' + toString(i), label: 'test', indexed_at: i}]->(r)
+            SET t.uri = CASE WHEN i < $edges
+                    THEN 'pubky://' + $author + '/pub/pubky.app/tags/seed' + toString(i) END,
+                t.app = CASE WHEN i = $edges THEN 'mapky' END
+        ",
+                )
+                .param("author", author.as_str())
+                .param("edges", edges as i64),
+            )
+            .await?;
+        let length = ResourceChange::reseed().await?;
+        let (seeded, _, read) = ResourceChange::get_from_index(0, usize::MAX).await?;
+        assert_eq!((read, seeded.lines.len() as u64), (length, length));
+        let own: Vec<_> = seeded
+            .lines
+            .into_iter()
+            .filter(|line| line.author == author)
+            .collect();
+        let mut paths: Vec<String> = (0..edges)
+            .map(|i| format!("/pub/pubky.app/tags/seed{i}"))
+            .collect();
+        paths.push(format!("/pub/mapky/tags/seed{edges}"));
+        paths.push(format!("/pub/pubky.app/tags/seed{}", edges + 1));
+        assert_eq!(
+            own.iter()
+                .map(|line| line.object_path.as_str())
+                .collect::<Vec<_>>(),
+            paths,
+            "each edge once, in indexed_at order"
+        );
+
+        // Appends made while a seed runs, more than one copy chunk of them, follow the seed
+        let token = format!("feed-test-{author}");
+        assert!(try_acquire_lock(SEED_LOCK, &token, SEED_TTL).await?);
+        let temp = format!("{RESOURCE_CHANGES_KEY}:Seed:{token}");
+        let start: u64 = conn.llen(RESOURCE_CHANGES_KEY).await?;
+        let snapshot = tag(&author, "snapshot", 0);
+        write_seed_batch(&temp, &[snapshot.json()?]).await?;
+        let appended: Vec<ResourceChange> = (0..2500)
+            .map(|i| tag(&author, &format!("appended{i}"), i))
+            .collect();
+        let json = appended
+            .iter()
+            .map(ResourceChange::json)
+            .collect::<RedisResult<Vec<_>>>()?;
+        let _: () = conn.rpush(RESOURCE_CHANGES_KEY, &json).await?;
+        // The lease is released before any assertion, so a failure leaves no seed blocked
+        let published = publish_seed(&token, &temp, start).await;
+        release_lock(SEED_LOCK, &token).await?;
+        assert_eq!(published?, 2501);
+        let (published, _, _) = ResourceChange::get_from_index(0, usize::MAX).await?;
+        assert_eq!(published.lines[0], snapshot);
+        assert_eq!(published.lines[1..], appended[..]);
+
+        graph.run(Query::new("cleanup_feed_test", "MATCH (u:User {id: $author}) OPTIONAL MATCH (u)-[:TAGGED]->(r:Resource) DETACH DELETE r, u").param("author", author)).await?;
+        ResourceChange::reseed().await?;
+        Ok(())
+    }
 }
