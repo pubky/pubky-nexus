@@ -1269,6 +1269,309 @@ async fn test_resource_changes_a_move_appended_but_not_cleared_is_only_repeated(
     Ok(())
 }
 
+/// Resource tags `author` wrote on each of `targets` at `pubky.app`, labelled `steps`, and the
+/// flip's tags step over them in one batch, which records their moves with one `moved_at` and
+/// publishes none. Returns the recorded moves, as [`recorded_moves`] lists them.
+async fn record_moves_in_one_batch(
+    author: &str,
+    targets: &[String],
+) -> Result<Vec<(String, String)>> {
+    use nexus_common::db::{fetch_all_rows_from_graph, graph::Query};
+    use nexus_watcher::events::v0_to_v1;
+
+    for target in targets {
+        run_tag_steps(author, target, &[TagStep::Put]).await?;
+    }
+    let author_id = crate::event_processor::posts::utils::pubky_id(author)?;
+    let files = v0_to_v1::files::FileMap::load(&author_id).await?;
+    v0_to_v1::tags::migrate(&author_id, &files, targets.len()).await?;
+    let times = fetch_all_rows_from_graph(
+        Query::new(
+            "test_recorded_move_times",
+            "MATCH (:User {id: $author})-[t:TAGGED]->(:Resource)
+             WHERE t.moved_at IS NOT NULL
+             RETURN DISTINCT t.moved_at AS moved_at",
+        )
+        .param("author", author),
+    )
+    .await?;
+    assert_eq!(times.len(), 1, "one batch records one moved_at");
+    let recorded = recorded_moves(author).await?;
+    assert_eq!(recorded.len(), targets.len(), "{recorded:?}");
+    Ok(recorded)
+}
+
+/// Deletes `author`'s `Resource` tag edges and the Resources they leave untagged: the tests that
+/// write tags through the handlers have no homeserver files to delete.
+async fn delete_resource_tags(author: &str) -> Result<()> {
+    use nexus_common::db::{exec_single_row, graph::Query};
+
+    exec_single_row(
+        Query::new(
+            "test_delete_resource_tags",
+            "MATCH (:User {id: $author})-[t:TAGGED]->(r:Resource)
+             DELETE t
+             WITH DISTINCT r WHERE NOT (r)--()
+             DELETE r",
+        )
+        .param("author", author),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Asserts `lines` publish each of `author`'s `moves`, `(tag_uri, v0_uri)`, exactly once: one
+/// put at the path the edge moved to and one del at the path it moved from.
+fn assert_published_once(author: &str, lines: &[ResourceChange], moves: &[(String, String)]) {
+    let folder = format!("pubky://{author}");
+    let count = |op: ResourceChangeOp, uri: &str| {
+        let path = uri.strip_prefix(&folder).expect("a path of the author");
+        lines
+            .iter()
+            .filter(|line| line.op == op && line.object_path == path)
+            .count()
+    };
+    for (tag_uri, v0_uri) in moves {
+        assert_eq!(
+            (
+                count(ResourceChangeOp::Put, tag_uri),
+                count(ResourceChangeOp::Del, v0_uri)
+            ),
+            (1, 1),
+            "the move of {tag_uri} from {v0_uri}: {lines:?}"
+        );
+    }
+}
+
+/// A recorded move the sweep cannot turn into feed lines, here one whose old address lies
+/// outside its tagger's folder, is logged and left recorded, and the rest of its page is
+/// published: one bad edge never holds up the other moves of a sweep.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_sweep_publishes_past_a_move_it_cannot_publish() -> Result<()> {
+    use nexus_common::db::{fetch_key_from_graph, graph::Query};
+    use nexus_watcher::events::v0_to_v1::resource_changes;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Bad move", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let good = record_moves_in_one_batch(
+        &author,
+        &[format!("https://example.com/bad-move/good/{author}")],
+    )
+    .await?;
+
+    // A second edge, recorded in one write as moved from another user's folder: its del has
+    // no path in the author's
+    let bad_target = format!("https://example.com/bad-move/bad/{author}");
+    run_tag_steps(&author, &bad_target, &[TagStep::Put]).await?;
+    let bad_uri = resource_tag_edge(&author, &bad_target)
+        .await?
+        .expect("the edge");
+    let elsewhere = format!(
+        "pubky://{}/pub/pubky.app/tags/elsewhere",
+        Keypair::random().public_key().to_z32()
+    );
+    let mark = |moved_at: Option<i64>| {
+        fetch_key_from_graph::<i64>(
+            Query::new(
+                "test_mark_a_bad_move",
+                "MATCH (:User {id: $author})-[t:TAGGED]->(:Resource)
+                 WHERE t.uri = $uri
+                 SET t.v0_uri = $v0_uri, t.moved_at = $moved_at
+                 RETURN count(t) AS changed",
+            )
+            .param("author", author.as_str())
+            .param("uri", bad_uri.as_str())
+            .param("v0_uri", elsewhere.as_str())
+            .param("moved_at", moved_at),
+            "changed",
+        )
+    };
+    assert_eq!(mark(Some(Utc::now().timestamp_millis())).await?, Some(1));
+    let puts = authored_since(&author, start).await?;
+    assert_eq!(puts.len(), 2, "{puts:?}");
+
+    for _ in 0..2 {
+        resource_changes::sweep(resource_changes::BATCH_SIZE).await?;
+        let lines = authored_since(&author, start).await?;
+        assert_eq!(lines.len(), puts.len() + 2, "{lines:?}");
+        assert_published_once(&author, &lines, &good);
+        assert_eq!(
+            recorded_moves(&author).await?,
+            [(bad_uri.clone(), elsewhere.clone())],
+            "the bad move stays recorded, for each run to try again"
+        );
+    }
+
+    assert_eq!(mark(None).await?, Some(1));
+    delete_resource_tags(&author).await?;
+    test.cleanup_user(&key).await?;
+    Ok(())
+}
+
+/// The sweep pages through the recorded moves by `(moved_at, edge)`. One batch of the tags
+/// step gives every edge it moves one `moved_at`, so the edge alone orders them and decides
+/// where each page starts: swept a page of one or two at a time, each move of such a batch is
+/// published exactly once and none is skipped (a page clears what it publishes, so a later
+/// page never finds it again).
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_sweep_pages_through_the_moves_of_one_batch() -> Result<()> {
+    use nexus_watcher::events::v0_to_v1::resource_changes;
+
+    let mut test = WatcherTest::setup(None).await?;
+    for batch_size in [1, 2] {
+        let key = Keypair::random();
+        let author = test
+            .create_user(&key, &test_user("Sweep pages", "feed"))
+            .await?;
+        let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+        let targets: Vec<String> = (0..5)
+            .map(|n| format!("https://example.com/sweep-pages/{batch_size}/{n}/{author}"))
+            .collect();
+        let moves = record_moves_in_one_batch(&author, &targets).await?;
+
+        resource_changes::sweep(batch_size).await?;
+        let lines = authored_since(&author, start).await?;
+        assert_eq!(
+            lines.len(),
+            3 * targets.len(),
+            "batch_size={batch_size}: {lines:?}"
+        );
+        assert_published_once(&author, &lines, &moves);
+        let recorded = recorded_moves(&author).await?;
+        assert!(recorded.is_empty(), "batch_size={batch_size}: {recorded:?}");
+        delete_resource_tags(&author).await?;
+        test.cleanup_user(&key).await?;
+    }
+    Ok(())
+}
+
+/// The flip's own publish pages through the user's recorded moves as the sweep does: a user
+/// with more moved tags than fit one page has each move published exactly once.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_publish_moves_pages_past_one_page() -> Result<()> {
+    use nexus_watcher::events::v0_to_v1::resource_changes;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Publish pages", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let targets: Vec<String> = (0..=resource_changes::BATCH_SIZE)
+        .map(|n| format!("https://example.com/publish-pages/{n}/{author}"))
+        .collect();
+    let moves = record_moves_in_one_batch(&author, &targets).await?;
+
+    let author_id = crate::event_processor::posts::utils::pubky_id(&author)?;
+    let published = resource_changes::publish_moves(&author_id).await?;
+    assert_eq!(published, targets.len());
+    let lines = authored_since(&author, start).await?;
+    assert_eq!(lines.len(), 3 * targets.len());
+    assert_published_once(&author, &lines, &moves);
+    assert!(recorded_moves(&author).await?.is_empty());
+    delete_resource_tags(&author).await?;
+    test.cleanup_user(&key).await?;
+    Ok(())
+}
+
+/// The flip's own publish is of that user's moves only: another user's recorded moves are left
+/// for their own flip or the sweep.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_publish_moves_leaves_other_users_moves() -> Result<()> {
+    use nexus_watcher::events::v0_to_v1::resource_changes;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let mut users = Vec::new();
+    for name in ["Publish own", "Publish other"] {
+        let key = Keypair::random();
+        let author = test.create_user(&key, &test_user(name, "feed")).await?;
+        let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+        let target = format!("https://example.com/publish-own/{author}");
+        let moves = record_moves_in_one_batch(&author, &[target]).await?;
+        users.push((key, author, start, moves));
+    }
+    let [(_, own, own_start, own_moves), (_, other, other_start, other_moves)] = &users[..] else {
+        unreachable!("two users")
+    };
+
+    let own_id = crate::event_processor::posts::utils::pubky_id(own)?;
+    assert_eq!(resource_changes::publish_moves(&own_id).await?, 1);
+    let lines = authored_since(own, *own_start).await?;
+    assert_published_once(own, &lines, own_moves);
+    assert!(recorded_moves(own).await?.is_empty());
+    assert_eq!(&recorded_moves(other).await?, other_moves);
+    assert_eq!(
+        authored_since(other, *other_start).await?.len(),
+        1,
+        "only its put"
+    );
+
+    let other_id = crate::event_processor::posts::utils::pubky_id(other)?;
+    assert_eq!(resource_changes::publish_moves(&other_id).await?, 1);
+    assert!(recorded_moves(other).await?.is_empty());
+    for (key, author, ..) in &users {
+        delete_resource_tags(author).await?;
+        test.cleanup_user(key).await?;
+    }
+    Ok(())
+}
+
+/// A sweep page holds the recorded moves of many users: it locks their tag files together,
+/// reads each move again by edge and tagger, writes its lines under that tagger, and clears it
+/// by edge and tagger. Two users whose flips failed to publish their moves, swept in one page:
+/// each user's put and del are written under that user, and both moves are cleared.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_sweep_publishes_two_users_moves_in_one_page() -> Result<()> {
+    use nexus_watcher::events::v0_to_v1::resource_changes;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let mut flipped = Vec::new();
+    for n in 0..2 {
+        let key = Keypair::random();
+        let author = test
+            .create_user(&key, &test_user("Sweep two users", "feed"))
+            .await?;
+        let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+        let target = format!("https://example.com/sweep-two-users/{n}/{author}");
+        let moved =
+            flip_failing_to_publish_a_move(&mut test, &key, &author, &target, start).await?;
+        flipped.push((key, author, start, moved));
+    }
+
+    // Both moves fit the sweep's first page
+    resource_changes::sweep(resource_changes::BATCH_SIZE).await?;
+    for (_, author, start, moved) in &flipped {
+        let lines = authored_since(author, *start).await?;
+        assert_eq!(
+            lines[1..]
+                .iter()
+                .map(|line| (line.op, line.object_path.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                (ResourceChangeOp::Put, moved.v1_path.as_str()),
+                (ResourceChangeOp::Del, moved.v0_path.as_str())
+            ],
+            "{author}: {lines:?}"
+        );
+        let put = &moved.puts[0];
+        assert_eq!(
+            (&lines[1].resource_id, lines[1].at, &lines[2].resource_id),
+            (&put.resource_id, put.at, &put.resource_id)
+        );
+        let recorded = recorded_moves(author).await?;
+        assert!(recorded.is_empty(), "{author}: {recorded:?}");
+    }
+    for (key, _, _, moved) in &flipped {
+        test.del(key, &moved.v1_storage).await?;
+        test.del(key, &moved.profile).await?;
+    }
+    Ok(())
+}
+
 /// A resource tag file's handlers, as the watcher runs them: a PUT through
 /// `sync_put_resource`, a DEL through `del_at`.
 #[derive(Clone, Copy, Debug)]
@@ -1456,6 +1759,59 @@ async fn test_resource_tag_delete_waits_for_the_tag_lock() -> Result<()> {
         lines.last().map(|line| line.op),
         Some(ResourceChangeOp::Del)
     );
+    test.cleanup_user(&key).await?;
+    Ok(())
+}
+
+/// A PUT of a resource tag takes the tag file's lock before its graph write: while another
+/// handler of the file holds the lock, the PUT writes and appends nothing, and it runs once the
+/// lock is released. (The PUT and DEL ordering tests cover what it does while holding it.)
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_tag_put_waits_for_the_tag_lock() -> Result<()> {
+    use nexus_watcher::events::handlers::tag;
+    use nexus_watcher::events::inputs::{Reference, ReferenceTarget, ResourceKey, TagInput};
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Tag put lock", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let target = format!("https://example.com/tag-put-lock/{author}");
+    let id = PubkyAppTag::new(target.clone(), "steps".into()).create_id();
+    let input = TagInput {
+        uri: format!("pubky://{author}/pub/pubky.app/tags/{id}"),
+        tagged: Reference {
+            uri: target.clone(),
+            target: ReferenceTarget::Foreign,
+        },
+        label: "steps".into(),
+    };
+    let tag_key = ResourceKey {
+        owner_id: crate::event_processor::posts::utils::pubky_id(&author)?,
+        resource_id: id.clone(),
+    };
+
+    let guard = tag::lock_tag(&author, &id).await;
+    let mut put = tokio::spawn(tag::sync_put_resource(input, tag_key));
+    // Bounds the wait only: a PUT that does not take the lock finishes well within it
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(2), &mut put)
+            .await
+            .is_err(),
+        "a PUT must wait while the tag's lock is held"
+    );
+    assert_eq!(resource_tag_edge(&author, &target).await?, None);
+    assert!(authored_since(&author, start).await?.is_empty());
+    drop(guard);
+    put.await??;
+    assert_feed_matches_graph(&author, start, &target).await?;
+    let lines = authored_since(&author, start).await?;
+    assert_eq!(
+        lines.iter().map(|line| line.op).collect::<Vec<_>>(),
+        [ResourceChangeOp::Put]
+    );
+    run_tag_steps(&author, &target, &[TagStep::Del]).await?;
     test.cleanup_user(&key).await?;
     Ok(())
 }

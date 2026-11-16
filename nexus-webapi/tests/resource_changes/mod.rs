@@ -56,10 +56,9 @@ async fn pages_headers_bounds_and_read_only_empty_feed() -> Result<()> {
     let epoch = first.header("x-events-epoch").expect("initialized epoch");
     assert_eq!(first.json_body()?["next_cursor"], 1);
     assert_eq!(first.json_body()?["lines"][0]["op"], "put");
-    assert!(first
-        .header("access-control-expose-headers")
-        .unwrap()
-        .contains("x-events-epoch"));
+    let exposed = first.header("access-control-expose-headers").unwrap();
+    assert!(exposed.contains("x-events-epoch"), "{exposed}");
+    assert!(exposed.contains("x-events-length"), "{exposed}");
     let second = client.do_get(&format!("{path}?cursor=1&limit=1")).await?;
     assert_eq!(second.json_body()?["lines"][0]["op"], "del");
     assert_eq!(second.json_body()?["next_cursor"], 2);
