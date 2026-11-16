@@ -78,14 +78,15 @@ pub struct Event {
 impl Event {
     /// Parse event from a line returned by the homeserver's `/events` endpoint.
     pub fn parse_event(line: &str) -> Result<ParseResult, EventProcessorError> {
-        let parts: Vec<&str> = line.split(' ').collect();
-        if parts.len() != 2 {
+        // Only the first space separates the type from the URI: homeservers
+        // write the stored file name unencoded, and a name may contain spaces.
+        let Some((kind, uri)) = line.split_once(' ') else {
             return Err(EventProcessorError::InvalidEventLine(format!(
                 "Malformed event line, {line}"
             )));
-        }
+        };
 
-        let event_type = match parts[0] {
+        let event_type = match kind {
             "PUT" => Ok(EventType::Put),
             "DEL" => Ok(EventType::Del),
             other => Err(EventProcessorError::InvalidEventLine(format!(
@@ -93,7 +94,7 @@ impl Event {
             ))),
         }?;
 
-        let uri = parts[1].to_string();
+        let uri = uri.to_string();
         let event_line = line.to_string();
 
         Self::parse_event_parts(event_type, uri, event_line)
@@ -257,5 +258,36 @@ mod tests {
             parse(format!("PUT {}", uri("pubky.app/last_read"))),
             ParseResult::Skipped
         ));
+    }
+
+    /// Homeservers list each file by its stored name, unencoded, so a name with
+    /// a space makes the line contain more than one space. Only the first space
+    /// separates the event type from the URI.
+    #[test]
+    fn uri_with_spaces_is_kept_whole() {
+        for path in ["drive/Teest share/.keep", "example.com/My File 100%.txt"] {
+            let uri = uri(path);
+            for kind in ["PUT", "DEL"] {
+                let line = format!("{kind} {uri}");
+                match Event::parse_event(&line) {
+                    Ok(ParseResult::Parsed(event)) => assert_eq!(event.uri, uri),
+                    Ok(ParseResult::UnrecognizedUri { uri: got, .. }) => assert_eq!(got, uri),
+                    other => panic!("{line}: expected the whole URI, got {other:?}"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn line_without_uri_is_malformed() {
+        for line in ["PUT", "PUTpubky://x/pub/a", ""] {
+            assert!(
+                matches!(
+                    Event::parse_event(line),
+                    Err(EventProcessorError::InvalidEventLine(_))
+                ),
+                "{line:?}"
+            );
+        }
     }
 }
