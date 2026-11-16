@@ -5,6 +5,7 @@ pub use event::{Event, EventType, ParseResult};
 
 use crate::errors::EventProcessorError;
 use crate::homeserver::HomeserverClient;
+use crate::scope::FollowsChanged;
 use crate::METER_NAME;
 use nexus_common::models::takedown::is_taken_down;
 use nexus_common::WatcherConfig;
@@ -48,6 +49,10 @@ pub struct DefaultEventHandler {
 
     /// Local files directory on Nexus used for file-backed events.
     files_path: PathBuf,
+
+    /// Raised for each follow indexed or removed: a seed scope's members follow the
+    /// graph's follows. Nobody takes it unless given with [`Self::with_follows_changed`].
+    follows_changed: FollowsChanged,
 }
 
 impl DefaultEventHandler {
@@ -62,7 +67,14 @@ impl DefaultEventHandler {
             ingestor,
             client,
             files_path,
+            follows_changed: FollowsChanged::default(),
         }
+    }
+
+    /// Raises `follows_changed` for each follow this handler indexes or removes.
+    pub fn with_follows_changed(mut self, follows_changed: FollowsChanged) -> Self {
+        self.follows_changed = follows_changed;
+        self
     }
 
     /// Builds a handler that fetches through `client`, deriving its moderation rules
@@ -103,6 +115,9 @@ impl EventHandler for DefaultEventHandler {
                 .await
             }
         }?;
+        if matches!(event.parsed_uri.resource(), Resource::Follow(_)) {
+            self.follows_changed.raise();
+        }
 
         event.to_event_line().store().await?;
         Ok(())
