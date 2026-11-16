@@ -565,4 +565,131 @@ mod tests {
         get_neo4j_graph()?.run(Query::new("reference_seed_cleanup", "MATCH (u:User {id:$author}) OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post) DETACH DELETE p,u").param("author", author)).await?;
         Ok(())
     }
+
+    // Runs exclusively via nextest: it replaces the shared feed.
+    #[tokio_shared_rt::test(shared)]
+    async fn live_reseed_restores_replies_and_embeds_past_one_batch(
+    ) -> Result<(), crate::types::DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let author = pubky::Keypair::random().public_key().to_z32();
+        let graph = get_neo4j_graph()?;
+        graph
+            .run(
+                Query::new("reference_seed_user", "CREATE (:User {id:$author})")
+                    .param("author", author.clone()),
+            )
+            .await?;
+        let stamp = chrono::Utc::now().timestamp_micros();
+        let mut posts = Vec::new();
+        for (n, kind) in [
+            crate::models::post::PostKind::Short,
+            crate::models::post::PostKind::Collection,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let id = format!("{:013X}", stamp + 2 * n as i64);
+            let post = PostDetails {
+                uri: format!("pubky://{author}/pub/social/v1/posts/{id}"),
+                id,
+                author: author.clone(),
+                content: "seed fixture".into(),
+                indexed_at: 1234,
+                kind,
+                attachments: vec![],
+                lock: None,
+                deleted: false,
+            };
+            post.put_to_graph(None, None).await?;
+            posts.push(post);
+        }
+        // A reply and an embed of one post
+        let short = &posts[0];
+        let source = format!("{}/{}.json", short.uri, short.id);
+        // Each on its own target, so a seed that swapped the two kinds is told apart
+        let lines = [
+            (ResourceChangeKind::Reply, "replied"),
+            (ResourceChangeKind::Embed, "embedded"),
+        ]
+        .into_iter()
+        .map(|(kind, target)| {
+            reference(
+                &author,
+                &source,
+                &format!("https://example.com/{author}/{target}"),
+                kind,
+            )
+        })
+        .collect::<ModelResult<Vec<_>>>()?;
+        stage(short, lines.clone()).await?;
+        // And more collection items than a seed batch holds
+        let collection = &posts[1];
+        let items = 1001;
+        let items_path = format!(
+            "{}/{}.json",
+            collection
+                .uri
+                .strip_prefix(&format!("pubky://{author}"))
+                .unwrap(),
+            collection.id
+        );
+        graph
+            .run(
+                Query::new(
+                    "reference_seed_items",
+                    r"
+            MATCH (p:Post {id: $id}) WHERE EXISTS { (:User {id: $author})-[:AUTHORED]->(p) }
+            UNWIND range(0, $items - 1) AS i
+            CREATE (r:Resource {id: $author + ':' + toString(i), scheme: 'https',
+                uri: 'https://example.com/' + $author + '/item/' + toString(i)})
+            CREATE (p)-[:COLLECTED {object_path: $path, indexed_at: 2000 + i}]->(r)
+        ",
+                )
+                .param("id", collection.id.clone())
+                .param("author", author.clone())
+                .param("items", items)
+                .param("path", items_path.clone()),
+            )
+            .await?;
+
+        ResourceChange::reseed(false).await?;
+        let (page, _, _) = ResourceChange::get_from_index(0, usize::MAX).await?;
+        let own: Vec<_> = page
+            .lines
+            .iter()
+            .filter(|line| line.author == author)
+            .collect();
+        assert_eq!(own.len(), lines.len() + items as usize);
+        for expected in &lines {
+            let found: Vec<_> = own
+                .iter()
+                .filter(|line| line.kind == expected.kind)
+                .collect();
+            assert_eq!(found.len(), 1, "{:?}: {found:?}", expected.kind);
+            assert!(same_reference(found[0], expected), "{found:?}");
+        }
+        let collected: std::collections::BTreeSet<_> = own
+            .iter()
+            .filter(|line| {
+                line.kind == ResourceChangeKind::Collection && line.object_path == items_path
+            })
+            .map(|line| line.resource_id.as_str())
+            .collect();
+        assert_eq!(collected.len(), items as usize, "each item once");
+
+        prepare_delete(&author, &short.id).await?;
+        finish_delete(&author, &short.id).await?;
+        graph
+            .run(
+                Query::new(
+                    "reference_seed_items_cleanup",
+                    "MATCH (r:Resource) WHERE r.id STARTS WITH $author + ':' DETACH DELETE r",
+                )
+                .param("author", author.clone()),
+            )
+            .await?;
+        graph.run(Query::new("reference_seed_cleanup", "MATCH (u:User {id:$author}) OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post) DETACH DELETE p,u").param("author", author)).await?;
+        ResourceChange::reseed(false).await?;
+        Ok(())
+    }
 }
