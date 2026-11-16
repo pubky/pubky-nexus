@@ -77,6 +77,14 @@ async fn test_reach_set_etag_and_not_modified() -> Result<()> {
     assert_eq!(first.status().as_u16(), 200);
     let etag = first.headers()["etag"].to_str()?.to_string();
     assert!(etag.starts_with("W/\"") && etag.ends_with('"'), "{etag}");
+    // A browser client reads the tag only if CORS exposes it
+    let exposed = first.headers()["access-control-expose-headers"].to_str()?;
+    assert!(
+        exposed
+            .split(',')
+            .any(|name| name.trim().eq_ignore_ascii_case("etag")),
+        "{exposed}"
+    );
     let again = get(None, 2).await?;
     assert_eq!(
         again.headers()["etag"].to_str()?,
