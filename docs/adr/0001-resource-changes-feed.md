@@ -173,9 +173,7 @@ Redis state, run the seed job. The seed describes current graph references, not
 historical deletions.
 
 The list is `Event:ResourceChanges`, its epoch is `Event:ResourceChanges:Epoch`.
-`Event:ResourceChanges:PostDelete:*` holds a deleted post's reference dels until they
-are published. `Event:ResourceChanges:Seed:*` and `Event:ResourceChanges:SeedLock` are
-temporary.
+`Event:ResourceChanges:Seed:*` and `Event:ResourceChanges:SeedLock` are temporary.
 This feed follows accepted tag events; it does not add hooks for unrelated graph
 maintenance or profile-deletion cascades. Rebuilding reconciles current graph state.
 
@@ -205,9 +203,13 @@ for each current reference. Deleting any social version follows the social-post
 delete contract and retracts the indexed logical post's current references.
 
 The edge update and a pending append batch commit in the same graph transaction.
-Retries flush that batch before recording new changes. Deletes journal all targets
-before graph removal. Reseeding includes live Resource edges and retains concurrent
-appends under the existing epoch/cursor rules. No external target is fetched.
+Retries flush that batch before recording new changes. A delete follows the same rule as
+a tag's: the feed writes before the graph. It publishes any pending batch, appends the
+del of each of the post's current references, then deletes the post or makes it a
+tombstone; a retry reads the references again and appends their dels again. A tombstone
+keeps its Resource edges, which every Resource-side reader skips, and its later hard
+delete appends nothing. Reseeding includes the Resource edges of live posts and retains
+concurrent appends under the existing epoch/cursor rules. No external target is fetched.
 
 ## Consequences
 
@@ -227,15 +229,15 @@ appends under the existing epoch/cursor rules. No external target is fetched.
 - A handler whose retries run out between its graph write and its append leaves the
   feed and the graph apart until the seed job runs: a put missing from the feed, or a
   del for an edge still in the graph. So does a seed that starts between a delete's
-  append and its graph delete: a put for an edge that is gone.
+  append and its graph delete or tombstone: a put for a reference already retracted.
 - The per-tagger ordering holds for one watcher process per Neo4j and Redis.
 - After loss of Redis state the feed must be reseeded, and a seed gives current
   references, not past deletions.
 
 ### Neutral ⚠️
 
-- `object_path` names the file a line concerns and is not a key: two lines of one
-  reference can carry different paths.
+- For a tag, `object_path` names the file a line concerns and is not part of its key:
+  two lines of one tag reference can carry different paths.
 
 ## Alternatives Considered
 

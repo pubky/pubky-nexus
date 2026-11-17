@@ -88,7 +88,6 @@ pub async fn sync_put_at(
             )?);
         }
     }
-    references::finish_delete(&key.owner_id, &key.resource_id).await?;
     let was_reply = PostRelationships::get_from_graph(&key.owner_id, &key.resource_id)
         .await?
         .is_some_and(|relationships| relationships.replied.is_some());
@@ -754,12 +753,10 @@ async fn ingest_collection_item_authors(post: &PostInput, ingestor: &UserIngesto
 #[tracing::instrument(name = "post.del", skip_all, fields(user_id = %key.owner_id, post_id = %key.resource_id))]
 pub async fn del(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), EventProcessorError> {
     let _post_lock = lock_post(key.owner_id.as_ref(), &key.resource_id).await;
-    references::prepare_delete(&key.owner_id, &key.resource_id).await?;
-    let result = del_inner(key.clone(), ingestor).await;
-    if result.is_ok() || matches!(result, Err(EventProcessorError::SkipIndexing)) {
-        references::finish_delete(&key.owner_id, &key.resource_id).await?;
-    }
-    result
+    // The feed writes before the graph, as for a tag: a retry reads the references again and
+    // retracts them again; a tombstone keeps its edges and retracts nothing more.
+    references::retract(&key.owner_id, &key.resource_id).await?;
+    del_inner(key, ingestor).await
 }
 
 async fn del_inner(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), EventProcessorError> {
@@ -813,8 +810,8 @@ async fn del_inner(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), Even
             sync_put_details(
                 tombstone,
                 tombstone_details,
-                key.owner_id,
-                key.resource_id,
+                key.owner_id.clone(),
+                key.resource_id.clone(),
                 ingestor,
             )
             .await?;
@@ -826,14 +823,13 @@ async fn del_inner(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), Even
 }
 
 /// `deleted_uri` is the post's stored address, read by the caller before the graph delete below.
-/// It reads and writes the post's references: call it under the post's [`lock_post`], as
-/// [`del`] does.
+/// Its graph delete removes the post's Resource edges, whose dels [`del`] appended before it (or
+/// when the post became a tombstone): call it under the post's [`lock_post`], as [`del`] does.
 pub async fn sync_del(
     author_id: PubkyId,
     post_id: String,
     deleted_uri: String,
 ) -> Result<(), EventProcessorError> {
-    references::prepare_delete(&author_id, &post_id).await?;
     // 1. The PostRelationships index entry is the gate.
     //    NOTE: deliberately NOT using `get_by_id`, which would re-populate the
     //    index from the graph and defeat the gate.
@@ -1011,7 +1007,6 @@ pub async fn sync_del(
         PostCounts::invalidate(&[&parent[0], &parent[1]]).await?;
     }
 
-    references::finish_delete(&author_id, &post_id).await?;
     Ok(())
 }
 
