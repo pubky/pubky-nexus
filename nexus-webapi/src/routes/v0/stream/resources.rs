@@ -5,6 +5,7 @@ use crate::models::{
 use crate::routes::v0::endpoints::{
     STREAM_RESOURCES_BY_IDS_ROUTE, STREAM_RESOURCES_ROUTE, STREAM_RESOURCE_IDS_ROUTE,
 };
+use crate::routes::v0::resource::MAX_URI_LENGTH;
 use crate::routes::v0::version::{versioned_handlers, ApiVersion};
 use crate::routes::Json as RequestJson;
 use crate::routes::Query;
@@ -175,44 +176,56 @@ pub struct StreamResourcesApiDocs;
 
 /// Supply exactly one list of 1–100 entries. URIs are normalized as `/v1/resource/by-uri` normalizes them.
 #[derive(Debug, Deserialize, ToSchema)]
-#[serde(untagged, deny_unknown_fields)]
-pub enum ResourceStreamByIdsRequest {
-    Ids {
-        #[serde(deserialize_with = "deserialize_json_array::<ResourceId, _, 1, 100>")]
-        #[schema(min_items = 1, max_items = 100)]
-        resource_ids: Vec<ResourceId>,
-        viewer_id: Option<PubkyId>,
-    },
-    Uris {
-        /// Each URI must be at most 2048 bytes and have a valid scheme.
-        #[serde(deserialize_with = "deserialize_json_array::<String, _, 1, 100>")]
-        #[schema(min_items = 1, max_items = 100)]
-        uris: Vec<String>,
-        viewer_id: Option<PubkyId>,
-    },
+#[serde(deny_unknown_fields)]
+pub struct ResourceStreamByIdsRequest {
+    #[serde(default, deserialize_with = "resource_id_list")]
+    #[schema(min_items = 1, max_items = 100)]
+    resource_ids: Option<Vec<ResourceId>>,
+    /// Each URI must be at most 2048 bytes and have a valid scheme.
+    #[serde(default, deserialize_with = "uri_list")]
+    #[schema(min_items = 1, max_items = 100)]
+    uris: Option<Vec<String>>,
+    viewer_id: Option<PubkyId>,
+}
+
+/// A present `resource_ids`: 1–100 valid ids. Absent, the field is `None`; `null` is rejected.
+fn resource_id_list<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<Vec<ResourceId>>, D::Error> {
+    deserialize_json_array::<ResourceId, _, 1, 100>(deserializer).map(Some)
+}
+
+/// A present `uris`: 1–100 strings. Absent, the field is `None`; `null` is rejected.
+fn uri_list<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<Vec<String>>, D::Error> {
+    deserialize_json_array::<String, _, 1, 100>(deserializer).map(Some)
 }
 
 impl ResourceStreamByIdsRequest {
     fn into_ids(self) -> Result<(Vec<String>, Option<PubkyId>)> {
-        match self {
-            Self::Ids {
-                resource_ids,
-                viewer_id,
-            } => Ok((resource_ids.into_iter().map(|id| id.0).collect(), viewer_id)),
-            Self::Uris { uris, viewer_id } => {
-                let ids = uris
-                    .into_iter()
-                    .map(|uri| {
-                        if uri.len() > 2048 {
-                            return Err(Error::invalid_input("URI exceeds 2048 bytes"));
-                        }
-                        let (normalized, _) = normalize_uri(&uri).map_err(Error::invalid_input)?;
-                        Ok(resource_id(&normalized))
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                Ok((ids, viewer_id))
+        let ids = match (self.resource_ids, self.uris) {
+            (Some(ids), None) => ids.into_iter().map(|id| id.0).collect(),
+            (None, Some(uris)) => uris
+                .into_iter()
+                .map(|uri| {
+                    if uri.len() > MAX_URI_LENGTH {
+                        return Err(Error::invalid_input(format!(
+                            "URI exceeds {MAX_URI_LENGTH} bytes"
+                        )));
+                    }
+                    let (normalized, _) = normalize_uri(&uri).map_err(Error::invalid_input)?;
+                    Ok(resource_id(&normalized))
+                })
+                .collect::<Result<Vec<_>>>()?,
+            (Some(_), Some(_)) => {
+                return Err(Error::invalid_input(
+                    "Supply resource_ids or uris, not both",
+                ))
             }
-        }
+            (None, None) => return Err(Error::invalid_input("Supply resource_ids or uris")),
+        };
+        Ok((ids, self.viewer_id))
     }
 }
 
@@ -280,6 +293,35 @@ mod batch_tests {
             );
             assert!(validate(json!({field: vec![entry; 101]})).is_err());
             assert!(validate(json!({field: []})).is_err());
+        }
+    }
+
+    #[test]
+    fn names_the_reason_a_body_is_rejected() {
+        let ids: Vec<&str> = vec![ID; 101];
+        for (body, reason) in [
+            (json!({"resource_ids": ids}), "Maximum 100 items allowed"),
+            (json!({"resource_ids": []}), "At least 1 item(s) required"),
+            (
+                json!({"resource_ids": [ID.to_uppercase()]}),
+                "32-char lowercase hex",
+            ),
+            (
+                json!({"resource_ids": [ID], "viewer_id": "invalid"}),
+                "52 ASCII characters",
+            ),
+            (
+                json!({"resource_ids": [ID], "uris": ["https://example.com"]}),
+                "not both",
+            ),
+            (json!({}), "Supply resource_ids or uris"),
+            (
+                json!({"resource_ids": [ID], "unknown": true}),
+                "unknown field",
+            ),
+        ] {
+            let error = validate(body.clone()).expect_err("rejected").to_string();
+            assert!(error.contains(reason), "{body}: {error}");
         }
     }
 

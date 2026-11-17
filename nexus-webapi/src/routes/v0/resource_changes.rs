@@ -10,6 +10,11 @@ use axum::{routing::get, Json, Router};
 use nexus_common::models::event::resource_changes::{ResourceChange, ResourceChangesPage};
 use serde::Deserialize;
 
+/// The feed's generation, a response header: see [`resource_changes_handler`].
+pub const EVENTS_EPOCH_HEADER: &str = "x-events-epoch";
+/// The feed's length, read with the page, a response header: see [`resource_changes_handler`].
+pub const EVENTS_LENGTH_HEADER: &str = "x-events-length";
+
 #[derive(Deserialize)]
 pub struct ResourceChangesQuery {
     cursor: Option<u64>,
@@ -45,9 +50,9 @@ pub async fn resource_changes_handler(
     )
     .await?;
     let mut headers = HeaderMap::new();
-    headers.insert("x-events-length", HeaderValue::from(length));
+    headers.insert(EVENTS_LENGTH_HEADER, HeaderValue::from(length));
     if let Some(epoch) = epoch {
-        headers.insert("x-events-epoch", HeaderValue::from_str(&epoch)?);
+        headers.insert(EVENTS_EPOCH_HEADER, HeaderValue::from_str(&epoch)?);
     }
     Ok((headers, Json(page)))
 }

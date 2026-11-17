@@ -195,8 +195,8 @@ pub fn build_app(
         // Let browsers read the notification list's resume cursor and the event log headers.
         .expose_headers([
             HeaderName::from_static(v0::notification::NEXT_START_HEADER),
-            HeaderName::from_static("x-events-epoch"),
-            HeaderName::from_static("x-events-length"),
+            HeaderName::from_static(v0::resource_changes::EVENTS_EPOCH_HEADER),
+            HeaderName::from_static(v0::resource_changes::EVENTS_LENGTH_HEADER),
         ]);
 
     // Layer the request limits innermost, so that tracing and CORS still apply to the
