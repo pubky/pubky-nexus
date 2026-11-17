@@ -622,7 +622,7 @@ async fn get_user_homeserver(user_id: &str) -> GraphResult<Option<UserHomeserver
     }))
 }
 
-/// Population counts over non-deleted users with a `HOSTED_BY` mapping.
+/// Population counts over users with a `HOSTED_BY` mapping, deleted or not.
 #[derive(Debug, Default)]
 struct MappingCounts {
     /// Users bound to a homeserver.
@@ -667,7 +667,8 @@ struct HsResolverMetrics {
     /// PKDNS records older than the one the mapping was applied from: replays
     /// or lagging answers, never applied.
     ignored_older_record: Counter<u64>,
-    /// Non-deleted users with a `HOSTED_BY` mapping; denominator for `stale_users`.
+    /// Users with a `HOSTED_BY` mapping, deleted ones included; denominator
+    /// for `stale_users`.
     mapped_users: Gauge<u64>,
     /// Subset of `mapped_users` whose mapping is currently stale. Refreshed
     /// after every run that processed users, which are the runs that can change it.
@@ -905,11 +906,13 @@ mod tests {
         let user_fresh = "ttl_test_user_fresh";
         let user_stale = "ttl_test_user_stale";
         let user_no_hs = "ttl_test_user_no_hs";
+        let user_deleted = "ttl_test_user_deleted";
         let hs_id = "ttl_test_hs";
 
         create_test_user(user_fresh).await?;
         create_test_user(user_stale).await?;
         create_test_user(user_no_hs).await?;
+        create_test_user(user_deleted).await?;
 
         // Give user_fresh a recently resolved mapping
         set_user_homeserver(user_fresh, hs_id).await?;
@@ -925,6 +928,20 @@ mod tests {
         .param("user_id", user_stale)
         .param("hs_id", hs_id);
         exec_single_row(stale_query).await?;
+
+        // user_deleted is tombstoned with an expired mapping: the sweep keeps
+        // re-resolving their record, so it still notices a switch they
+        // publish after the delete.
+        let deleted_query = Query::new(
+            "tombstone_ttl_test_user",
+            "MATCH (u:User {id: $user_id})
+             MERGE (hs:Homeserver {id: $hs_id})
+             MERGE (u)-[r:HOSTED_BY]->(hs)
+             SET u.deleted = true, r.resolved_at = timestamp() - 7200000",
+        )
+        .param("user_id", user_deleted)
+        .param("hs_id", hs_id);
+        exec_single_row(deleted_query).await?;
 
         // user_no_hs has no HOSTED_BY at all
 
@@ -944,11 +961,16 @@ mod tests {
             needing.contains(&user_no_hs.to_string()),
             "User without HOSTED_BY should need resolution"
         );
+        assert!(
+            needing.contains(&user_deleted.to_string()),
+            "Deleted user should stay in the sweep"
+        );
 
         // Cleanup
         cleanup_test_user(user_fresh).await?;
         cleanup_test_user(user_stale).await?;
         cleanup_test_user(user_no_hs).await?;
+        cleanup_test_user(user_deleted).await?;
 
         Ok(())
     }

@@ -1,4 +1,6 @@
 use crate::event_processor::utils::watcher::WatcherTest;
+use nexus_common::db::exec_single_row;
+use nexus_common::db::graph::Query;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::{set_user_homeserver, set_user_homeserver_stale};
 use nexus_common::types::DynError;
@@ -110,6 +112,38 @@ async fn test_get_all_active_homeservers() -> Result<(), DynError> {
     test.cleanup_user(&kp_a1).await?;
     test.cleanup_user(&kp_b1).await?;
     test.cleanup_user(&kp_b2).await?;
+    Ok(())
+}
+
+/// A homeserver whose only bound user is tombstoned stays on the active list:
+/// the only thing that clears a tombstone is a profile write, and the only
+/// thing that can read one is a homeserver that is still polled. A single-user
+/// self-hosted homeserver must not vanish when its user deletes their profile.
+#[tokio_shared_rt::test(shared)]
+async fn test_deleted_users_keep_their_homeserver_active() -> Result<(), DynError> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let hs = create_orphan_hs().await?;
+    let kp = Keypair::random();
+    let user_id = test
+        .create_user(&kp, &make_test_user("Watcher:ActiveHS:Deleted"))
+        .await?;
+    set_user_homeserver(&user_id, &hs).await?;
+
+    let tombstone = Query::new(
+        "tombstone_test_user",
+        "MATCH (u:User {id: $user_id}) SET u.deleted = true",
+    )
+    .param("user_id", user_id.to_string());
+    exec_single_row(tombstone).await?;
+
+    let hs_ids = Homeserver::get_all_active_from_graph().await?;
+    assert!(
+        hs_ids.contains(&hs.to_string()),
+        "HS whose only user is tombstoned should stay listed"
+    );
+
+    test.cleanup_user(&kp).await?;
     Ok(())
 }
 
