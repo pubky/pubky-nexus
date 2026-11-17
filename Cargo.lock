@@ -416,6 +416,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "axum-server"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2c55b0e6ae7c8951bc27682e97934423357c1a8208886305290a3adb1ce3c14"
+dependencies = [
+ "arc-swap",
+ "bytes",
+ "either",
+ "fs-err",
+ "http",
+ "http-body",
+ "hyper",
+ "hyper-util",
+ "pin-project-lite",
+ "rustls",
+ "rustls-pki-types",
+ "socket2",
+ "tokio",
+ "tokio-rustls",
+ "tower-service",
+]
+
+[[package]]
 name = "backoff"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2210,7 +2233,7 @@ checksum = "3e59032dcf91c8618220edb7467d73835b9987decfeac79c77c835e5fc3bfaaa"
 dependencies = [
  "anyhow",
  "axum",
- "axum-server",
+ "axum-server 0.8.0",
  "bytes",
  "clap",
  "futures-util",
@@ -2968,7 +2991,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tokio-shared-rt",
- "toml 1.1.8+spec-1.1.0",
+ "toml 1.2.1+spec-1.1.0",
  "tracing",
  "tracing-log",
  "tracing-opentelemetry",
@@ -3027,7 +3050,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
- "axum-server",
+ "axum-server 0.9.0",
  "chrono",
  "clap",
  "const_format",
@@ -3674,7 +3697,7 @@ checksum = "7b81df71b61bf03d17c6f8b54c34a78cc8af6e784309983517d61597db024b4a"
 dependencies = [
  "anyhow",
  "axum",
- "axum-server",
+ "axum-server 0.8.0",
  "bytes",
  "clap",
  "governor",
@@ -3971,7 +3994,7 @@ dependencies = [
  "async-trait",
  "axum",
  "axum-extra",
- "axum-server",
+ "axum-server 0.8.0",
  "backon",
  "base32",
  "base64 0.22.1",
@@ -5556,7 +5579,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -5799,9 +5822,9 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "1.1.8+spec-1.1.0"
+version = "1.2.1+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20489e00e4d8741d6be680764cc12e270655e375a20d1011e844a9c3379e678d"
+checksum = "d5755c51863cdac711f1956baf8eb9588e060755f7d3c4c979e70ea1e1f32cd7"
 dependencies = [
  "indexmap",
  "serde_core",
@@ -6511,7 +6534,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

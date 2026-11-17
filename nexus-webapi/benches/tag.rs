@@ -475,6 +475,31 @@ fn bench_get_tag_by_tagger_and_id(c: &mut Criterion) {
     );
 }
 
+fn bench_get_resource_tag_by_tagger_and_id(c: &mut Criterion) {
+    println!("******************************************************************************");
+    println!("Test the performance of getting a tag on a resource, using graph");
+    println!("******************************************************************************");
+
+    run_setup();
+
+    let tagger_id = "emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy";
+    let tag_id = "RES_TAG_001";
+    let rt = Runtime::new().unwrap();
+
+    c.bench_with_input(
+        BenchmarkId::new("bench_get_resource_tag", tagger_id),
+        &[tagger_id, tag_id],
+        |b, &input| {
+            b.to_async(&rt).iter(|| async {
+                let tag_view = TagView::get_by_tagger_and_id(input[0], input[1])
+                    .await
+                    .unwrap();
+                std::hint::black_box(tag_view);
+            });
+        },
+    );
+}
+
 fn configure_criterion() -> Criterion {
     Criterion::default()
         .measurement_time(Duration::new(5, 0))
@@ -500,6 +525,7 @@ criterion_group! {
                 bench_get_followers_reach_hot_tags,
                 bench_get_friends_reach_hot_tags,
                 bench_get_tag_by_tagger_and_id,
+                bench_get_resource_tag_by_tagger_and_id,
 }
 
 criterion_main!(benches);

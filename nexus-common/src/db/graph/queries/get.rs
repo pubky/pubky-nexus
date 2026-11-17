@@ -2046,7 +2046,7 @@ pub fn get_tag_by_tagger_and_id(tagger_id: &str, tag_id: &str) -> Query {
         MATCH (tagger:User { id: $tagger_id})-[tag:TAGGED {id: $tag_id }]->(tagged)
         RETURN
             labels(tagged) as tagged_labels,
-            CASE WHEN tagged:Post OR tagged:User THEN tagged.uri END as tagged_uri,
+            CASE WHEN tagged:Post OR tagged:User OR tagged:Resource THEN tagged.uri END as tagged_uri,
             tag.id as id,
             tag.indexed_at as indexed_at,
             tag.label as label
