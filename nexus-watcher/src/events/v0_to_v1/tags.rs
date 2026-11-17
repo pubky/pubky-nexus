@@ -40,9 +40,14 @@
 //! rows than were read is fine, another loop may have rewritten or deleted some. Each batch is
 //! its own transaction. The stop, continue or fail decision is [`drain`]'s, apart from the two
 //! graph calls, so it is tested on canned pages.
+//!
+//! A batch holds the tagger's lock from its read to its write, the lock a resource tag's PUT,
+//! DEL and takedown hold (see [`tag::lock_tagger`]): a DEL never reads an edge, appends its
+//! feed del and then misses the edge because the batch gave it a new id meanwhile.
 
 use super::attachments;
 use super::files::FileMap;
+use crate::events::handlers::tag;
 use crate::events::EventProcessorError;
 use nexus_common::db::{fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphError};
 use pubky_social_specs::legacy_v0::traits::HashId as _;
@@ -109,6 +114,7 @@ pub async fn migrate(
     let prefix = v0_tag_uri_builder(tagger_id.to_string(), String::new());
     let prefix = prefix.as_str();
     drain(prefix, move || async move {
+        let _tagger_lock = tag::lock_tagger(tagger_id).await;
         let tags = read_page(tagger_id, prefix, batch_size).await?;
         if tags.is_empty() {
             return Ok((0, 0));

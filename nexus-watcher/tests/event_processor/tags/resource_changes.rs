@@ -434,8 +434,9 @@ fn tag_handler(
     })
 }
 
-/// Polls each of `handlers` once, asserting it waits for its tag's lock: they queue for it in
-/// that order.
+/// Polls each of `handlers` once, asserting it is pending: each queues for its tagger's lock in
+/// that order, while the caller holds it. (Pending alone does not prove the wait: the lock tests
+/// below guard that the handlers take the lock.)
 async fn queue_tag_handlers(
     steps: &[TagStep],
     handlers: &mut [LocalBoxFuture<'static, Result<(), EventProcessorError>>],
@@ -443,12 +444,12 @@ async fn queue_tag_handlers(
     for (step, handler) in steps.iter().zip(handlers.iter_mut()) {
         assert!(
             futures::poll!(handler.as_mut()).is_pending(),
-            "{step:?} must wait for the tag's lock"
+            "{step:?} must be pending while the tagger's lock is held"
         );
     }
 }
 
-/// Queues `steps` for one tag file behind its lock, in that order, then lets them run: the
+/// Queues `steps` for one tag file behind its tagger's lock, in that order, then lets them run: the
 /// lock grants them one at a time, first come first served. Each step is polled until it waits
 /// for the lock, so the order is fixed before any of them runs. Returns the file's path.
 async fn run_tag_steps(author: &str, target: &str, steps: &[TagStep]) -> Result<String> {
@@ -457,7 +458,7 @@ async fn run_tag_steps(author: &str, target: &str, steps: &[TagStep]) -> Result<
 
     let id = PubkyAppTag::new(target.to_string(), "steps".into()).create_id();
     let path = format!("/pub/pubky.app/tags/{id}");
-    let guard = tag::lock_tag(author, &id).await;
+    let guard = tag::lock_tagger(author).await;
     let mut queued = steps
         .iter()
         .map(|step| tag_handler(author, target, *step))
@@ -505,10 +506,10 @@ async fn assert_feed_matches_graph(author: &str, start: u64, target: &str) -> Re
     Ok(())
 }
 
-/// A DEL of a resource tag waits while another handler of the same tag file holds its lock,
+/// A DEL of a resource tag waits while another handler of the same tagger holds the tagger's lock,
 /// and runs once it is released.
 #[tokio_shared_rt::test(shared)]
-async fn test_resource_tag_delete_waits_for_the_tag_lock() -> Result<()> {
+async fn test_resource_tag_delete_waits_for_the_tagger_lock() -> Result<()> {
     use nexus_watcher::events::handlers::tag;
     use nexus_watcher::events::inputs::ResourceKey;
 
@@ -525,7 +526,7 @@ async fn test_resource_tag_delete_waits_for_the_tag_lock() -> Result<()> {
     let tag_uri = format!("pubky://{author}{storage}");
     test.put(&key, &storage, &tag).await?;
 
-    let guard = tag::lock_tag(&author, &id).await;
+    let guard = tag::lock_tagger(&author).await;
     let owner_id = crate::event_processor::posts::utils::pubky_id(&author)?;
     let mut delete = tokio::spawn(async move {
         tag::del_at(
@@ -542,7 +543,7 @@ async fn test_resource_tag_delete_waits_for_the_tag_lock() -> Result<()> {
         tokio::time::timeout(std::time::Duration::from_secs(2), &mut delete)
             .await
             .is_err(),
-        "a DEL must wait while the tag's lock is held"
+        "a DEL must wait while the tagger's lock is held"
     );
     drop(guard);
     delete.await??;
@@ -556,11 +557,11 @@ async fn test_resource_tag_delete_waits_for_the_tag_lock() -> Result<()> {
     Ok(())
 }
 
-/// A PUT of a resource tag takes the tag file's lock before its graph write: while another
-/// handler of the file holds the lock, the PUT writes and appends nothing, and it runs once the
-/// lock is released. (The PUT and DEL ordering tests cover what it does while holding it.)
+/// A PUT of a resource tag takes the tagger's lock before its graph write: while another
+/// handler of the tagger holds the lock, the PUT writes and appends nothing, and it runs once
+/// the lock is released. (The PUT and DEL ordering tests cover what it does while holding it.)
 #[tokio_shared_rt::test(shared)]
-async fn test_resource_tag_put_waits_for_the_tag_lock() -> Result<()> {
+async fn test_resource_tag_put_waits_for_the_tagger_lock() -> Result<()> {
     use nexus_watcher::events::handlers::tag;
     use nexus_watcher::events::inputs::{Reference, ReferenceTarget, ResourceKey, TagInput};
 
@@ -585,14 +586,14 @@ async fn test_resource_tag_put_waits_for_the_tag_lock() -> Result<()> {
         resource_id: id.clone(),
     };
 
-    let guard = tag::lock_tag(&author, &id).await;
+    let guard = tag::lock_tagger(&author).await;
     let mut put = tokio::spawn(tag::sync_put_resource(input, tag_key));
     // Bounds the wait only: a PUT that does not take the lock finishes well within it
     assert!(
         tokio::time::timeout(std::time::Duration::from_secs(2), &mut put)
             .await
             .is_err(),
-        "a PUT must wait while the tag's lock is held"
+        "a PUT must wait while the tagger's lock is held"
     );
     assert_eq!(resource_tag_edge(&author, &target).await?, None);
     assert!(authored_since(&author, start).await?.is_empty());
@@ -717,6 +718,53 @@ async fn test_resource_changes_delete_ignores_a_bad_stored_address() -> Result<(
         (ResourceChangeOp::Del, path.as_str())
     );
     assert!(live_references(&lines).is_empty(), "{lines:?}");
+    test.cleanup_user(&key).await?;
+    Ok(())
+}
+
+/// The flip's tags step holds the tagger's lock for each batch, from its read to its write: while
+/// another handler of the tagger holds it, the step moves nothing, and it runs once the lock is
+/// released. A DEL therefore never reads an edge, appends its del and then misses the edge the
+/// step gave a new id.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_tag_flip_waits_for_the_tagger_lock() -> Result<()> {
+    use nexus_watcher::events::{handlers::tag, v0_to_v1};
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Flip lock", "feed"))
+        .await?;
+    let target = format!("https://example.com/flip-lock/{author}");
+    let path = run_tag_steps(&author, &target, &[TagStep::Put]).await?;
+    assert_eq!(
+        resource_tag_edge(&author, &target).await?,
+        Some(format!("pubky://{author}{path}"))
+    );
+
+    let user = crate::event_processor::posts::utils::pubky_id(&author)?;
+    let files = v0_to_v1::files::FileMap::load(&user).await?;
+    let guard = tag::lock_tagger(&author).await;
+    let flip = v0_to_v1::tags::migrate(&user, &files, v0_to_v1::tags::BATCH_SIZE);
+    tokio::pin!(flip);
+    // Bounds the wait only: a step that does not take the lock finishes well within it
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(2), &mut flip)
+            .await
+            .is_err(),
+        "the tags step must wait while the tagger's lock is held"
+    );
+    assert_eq!(
+        resource_tag_edge(&author, &target).await?,
+        Some(format!("pubky://{author}{path}")),
+        "nothing moves while the lock is held"
+    );
+    drop(guard);
+    flip.await?;
+    let moved = resource_tag_edge(&author, &target)
+        .await?
+        .expect("the edge");
+    assert!(moved.contains("/pub/social/v1/tags/"), "{moved}");
     test.cleanup_user(&key).await?;
     Ok(())
 }

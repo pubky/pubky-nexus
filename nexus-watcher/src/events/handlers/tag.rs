@@ -25,26 +25,25 @@ use super::utils::{
 };
 use crate::events::inputs::{Reference, ReferenceTarget, ResourceKey, TagInput};
 
-/// Locks shared by the handlers of resource tags: see [`lock_tag`].
-const TAG_LOCK_STRIPES: usize = 1024;
-static TAG_LOCKS: LazyLock<Vec<Mutex<()>>> =
-    LazyLock::new(|| (0..TAG_LOCK_STRIPES).map(|_| Mutex::new(())).collect());
+/// Locks shared by the handlers of resource tags: see [`lock_tagger`].
+const TAGGER_LOCK_STRIPES: usize = 1024;
+static TAGGER_LOCKS: LazyLock<Vec<Mutex<()>>> =
+    LazyLock::new(|| (0..TAGGER_LOCK_STRIPES).map(|_| Mutex::new(())).collect());
 
-/// The lock of one tag file, keyed by its tagger and tag id, which every handler of the file
-/// knows before it reads the graph. A resource tag's PUT, its DEL and a takedown of it hold it
-/// across their graph write and their resource changes feed append, so the feed lists one file's
-/// changes in the order the graph took them. The locks are a fixed set of stripes: two files
-/// that share one only wait for each other, and nothing is kept per file. A crash releases it.
-/// It orders the handlers of one watcher process.
-pub async fn lock_tag(tagger_id: &str, tag_id: &str) -> MutexGuard<'static, ()> {
-    TAG_LOCKS[tag_lock_stripe(tagger_id, tag_id)].lock().await
-}
-
-/// Which of the locks a tag file takes.
-pub fn tag_lock_stripe(tagger_id: &str, tag_id: &str) -> usize {
+/// The lock of one tagger's tags. A resource tag's PUT, a tag DEL and a takedown of a tag hold
+/// it across their graph write and their resource changes feed append, so the feed lists one
+/// tagger's changes to an edge in the order the graph took them. An edge is one per tagger,
+/// target and label, and every file that lands on it is the tagger's: equivalent files and the
+/// other folder's copy wait for each other too. A DEL takes it whatever the tag's target, which
+/// it learns only from the edge. The locks are a fixed set of stripes keyed by tagger id: two
+/// taggers that share one only wait for each other, and nothing is kept per tagger. A crash
+/// releases it. It orders the handlers of one watcher process.
+pub async fn lock_tagger(tagger_id: &str) -> MutexGuard<'static, ()> {
     let mut hasher = DefaultHasher::new();
-    (tagger_id, tag_id).hash(&mut hasher);
-    hasher.finish() as usize % TAG_LOCK_STRIPES
+    tagger_id.hash(&mut hasher);
+    TAGGER_LOCKS[hasher.finish() as usize % TAGGER_LOCK_STRIPES]
+        .lock()
+        .await
 }
 
 /// `tag.uri` is the address the tag is stored under, kept as the edge `uri`; `tag.tagged` is
@@ -120,7 +119,7 @@ pub async fn sync_put(
 )]
 pub async fn sync_put_resource(tag: TagInput, key: ResourceKey) -> Result<(), EventProcessorError> {
     debug!("Indexing resource tag");
-    let _tag_lock = lock_tag(key.owner_id.as_ref(), &key.resource_id).await;
+    let _tagger_lock = lock_tagger(key.owner_id.as_ref()).await;
     let (normalized, scheme) =
         normalize_uri(&tag.tagged.uri).map_err(EventProcessorError::generic)?;
 
@@ -411,7 +410,7 @@ pub async fn del(key: ResourceKey) -> Result<(), EventProcessorError> {
 }
 
 /// Deletes the tag `key` names, whichever folder wrote it: a tag is one edge per tagger,
-/// target and label, found by its id alone. It holds the tag file's lock: see [`lock_tag`].
+/// target and label, found by its id alone. It holds the tagger's lock: see [`lock_tagger`].
 /// `tag_uri` is the address of the file being deleted (or taken down).
 ///
 /// A resource tag's feed del is appended before the graph delete, from the edge it read: the
@@ -435,7 +434,7 @@ pub async fn del_at(key: ResourceKey, tag_uri: &str) -> Result<(), EventProcesso
 
     // 1. Read target from graph WITHOUT deleting the edge
     let tagger_id: &str = arg_user_id.as_ref();
-    let _tag_lock = lock_tag(tagger_id, &arg_tag_id).await;
+    let _tagger_lock = lock_tagger(tagger_id).await;
     let row = fetch_row_from_graph(queries::get::get_tag_target(tagger_id, &arg_tag_id)).await?;
     let Some(row) = row else {
         // Edge already gone (fully completed on a prior attempt) - idempotent no-op
