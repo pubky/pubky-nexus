@@ -134,7 +134,7 @@ async fn test_resource_changes_recovers_put_after_graph_commit() -> Result<()> {
 
     // Persist exactly the state left by a crash after the graph commit but before
     // ResourceChange::store. Do not publish a feed line on this first attempt.
-    let outcome = TagResource::put_to_graph_resource(
+    let (outcome, _) = TagResource::put_to_graph_resource(
         &author,
         &resource_id,
         &uri,

@@ -191,7 +191,7 @@ async fn test_resource_tag_from_two_folders_is_one_edge() -> Result<()> {
 
         // A DEL of either file removes the one edge and the orphaned Resource
         if v1_first {
-            handlers::tag::del(key.clone()).await?;
+            handlers::tag::del_at(key.clone(), &v1_tag_uri).await?;
         } else {
             test.del(&user_kp, &pubky_app_path).await?;
         }
@@ -205,7 +205,7 @@ async fn test_resource_tag_from_two_folders_is_one_edge() -> Result<()> {
         if v1_first {
             test.del(&user_kp, &pubky_app_path).await?;
         } else {
-            handlers::tag::del(key.clone()).await?;
+            handlers::tag::del_at(key.clone(), &v1_tag_uri).await?;
         }
         assert_eq!(count_resource_tags(&resource_id).await?, 0);
         assert!(!resource_exists_in_graph(&resource_id).await?);
@@ -264,7 +264,7 @@ async fn test_old_resource_tag_edge_with_app_is_reused_and_deleted() -> Result<(
     assert_eq!(count_resource_tags(OLD_EDGE_RESOURCE_ID).await?, 1);
 
     // Replay: the MERGE on the label matches the old edge
-    let outcome = TagResource::put_to_graph_resource(
+    let (outcome, _) = TagResource::put_to_graph_resource(
         OLD_EDGE_TAGGER,
         OLD_EDGE_RESOURCE_ID,
         OLD_EDGE_RESOURCE_URI,
@@ -295,7 +295,11 @@ async fn test_old_resource_tag_edge_with_app_is_reused_and_deleted() -> Result<(
     assert_eq!(replayed.tagger, OLD_EDGE_TAGGER);
 
     // DEL: found by its id alone, whatever its app
-    let deleted = handlers::tag::del(resource_key(OLD_EDGE_TAGGER, OLD_EDGE_TAG_ID)?).await;
+    let deleted = handlers::tag::del_at(
+        resource_key(OLD_EDGE_TAGGER, OLD_EDGE_TAG_ID)?,
+        OLD_EDGE_TAG_URI,
+    )
+    .await;
 
     // Put the mock edge back for the other tests before asserting
     let after_del = find_resource_tag(OLD_EDGE_RESOURCE_ID, OLD_EDGE_LABEL).await?;

@@ -312,7 +312,11 @@ async fn test_social_v1_tag_on_a_foreign_target_reaches_the_resource_flow() -> R
     assert_eq!(tag_result.tagger, user_id);
     assert_eq!(tag_result.scheme, "pubky");
 
-    handlers::tag::del(key).await?;
+    handlers::tag::del_at(
+        key,
+        &social_v1_tag_uri_builder(user_id.clone(), tag_id.clone()),
+    )
+    .await?;
     assert!(
         !resource_exists_in_graph(&resource_id).await?,
         "the orphaned Resource is removed with its last tag"

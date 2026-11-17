@@ -148,7 +148,7 @@ async fn put_sync_resource(
     tag_label: &str,
     indexed_at: i64,
 ) -> Result<(), EventProcessorError> {
-    let outcome = TagResource::put_to_graph_resource(
+    let (outcome, edge_indexed_at) = TagResource::put_to_graph_resource(
         &tagger_id,
         resource_id,
         uri,
@@ -159,24 +159,11 @@ async fn put_sync_resource(
         indexed_at,
     )
     .await?;
-    if !matches!(outcome, OperationOutcome::MissingDependency) {
-        // A retry still publishes, so a graph commit followed by a Redis failure
-        // cannot lose the reference. Consumers upsert by (author, uri, label): a file
-        // that lands on an edge another file created (an equivalent tag, or the other
-        // folder's copy of the same tag) publishes the same reference again.
-        let at = if matches!(outcome, OperationOutcome::Updated) {
-            fetch_row_from_graph(queries::get::get_resource_tag_indexed_at(
-                &tagger_id,
-                resource_id,
-                tag_label,
-            ))
-            .await?
-            .ok_or_else(|| EventProcessorError::generic("Resource tag disappeared during retry"))?
-            .get("tag_indexed_at")
-            .map_err(EventProcessorError::generic)?
-        } else {
-            indexed_at
-        };
+    if let Some(at) = edge_indexed_at {
+        // Created or Updated: a retry still publishes, so a graph commit followed by a Redis
+        // failure cannot lose the reference. Consumers upsert by (author, uri, label): a file
+        // that lands on an edge another file created (an equivalent tag, or the other folder's
+        // copy of the same tag) publishes the same reference again, with the edge's time.
         ResourceChange::tag(
             ResourceChangeOp::Put,
             resource_id.to_owned(),
@@ -398,15 +385,6 @@ async fn put_sync_user(
             Ok(())
         }
     }
-}
-
-/// Deletes the tag `key` names when no file address is at hand: see [`del_at`].
-pub async fn del(key: ResourceKey) -> Result<(), EventProcessorError> {
-    let tag_uri = format!(
-        "pubky://{}/pub/pubky.app/tags/{}",
-        key.owner_id, key.resource_id
-    );
-    del_at(key, &tag_uri).await
 }
 
 /// Deletes the tag `key` names, whichever folder wrote it: a tag is one edge per tagger,
