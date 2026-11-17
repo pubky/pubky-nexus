@@ -6,7 +6,7 @@ use nexus_common::models::user::{Epoch, UserDetails, UserSearch, UsersByTagSearc
 use pubky_social_specs::PubkyId;
 use std::future::Future;
 use std::path::Path;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use crate::events::inputs::UserInput;
 
@@ -47,8 +47,7 @@ pub async fn sync_put(user: UserInput, user_id: PubkyId) -> Result<(), EventProc
 /// user's details from the graph, so it reports `v1` once the epoch write lands, before the
 /// profile fetch that follows. The profile itself is the ordinary `v1` profile PUT's ([`sync_put`]).
 /// A user whose first event is this PUT has no node yet: the epoch write creates a stub, which
-/// the profile write fills in. The resource changes feed lines of the tags the migration moved
-/// are published after the epoch write, and a failure to publish them does not fail the flip.
+/// the profile write fills in.
 pub async fn flip(user_id: &PubkyId, files_path: &Path) -> Result<(), EventProcessorError> {
     run_flip(user_id, move_to_v1(user_id, files_path)).await
 }
@@ -77,19 +76,9 @@ async fn run_flip(
 
 /// The part of the flip that moves the user: the internal migration of their indexed data to
 /// its `social/v1` form while they are still `v0` (step 1), then the epoch write (step 2).
-/// Once the epoch is written, the resource changes feed lines of the tags step 1 moved are
-/// published, best effort: the feed never fails the flip, and the watcher's sweep publishes
-/// what is left.
 async fn move_to_v1(user_id: &PubkyId, files_path: &Path) -> Result<(), EventProcessorError> {
     v0_to_v1::run(user_id, files_path).await?;
-    v0_to_v1::step(user_id, "epoch", Epoch::set_v1_in_graph(user_id)).await?;
-
-    // Boxed: the flip runs inside the event handler's future, and the copy step already
-    // deepens it; inline, the publish would push its layout toward the query depth limit.
-    if let Err(e) = Box::pin(v0_to_v1::resource_changes::publish_moves(user_id)).await {
-        warn!(%user_id, error = %e, "Moved resource tags left for the sweep");
-    }
-    Ok(())
+    v0_to_v1::step(user_id, "epoch", Epoch::set_v1_in_graph(user_id)).await
 }
 
 #[tracing::instrument(name = "user.del", skip_all, fields(user_id = %user_id))]
