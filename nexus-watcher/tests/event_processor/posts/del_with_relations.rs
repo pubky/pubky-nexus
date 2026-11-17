@@ -1,5 +1,6 @@
 use crate::event_processor::posts::utils::{
-    find_post_details, pubky_id, short_post, short_repost, test_user,
+    check_member_total_engagement_user_posts, find_post_details, pubky_id, short_post, short_reply,
+    short_repost, test_user,
 };
 use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
@@ -300,5 +301,55 @@ async fn test_live_post_with_sentinel_content_is_not_tombstoned() -> Result<()> 
         notifications[0].body
     );
 
+    Ok(())
+}
+
+/// A reply to a deleted post neither raises nor lowers its engagement score: put after
+/// the delete, it was never counted, so deleting it takes nothing away.
+#[tokio_shared_rt::test(shared)]
+async fn test_reply_to_a_tombstone_leaves_its_engagement_score_alone() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let author_kp = Keypair::random();
+    let author_id = test
+        .create_user(&author_kp, &test_user("Watcher:PostDelete:Scored", ""))
+        .await?;
+    let (post_id, post_path) = test
+        .create_post(&author_kp, &short_post("Watcher:PostDelete:Scored:Post"))
+        .await?;
+    let post_uri = post_uri_builder(author_id.clone(), post_id.clone());
+
+    // A reply before the delete is counted, and keeps the post a tombstone.
+    let replier_kp = Keypair::random();
+    test.create_user(&replier_kp, &test_user("Watcher:PostDelete:Scorer", ""))
+        .await?;
+    test.create_post(
+        &replier_kp,
+        &short_reply("Watcher:PostDelete:Counted", post_uri.clone()),
+    )
+    .await?;
+    test.del(&author_kp, &post_path).await?;
+    assert!(find_post_details(&author_id, &post_id).await?.deleted);
+    let post_key = [author_id.as_str(), post_id.as_str()];
+    let before = check_member_total_engagement_user_posts(&post_key).await?;
+    assert_eq!(before, Some(1), "the reply before the delete was counted");
+
+    let (_, late_path) = test
+        .create_post(
+            &replier_kp,
+            &short_reply("Watcher:PostDelete:Uncounted", post_uri),
+        )
+        .await?;
+    assert_eq!(
+        check_member_total_engagement_user_posts(&post_key).await?,
+        before,
+        "a reply to the tombstone isn't counted"
+    );
+
+    test.del(&replier_kp, &late_path).await?;
+    assert_eq!(
+        check_member_total_engagement_user_posts(&post_key).await?,
+        before,
+        "so deleting it takes nothing away"
+    );
     Ok(())
 }
