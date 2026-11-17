@@ -1,4 +1,22 @@
-# Social events, RSVPs, ratings and availability
+# ADR 0005: Social Events, RSVPs, Ratings and Availability
+
+## Status
+
+Proposed — 2026-10-27
+
+## Context
+
+Social 1.1 adds the `event`, `rsvp`, `rating` and `availability` kinds to the social
+post envelope. Calendars, attendance and ratings need projections a client cannot
+assemble from post pages, and these kinds belong to the social namespace, so they are
+Nexus's to index, like other social kinds. `/v0` is frozen.
+
+## Decision
+
+Nexus indexes these four kinds from social posts and keeps its own projections: event
+occurrences for calendars, one effective RSVP per person, rating aggregates per target,
+and current availability schedules. Everything new is served under `/v1` only. No other
+namespace is read.
 
 Nexus indexes public social `event`, `rsvp`, `rating` and `availability` posts itself. Files use
 `/pub/social/v1/posts/{id}/{editId}.json`; logical identity is the versionless URI.
@@ -8,7 +26,7 @@ until a release is available. Existing v0 and v1 post spellings remain supported
 Private documents are not indexed. These projections add no resource-feed lines.
 Ordinary universal reply/embed references retain their existing feed behavior.
 
-## Only on `/v1`
+### Only on `/v1`
 
 `/v0` is frozen, so everything these projections add to the API is served under `/v1`
 alone: the event, calendar and availability routes, the `event`, `rsvp`, `rating` and
@@ -22,7 +40,7 @@ kind is `unknown` there, as the translator stored it before, `kind=event` reads 
 `types=event_changed` are 400s, its notification lists and bootstrap leave `event_changed`
 out, and its OpenAPI document names none of it.
 
-## Calendar projection
+### Calendar projection
 
 Events store `start_at` and `end_at` as UTC milliseconds, plus `all_day`, `status`,
 `policy`, `capacity` and `waitlist`. Location URIs use the common Resource
@@ -68,7 +86,7 @@ the twelve-month window is not an orphan. Run either job manually with
 Replies to an override resolve its master series before checking recurrence keys.
 A missing series projection is left alone while its parent write/rebuild can retry.
 
-## Attendance and ratings
+### Attendance and ratings
 
 An RSVP must target an indexed, undeleted event. A missing parent is retried as a
 dependency; an indexed non-event parent is rejected. One effective RSVP is selected
@@ -111,7 +129,7 @@ failed notification append does not lose the notification. Natural window aging 
 not emit change notifications. Events beyond the materialized window have no
 occurrence-change notifications until they enter it.
 
-## Filters and bounded event views
+### Filters and bounded event views
 
 `GET /v1/stream/events` combines `from`/`to`, `author`, `authors` (1–100 comma-separated
 public keys), `tags`, `status` (`confirmed`, `tentative`, `cancelled`), `collection`,
@@ -151,7 +169,7 @@ profiles are neither listed nor counted. Rating fields are read from graph aggre
 bodies cannot hide an updated score. Historic posts previously indexed as unknown
 need their source versions replayed through the watcher to gain native projections.
 
-## Calendars
+### Calendars
 
 A calendar is an ordinary collection; Nexus has no calendar endpoints. List
 collections that contain events with the post stream:
@@ -168,7 +186,7 @@ with the usual time window, filters and paging. The query starts from the
 collection's items. External event items remain links; their times are not
 inferred or fetched.
 
-## Availability
+### Availability
 
 `GET /v1/availability/{author}` serves current schedules by author.
 `GET /v1/stream/availability?for=<URI>` serves them by normalized target; author
@@ -184,8 +202,42 @@ slots or booking rights. Available blocks retain capacities; busy blocks have no
 title or capacity. Pagination is skip 0–10000, limit 1–200, default 20. No app
 namespace receives special treatment.
 
-## Known follow-ups
+## Consequences
 
-Global rating sorts still scan Posts/Resources and need maintained sorted sets.
-Rating cursors carry only the score, like the other streams; ties resume with
-`skip`. Overrides of one series have no count bound of their own.
+### Positive ✅
+
+- Clients read calendars, attendance, ratings and availability through bounded routes.
+- Requests read precomputed occurrences and never expand rules.
+- No other namespace is read, and these projections add no resource-feed lines.
+
+### Negative ❌
+
+- Global rating sorts still scan Posts/Resources and need maintained sorted sets.
+- Rating cursors carry only the score, like the other streams; ties resume with `skip`.
+- Overrides of one series have no count bound of their own.
+- The spec validator is pinned to the social 1.1 draft until a release is available.
+- Historic posts indexed as unknown need their source versions replayed.
+- Stored event kinds, projections and `event_changed` notifications stay in Neo4j and
+  Redis after a binary downgrade.
+
+### Neutral ⚠️
+
+- Two scheduled jobs: `event-occurrences` (daily) and `orphan-rsvps` (weekly).
+- Only occurrences up to twelve months ahead are materialized; past ones are not kept.
+
+## Alternatives Considered
+
+### Calendar endpoints
+
+A calendar is an ordinary collection. Listing collections that hold events with
+`item_kind=event` on the post stream reuses existing routes and paging.
+
+### Expanding recurrence rules per request
+
+Each read would repeat the expansion. Rules are expanded at write time into a bounded
+window, and requests read the stored occurrences.
+
+### Leaving these kinds to clients
+
+Indexed as unknown kinds, a client would have to page every reply to count attendance
+or average ratings.
