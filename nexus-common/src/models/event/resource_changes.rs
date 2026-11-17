@@ -178,36 +178,6 @@ impl ResourceChange {
         Ok(())
     }
 
-    /// Publish a journaled post deletion and remove its exact journal atomically.
-    pub async fn finish_batch_delete(key: &str, expected: &str, lines: &[Self]) -> ModelResult<()> {
-        static FINISH: LazyLock<Script> = LazyLock::new(|| {
-            Script::new(
-                r"
-            if redis.call('GET', KEYS[3]) == ARGV[1] then
-                redis.call('SETNX', KEYS[2], ARGV[2])
-                for i = 3, #ARGV do redis.call('RPUSH', KEYS[1], ARGV[i]) end
-                redis.call('DEL', KEYS[3])
-            end
-        ",
-            )
-        });
-        let raw = lines
-            .iter()
-            .map(Self::json)
-            .collect::<RedisResult<Vec<_>>>()?;
-        FINISH
-            .key(RESOURCE_CHANGES_KEY)
-            .key(EPOCH_KEY)
-            .key(key)
-            .arg(expected)
-            .arg(epoch_seed())
-            .arg(raw)
-            .invoke_async::<()>(&mut get_redis_conn().await?)
-            .await
-            .map_err(RedisError::from)?;
-        Ok(())
-    }
-
     /// Atomically read the page, epoch and length from one list generation.
     /// No SETNX or other write occurs here, including on an empty instance.
     pub async fn get_from_index(

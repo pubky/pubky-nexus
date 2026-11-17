@@ -3,7 +3,7 @@ use super::utils::watcher::{generate_post_id, retrieve_and_handle_event_line, Wa
 use anyhow::Result;
 use futures::TryStreamExt;
 use nexus_common::db::kv::SortOrder;
-use nexus_common::db::{get_neo4j_graph, graph::Query, queries, RedisOps};
+use nexus_common::db::{get_neo4j_graph, queries, RedisOps};
 use nexus_common::models::event::resource_changes::{
     ResourceChange, ResourceChangeKind, ResourceChangeOp,
 };
@@ -223,7 +223,7 @@ async fn replies_embeds_and_collections_share_resources_and_replay_keys() -> Res
 }
 
 #[tokio_shared_rt::test(shared)]
-async fn graph_commit_before_append_replays_put_and_deleted_graph_replays_del() -> Result<()> {
+async fn graph_commit_before_append_replays_put_and_a_delete_retry_replays_del() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let key = Keypair::random();
     test.register_user(&key).await?;
@@ -277,9 +277,11 @@ async fn graph_commit_before_append_replays_put_and_deleted_graph_replays_del() 
         (puts[0].resource_id.as_str(), puts[0].kind),
         (puts[1].resource_id.as_str(), puts[1].kind)
     );
-    references::prepare_delete(&author, &id).await?;
-    get_neo4j_graph()?.run(Query::new("reference_crash_delete", "MATCH (p:Post {id:$id}) WHERE EXISTS { (:User {id:$author})-[:AUTHORED]->(p) } DETACH DELETE p").param("id", id.clone()).param("author", author.clone())).await?;
+    // A DEL that appended its dels and stopped before the graph delete: the post stays
     let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+    references::retract(&author, &id).await?;
+    assert!(PostDetails::get_from_graph(&author, &id).await?.is_some());
+    // Its retry appends them again and deletes the post; a replay finds nothing to retract
     retrieve_and_handle_event_line(&format!("DEL pubky://{author}{version}"), handler.clone())
         .await?;
     retrieve_and_handle_event_line(&format!("DEL pubky://{author}{version}"), handler).await?;
@@ -288,8 +290,10 @@ async fn graph_commit_before_append_replays_put_and_deleted_graph_replays_del() 
         .iter()
         .filter(|line| line.author == author && line.op == ResourceChangeOp::Del)
         .collect();
-    assert_eq!(deletes.len(), 1);
-    assert_eq!(deletes[0].object_path, version.to_string());
+    assert_eq!(deletes.len(), 2, "the retry's duplicate, and no more");
+    assert!(deletes
+        .iter()
+        .all(|line| line.object_path == version.to_string()));
     assert!(ResourceView::get_by_id(
         &resource_id(&normalize_uri(&target).map_err(anyhow::Error::msg)?.0),
         None,
@@ -303,39 +307,32 @@ async fn graph_commit_before_append_replays_put_and_deleted_graph_replays_del() 
     Ok(())
 }
 
-/// A DEL that deleted the post from the graph and stopped before publishing its references'
-/// dels leaves their delete journal. A PUT of the post before the DEL's retry publishes that
-/// journal first, then its own references, so the consumer ends with the reference live.
+/// A DEL that appended its references' dels and stopped before the graph delete leaves the
+/// post. A PUT of the post before the DEL's retry publishes its references again, so the
+/// consumer ends with the reference live, as the graph holds it.
 #[tokio_shared_rt::test(shared)]
-async fn put_after_an_interrupted_delete_publishes_its_journal_first() -> Result<()> {
-    use deadpool_redis::redis::AsyncCommands;
-    use nexus_common::db::get_redis_conn;
-
+async fn put_after_an_interrupted_delete_publishes_its_references_again() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let key = Keypair::random();
     test.register_user(&key).await?;
     let author = key.public_key().to_z32();
     let profile = test
-        .put_v1_profile(&key, &v1_test_user("Reference journal on put", ""))
+        .put_v1_profile(&key, &v1_test_user("Reference retraction on put", ""))
         .await?;
     super::utils::watcher::rank_user(&author).await?;
-    let target = format!("https://example.com/journal-on-put/{author}");
+    let target = format!("https://example.com/retraction-on-put/{author}");
     let rid = resource_id(&normalize_uri(&target).map_err(anyhow::Error::msg)?.0);
     let id = generate_post_id();
     let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
     test.put(
         &key,
         &path,
-        &json!({"kind":"note","content":"journaled","parent":target}),
+        &json!({"kind":"note","content":"retracted","parent":target}),
     )
     .await?;
-    // The DEL's journal and graph delete, without its publish
-    references::prepare_delete(&author, &id).await?;
-    get_neo4j_graph()?.run(Query::new("reference_journal_delete", "MATCH (p:Post {id:$id}) WHERE EXISTS { (:User {id:$author})-[:AUTHORED]->(p) } DETACH DELETE p").param("id", id.clone()).param("author", author.clone())).await?;
-    let journal = format!("Event:ResourceChanges:PostDelete:{author}:{id}");
-    let pending: Option<String> = get_redis_conn().await?.get(&journal).await?;
-    assert!(pending.is_some(), "the interrupted DEL's journal");
     let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+    // The DEL's append, without its graph delete
+    references::retract(&author, &id).await?;
 
     retrieve_and_handle_event_line(
         &format!("PUT pubky://{author}{path}"),
@@ -351,8 +348,6 @@ async fn put_after_an_interrupted_delete_publishes_its_journal_first() -> Result
         .map(|line| line.op)
         .collect();
     assert_eq!(ops, [ResourceChangeOp::Del, ResourceChangeOp::Put]);
-    let pending: Option<String> = get_redis_conn().await?.get(&journal).await?;
-    assert!(pending.is_none(), "the PUT finished the journal");
     assert_eq!(
         references::posts(&rid, ResourceChangeKind::Reply, 0, 10).await?,
         [(author.clone(), id.clone())]
@@ -416,20 +411,19 @@ async fn concurrent_delete_is_not_overtaken_by_an_outbox_append() -> Result<()> 
     let mut del = spawn_event_line(format!("DEL pubky://{author}{path}"), handler);
     // Unordered, the DEL runs to its end while the PUT is held.
     let early = tokio::time::timeout(Duration::from_secs(3), &mut del).await;
-    // The DEL waits for the lock before it reads the post's references: it journals nothing
-    let journal: Option<String> = {
-        use deadpool_redis::redis::AsyncCommands;
-        nexus_common::db::get_redis_conn()
-            .await?
-            .get(format!("Event:ResourceChanges:PostDelete:{author}:{id}"))
-            .await?
-    };
+    // The DEL waits for the lock before it reads the post's references: it appends nothing
+    let appended_early = ResourceChange::get_from_index(cursor, 1000)
+        .await?
+        .0
+        .lines
+        .iter()
+        .any(|line| line.author == author && line.op == ResourceChangeOp::Del);
     let _ = release.send(());
     assert!(
         early.is_err(),
         "the DEL must wait while the PUT holds the lock"
     );
-    assert!(journal.is_none(), "the waiting DEL journaled its delete");
+    assert!(!appended_early, "the waiting DEL appended its dels");
     let put_result = put.await?;
     let del_result = del.await?;
 
@@ -863,8 +857,8 @@ async fn tombstoned_external_reply_stays_out_of_root_graph_reads() -> Result<()>
 
 /// A native reply that also embeds an external URI, tombstoned because a child replies to it,
 /// keeps its cached relationships: they are the gate its later hard delete reads before it takes
-/// the reply's engagement off the parent. Finishing the tombstone's reference journal must not
-/// drop them, and the hard delete must bring the parent's engagement back down.
+/// the reply's engagement off the parent, and the hard delete must bring the parent's engagement
+/// back down.
 #[tokio_shared_rt::test(shared)]
 async fn tombstoned_reply_with_an_external_embed_keeps_its_hard_delete_gate() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
