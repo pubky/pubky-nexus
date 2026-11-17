@@ -76,50 +76,19 @@ fn epoch_seed() -> u64 {
     u64::from_le_bytes(bytes)
 }
 
-fn pending_key(author: &str, object_path: &str) -> String {
-    format!("Event:ResourceChanges:PendingDelete:{author}:{object_path}")
-}
-
-fn alias_key(author: &str, object_path: &str) -> String {
-    format!("Event:ResourceChanges:PendingDeleteAlias:{author}:{object_path}")
-}
-
 fn object_path<'a>(author: &str, tag_uri: &'a str) -> ModelResult<&'a str> {
     tag_uri
         .strip_prefix(&format!("pubky://{author}"))
         .filter(|path| path.starts_with("/pub/"))
-        .ok_or_else(|| ModelError::from_generic("Invalid tag storage URI"))
+        .ok_or_else(|| ModelError::InvalidInput(format!("Invalid tag storage URI: {tag_uri}")))
 }
 
-// KEYS[1] and KEYS[2] are the list and the epoch, ARGV[1] seeds the epoch, KEYS[3] is the
-// put's path's pending delete and ARGV[2] the put. A put supersedes an unfinished delete of
-// its path.
+// KEYS[1] and KEYS[2] are the list and the epoch, ARGV[1] seeds the epoch, ARGV[2] is the line.
 static APPEND: LazyLock<Script> = LazyLock::new(|| {
     Script::new(
         r"
     redis.call('SETNX', KEYS[2], ARGV[1])
     redis.call('RPUSH', KEYS[1], ARGV[2])
-    redis.call('DEL', KEYS[3])
-",
-    )
-});
-
-// KEYS[4..] are aliases naming the delete from other addresses, removed with it while they
-// still name its path, ARGV[2].
-static FINISH_DELETE: LazyLock<Script> = LazyLock::new(|| {
-    Script::new(
-        r"
-    local line = redis.call('GET', KEYS[3])
-    if line then
-        redis.call('SETNX', KEYS[2], ARGV[1])
-        redis.call('RPUSH', KEYS[1], line)
-    end
-    redis.call('DEL', KEYS[3])
-    for i = 4, #KEYS do
-        if redis.call('GET', KEYS[i]) == ARGV[2] then
-            redis.call('DEL', KEYS[i])
-        end
-    end
 ",
     )
 });
@@ -162,97 +131,17 @@ impl ResourceChange {
         serde_json::to_string(self).map_err(|e| RedisError::SerializationFailed(Box::new(e)))
     }
 
-    /// Call only after the graph write has committed. Replayed puts may append
-    /// again. A later accepted put supersedes any unfinished delete of its path.
+    /// Appends the line. A put is appended after its graph write has committed, a del before
+    /// its graph delete: a retry appends either again, and consumers tolerate duplicates.
     pub async fn store(&self) -> RedisResult<()> {
         let mut conn = get_redis_conn().await?;
         APPEND
             .key(RESOURCE_CHANGES_KEY)
             .key(EPOCH_KEY)
-            .key(pending_key(&self.author, &self.object_path))
             .arg(epoch_seed())
             .arg(self.json()?)
             .invoke_async::<()>(&mut conn)
             .await?;
-        Ok(())
-    }
-
-    /// Persist delete details before removing the graph edge, which is the only
-    /// source of its target URI and label. Retry preserves the first timestamp.
-    pub async fn prepare_delete(&self) -> ModelResult<()> {
-        self.prepare(None).await
-    }
-
-    /// [`ResourceChange::prepare_delete`] of a tag whose edge is stored under another address
-    /// than `from_uri`, the address of the file being deleted: the pending delete is keyed by
-    /// the edge's address, and `from_uri` names it until the delete is published, so a retry
-    /// that no longer finds the edge still finds the delete.
-    pub async fn prepare_aliased_delete(&self, from_uri: &str) -> ModelResult<()> {
-        self.prepare(Some(from_uri)).await
-    }
-
-    async fn prepare(&self, from_uri: Option<&str>) -> ModelResult<()> {
-        let mut pipe = redis::pipe();
-        pipe.atomic()
-            .cmd("SETNX")
-            .arg(pending_key(&self.author, &self.object_path))
-            .arg(self.json()?)
-            .ignore();
-        if let Some(from_uri) = from_uri {
-            pipe.cmd("SET")
-                .arg(alias_key(
-                    &self.author,
-                    object_path(&self.author, from_uri)?,
-                ))
-                .arg(&self.object_path)
-                .ignore();
-        }
-        let mut conn = get_redis_conn().await?;
-        pipe.query_async::<()>(&mut conn)
-            .await
-            .map_err(RedisError::from)?;
-        Ok(())
-    }
-
-    /// The address of the tag file whose pending delete `from_uri` names: see
-    /// [`ResourceChange::prepare_aliased_delete`].
-    pub async fn aliased_delete(author: &str, from_uri: &str) -> ModelResult<Option<String>> {
-        let from = object_path(author, from_uri)?;
-        let mut conn = get_redis_conn().await?;
-        let path: Option<String> = conn
-            .get(alias_key(author, from))
-            .await
-            .map_err(RedisError::from)?;
-        Ok(path.map(|path| format!("pubky://{author}{path}")))
-    }
-
-    /// Call after graph deletion, including a retry that finds no edge. Append
-    /// and pending-record removal are atomic, so a failed acknowledgement is safe.
-    pub async fn finish_delete(author: &str, tag_uri: &str) -> ModelResult<()> {
-        Self::finish_aliased_delete(author, tag_uri, &[]).await
-    }
-
-    /// [`ResourceChange::finish_delete`] of a delete that `from_uris` name, as
-    /// [`ResourceChange::prepare_aliased_delete`] journals them: removes those aliases with
-    /// it, while they still name it.
-    pub async fn finish_aliased_delete(
-        author: &str,
-        tag_uri: &str,
-        from_uris: &[&str],
-    ) -> ModelResult<()> {
-        let path = object_path(author, tag_uri)?;
-        let mut invocation = FINISH_DELETE.key(RESOURCE_CHANGES_KEY);
-        invocation.key(EPOCH_KEY).key(pending_key(author, path));
-        for from_uri in from_uris {
-            invocation.key(alias_key(author, object_path(author, from_uri)?));
-        }
-        let mut conn = get_redis_conn().await?;
-        invocation
-            .arg(epoch_seed())
-            .arg(path)
-            .invoke_async::<()>(&mut conn)
-            .await
-            .map_err(RedisError::from)?;
         Ok(())
     }
 
@@ -463,8 +352,7 @@ mod tests {
 
     // Runs exclusively via nextest: it replaces the shared feed, never the graph.
     #[tokio_shared_rt::test(shared)]
-    async fn live_feed_paging_delete_recovery_and_atomic_seed() -> Result<(), crate::types::DynError>
-    {
+    async fn live_feed_paging_and_atomic_seed() -> Result<(), crate::types::DynError> {
         StackManager::setup(&StackConfig::default()).await?;
         let mut conn = get_redis_conn().await?;
         let _: () = conn.del(&[RESOURCE_CHANGES_KEY, EPOCH_KEY]).await?;
@@ -484,15 +372,7 @@ mod tests {
         let mut deleted = first.clone();
         deleted.op = ResourceChangeOp::Del;
         deleted.at = 11;
-        deleted.prepare_delete().await?;
-        assert_eq!(
-            ResourceChange::get_from_index(0, 1000).await?.0.lines,
-            std::slice::from_ref(&first)
-        );
-        let tag_uri = format!("pubky://{author}{}", first.object_path);
-        // Models an interrupted handler after the graph edge has gone.
-        ResourceChange::finish_delete(&author, &tag_uri).await?;
-        ResourceChange::finish_delete(&author, &tag_uri).await?;
+        deleted.store().await?;
         let (page, epoch, length) = ResourceChange::get_from_index(0, 1).await?;
         assert_eq!(page.lines, std::slice::from_ref(&first));
         assert_eq!(page.next_cursor, 1);

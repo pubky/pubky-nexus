@@ -411,9 +411,13 @@ pub async fn del(key: ResourceKey) -> Result<(), EventProcessorError> {
 }
 
 /// Deletes the tag `key` names, whichever folder wrote it: a tag is one edge per tagger,
-/// target and label, found by its id alone. It holds the tag file's lock: see [`lock_tag`]. A
-/// resource tag's feed del is keyed by the address stored on the edge; `tag_uri`, the address
-/// of the file being deleted, is also checked along with both canonical epoch paths on a retry.
+/// target and label, found by its id alone. It holds the tag file's lock: see [`lock_tag`].
+/// `tag_uri` is the address of the file being deleted (or taken down).
+///
+/// A resource tag's feed del is appended before the graph delete, from the edge it read: the
+/// Resource's id and normalized URI and the label, with `tag_uri`'s path as its
+/// `object_path`. A retry reads the edge again and appends the del again; once the edge is
+/// gone, the delete is a no-op.
 #[tracing::instrument(
     name = "tag.del",
     skip_all,
@@ -434,30 +438,7 @@ pub async fn del_at(key: ResourceKey, tag_uri: &str) -> Result<(), EventProcesso
     let _tag_lock = lock_tag(tagger_id, &arg_tag_id).await;
     let row = fetch_row_from_graph(queries::get::get_tag_target(tagger_id, &arg_tag_id)).await?;
     let Some(row) = row else {
-        // The journals a retry finishes. First the one this file's address names, kept under
-        // the address of an edge stored elsewhere. Then the journals of this address and of
-        // both canonical epoch paths: the edge may have been owned by the other epoch's file,
-        // and its URI is gone after the graph commit. Each append-and-clear is atomic;
-        // replaying any is harmless.
-        let mut journals: Vec<(String, bool)> = Vec::new();
-        if let Some(stored_uri) = ResourceChange::aliased_delete(&arg_user_id, tag_uri).await? {
-            journals.push((stored_uri, true));
-        }
-        journals.extend(
-            [
-                tag_uri.to_owned(),
-                pubky_social_specs::legacy_v0::tag_uri_builder(
-                    arg_user_id.to_string(),
-                    arg_tag_id.clone(),
-                ),
-                pubky_social_specs::tag_uri_builder(arg_user_id.to_string(), arg_tag_id.clone()),
-            ]
-            .map(|uri| (uri, false)),
-        );
-        for (uri, aliased) in &journals {
-            let aliases: &[&str] = if *aliased { &[tag_uri] } else { &[] };
-            ResourceChange::finish_aliased_delete(&arg_user_id, uri, aliases).await?;
-        }
+        // Edge already gone (fully completed on a prior attempt) - idempotent no-op
         return Ok(());
     };
 
@@ -469,19 +450,11 @@ pub async fn del_at(key: ResourceKey, tag_uri: &str) -> Result<(), EventProcesso
     let label: String = row
         .get("label")
         .map_err(|e| EventProcessorError::generic(format!("Missing label in delete_tag: {e}")))?;
-    // The feed's put used the address stored on the edge; key the del the same way.
-    let stored_uri: Option<String> = row.get("tag_uri").unwrap_or(None);
-    let event_uri = tag_uri;
-    let tag_uri = stored_uri.as_deref().unwrap_or(tag_uri);
-    // A retry that no longer finds the edge knows only the event's address: it names the
-    // journal kept under the edge's until the del is published.
-    let aliased = tag_uri != event_uri;
 
     // 2. Redis cleanup (guarded by tagger_in_index where non-idempotent)
     // Post-count cache to invalidate AFTER the graph edge is deleted (invalidating
     // before it is gone lets a concurrent read recache the pre-delete tag count).
     let mut post_counts_to_invalidate: Option<[String; 2]> = None;
-    let mut resource_change = None;
     match (tagged_user_id, post_id, author_id, resource_id) {
         (Some(tagged_id), None, None, None) => {
             let tagger_in_index =
@@ -511,13 +484,13 @@ pub async fn del_at(key: ResourceKey, tag_uri: &str) -> Result<(), EventProcesso
             .await?;
             post_counts_to_invalidate = Some([author_id, post_id]);
         }
-        // Resource tags keep no Redis index to clean up; the feed's del line
-        // is prepared here and published after the graph deletion below.
+        // Resource tags keep no Redis index to clean up. The feed writes before the graph:
+        // a delete that fails after this append leaves the edge, and its retry appends again.
         (None, None, None, Some(res_id)) => {
             let uri: String = row
                 .get("resource_uri")
                 .map_err(EventProcessorError::generic)?;
-            resource_change = Some(ResourceChange::tag(
+            ResourceChange::tag(
                 ResourceChangeOp::Del,
                 res_id,
                 uri,
@@ -525,38 +498,17 @@ pub async fn del_at(key: ResourceKey, tag_uri: &str) -> Result<(), EventProcesso
                 label.clone(),
                 tag_uri,
                 Utc::now().timestamp_millis(),
-            )?);
+            )?
+            .store()
+            .await?;
         }
         _ => {
             debug!("DEL-Tag: Unexpected combination of tag details");
         }
     }
 
-    if let Some(change) = &resource_change {
-        if aliased {
-            change.prepare_aliased_delete(event_uri).await?;
-        } else {
-            change.prepare_delete().await?;
-        }
-    }
-
     // 3. Graph deletion LAST — ensures data survives for retry if Redis ops fail
     fetch_row_from_graph(queries::del::delete_tag(&arg_user_id, &arg_tag_id)).await?;
-    if resource_change.is_some() {
-        let aliases: &[&str] = if aliased { &[event_uri] } else { &[] };
-        ResourceChange::finish_aliased_delete(&arg_user_id, tag_uri, aliases).await?;
-        // An earlier attempt of this delete, on an edge stored elsewhere and deleted since, may
-        // have left its journal named from this file's address: the file is gone, so is that
-        // edge, and its del goes out too
-        if !aliased {
-            if let Some(earlier) = ResourceChange::aliased_delete(&arg_user_id, event_uri).await? {
-                if earlier != tag_uri {
-                    ResourceChange::finish_aliased_delete(&arg_user_id, &earlier, &[event_uri])
-                        .await?;
-                }
-            }
-        }
-    }
 
     // Now that the TAGGED edge is gone, invalidate the cached post counts so the
     // next read recomputes the lower count instead of recaching the pre-delete one.
