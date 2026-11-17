@@ -768,3 +768,61 @@ async fn test_resource_tag_flip_waits_for_the_tagger_lock() -> Result<()> {
     test.cleanup_user(&key).await?;
     Ok(())
 }
+
+/// A `pubky.app` resource tag whose target is longer than the spec's reference cap is rejected
+/// with a spec validation error, which the watcher does not retry: no edge and no feed line. A
+/// target at the cap is indexed and published. (A `social/v1` tag over the cap fails the spec's
+/// own validation before it reaches the handler.)
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_tag_target_over_the_cap_is_rejected() -> Result<()> {
+    use nexus_common::models::resource::tag::RESOURCE_TAG_TARGET_MAX_LENGTH;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Long target", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let handler = test.event_processor_runner.event_handler.clone();
+    let prefix = format!("https://example.com/long-target/{author}/");
+    let target = |length: usize| format!("{prefix}{}", "a".repeat(length - prefix.len()));
+    for (length, accepted) in [
+        (RESOURCE_TAG_TARGET_MAX_LENGTH, true),
+        (RESOURCE_TAG_TARGET_MAX_LENGTH + 1, false),
+    ] {
+        let target = target(length);
+        let tag = PubkyAppTag::new(target.clone(), "steps".into());
+        let path = format!("/pub/pubky.app/tags/{}", tag.create_id());
+        test.put(&key, &path.parse::<ResourcePath>()?, &tag).await?;
+        let handled = retrieve_and_handle_event_line(
+            &format!("PUT pubky://{author}{path}"),
+            &test.homeserver_id,
+            handler.clone(),
+        )
+        .await;
+        let edge = resource_tag_edge(&author, &target).await?;
+        if accepted {
+            handled?;
+            assert!(edge.is_some(), "a target at the cap is indexed");
+        } else {
+            assert!(
+                matches!(handled, Err(EventProcessorError::SpecValidation(_))),
+                "{handled:?}"
+            );
+            assert_eq!(edge, None, "a target over the cap is not indexed");
+        }
+    }
+    let (at_cap, _) = normalize_uri(&target(RESOURCE_TAG_TARGET_MAX_LENGTH)).unwrap();
+    let (over_cap, _) = normalize_uri(&target(RESOURCE_TAG_TARGET_MAX_LENGTH + 1)).unwrap();
+    let lines = authored_since(&author, start).await?;
+    assert!(!lines.is_empty());
+    assert!(
+        lines
+            .iter()
+            .all(|line| line.resource_id == resource_id(&at_cap)
+                && line.resource_id != resource_id(&over_cap)),
+        "only the target at the cap is published: {lines:?}"
+    );
+    test.cleanup_user(&key).await?;
+    Ok(())
+}

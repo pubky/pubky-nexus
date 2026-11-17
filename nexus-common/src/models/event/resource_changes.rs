@@ -14,6 +14,7 @@ use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 use std::time::Duration;
+use tracing::warn;
 use utoipa::ToSchema;
 
 pub const RESOURCE_CHANGES_KEY: &str = "Event:ResourceChanges";
@@ -40,6 +41,8 @@ pub enum ResourceChangeKind {
     Collection,
 }
 
+/// One feed line. Lines stay in Redis across builds, so a field added later must be optional
+/// (`#[serde(default)]`), and fields a line does not know are ignored.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ResourceChange {
     pub op: ResourceChangeOp,
@@ -50,7 +53,7 @@ pub struct ResourceChange {
     pub kind: ResourceChangeKind,
     pub author: String,
     /// Present for tag references.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     /// The homeserver path of the tag, reply or collection file that names the URI, as
     /// written: for a tag, the file the line concerns, for information only. A tag's replay key
@@ -104,7 +107,6 @@ static READ: LazyLock<Script> = LazyLock::new(|| {
 });
 
 impl ResourceChange {
-    #[allow(clippy::too_many_arguments)]
     pub fn tag(
         op: ResourceChangeOp,
         resource_id: String,
@@ -177,7 +179,11 @@ impl ResourceChange {
     /// Rebuild from graph edges, then atomically publish with a new epoch.
     /// The old list's suffix is copied after the snapshot, preserving concurrent
     /// watcher appends (duplicates are resolved by the consumer's replay key).
-    pub async fn reseed() -> ModelResult<u64> {
+    ///
+    /// A snapshot with no lines does not replace a feed that held lines when the seed started:
+    /// an empty or wrong graph would otherwise reset every consumer. With `allow_empty` it does,
+    /// for a graph whose references were all deleted.
+    pub async fn reseed(allow_empty: bool) -> ModelResult<u64> {
         let token = pubky::Keypair::random().public_key().to_z32();
         if !try_acquire_lock(SEED_LOCK, &token, SEED_TTL).await? {
             return Err(ModelError::from_generic(
@@ -185,20 +191,44 @@ impl ResourceChange {
             ));
         }
         let temp = format!("{RESOURCE_CHANGES_KEY}:Seed:{token}");
-        let result = tokio::time::timeout(Duration::from_secs(3600), seed_inner(&token, &temp))
-            .await
-            .map_err(ModelError::from_generic)
-            .and_then(|r| r);
+        let result = tokio::time::timeout(
+            Duration::from_secs(3600),
+            seed_inner(&token, &temp, allow_empty),
+        )
+        .await
+        .map_err(ModelError::from_generic)
+        .and_then(|r| r);
         // Aborted processes leave only expiring temporary data and the old feed.
         if let Ok(mut conn) = get_redis_conn().await {
             let _ = conn.del::<_, ()>(&temp).await;
         }
-        release_lock(SEED_LOCK, &token).await?;
+        // The lease expires by itself: a failed release must not report a published seed
+        // as failed.
+        if let Err(e) = release_lock(SEED_LOCK, &token).await {
+            warn!(error = %e, "Resource changes seed lease not released; it expires by itself");
+        }
         result
     }
 }
 
-async fn seed_inner(token: &str, temp: &str) -> ModelResult<u64> {
+/// The put line of one resource tag edge the seed reads, or why it cannot be one: a missing
+/// field or a stored address outside its author's folder.
+fn seed_line(row: &neo4rs::Row) -> ModelResult<ResourceChange> {
+    let tag_uri: Option<String> = row.get("tag_uri")?;
+    let tag_uri =
+        tag_uri.ok_or_else(|| ModelError::InvalidInput("no stored tag address".into()))?;
+    ResourceChange::tag(
+        ResourceChangeOp::Put,
+        row.get("resource_id")?,
+        row.get("uri")?,
+        row.get("author")?,
+        row.get("label")?,
+        &tag_uri,
+        row.get("indexed_at")?,
+    )
+}
+
+async fn seed_inner(token: &str, temp: &str, allow_empty: bool) -> ModelResult<u64> {
     let mut conn = get_redis_conn().await?;
     let start: u64 = conn
         .llen(RESOURCE_CHANGES_KEY)
@@ -210,10 +240,8 @@ async fn seed_inner(token: &str, temp: &str) -> ModelResult<u64> {
             "resource_changes_seed",
             r"
         MATCH (u:User)-[t:TAGGED]->(r:Resource)
-        RETURN u.id AS author, r.id AS resource_id, r.uri AS uri,
-               t.label AS label, t.indexed_at AS indexed_at,
-               coalesce(t.uri, 'pubky://' + u.id + '/pub/' +
-                   coalesce(t.app, 'pubky.app') + '/tags/' + t.id) AS tag_uri
+        RETURN elementId(t) AS edge, u.id AS author, r.id AS resource_id, r.uri AS uri,
+               t.label AS label, t.indexed_at AS indexed_at, t.uri AS tag_uri
         ORDER BY indexed_at, author, tag_uri, resource_id
     ",
         ))
@@ -221,16 +249,15 @@ async fn seed_inner(token: &str, temp: &str) -> ModelResult<u64> {
         .map_err(GraphError::from)?;
     let mut batch = Vec::with_capacity(BATCH_SIZE);
     while let Some(row) = rows.try_next().await.map_err(GraphError::from)? {
-        let tag_uri: String = row.get("tag_uri")?;
-        let line = ResourceChange::tag(
-            ResourceChangeOp::Put,
-            row.get("resource_id")?,
-            row.get("uri")?,
-            row.get("author")?,
-            row.get("label")?,
-            &tag_uri,
-            row.get("indexed_at")?,
-        )?;
+        // One edge that cannot be a line must not stop the seed, which the migration runs
+        let line = match seed_line(&row) {
+            Ok(line) => line,
+            Err(e) => {
+                let edge: Option<String> = row.get("edge").ok();
+                warn!(?edge, error = %e, "Resource changes seed skipped a resource tag edge");
+                continue;
+            }
+        };
         batch.push(line.json()?);
         if batch.len() == BATCH_SIZE {
             write_seed_batch(temp, &batch).await?;
@@ -240,7 +267,9 @@ async fn seed_inner(token: &str, temp: &str) -> ModelResult<u64> {
     if !batch.is_empty() {
         write_seed_batch(temp, &batch).await?;
     }
-    publish_seed(token, temp, start).await.map_err(Into::into)
+    publish_seed(token, temp, start, allow_empty)
+        .await
+        .map_err(Into::into)
 }
 
 async fn write_seed_batch(temp: &str, batch: &[String]) -> RedisResult<()> {
@@ -260,7 +289,7 @@ async fn write_seed_batch(temp: &str, batch: &[String]) -> RedisResult<()> {
     Ok(())
 }
 
-async fn publish_seed(token: &str, temp: &str, start: u64) -> RedisResult<u64> {
+async fn publish_seed(token: &str, temp: &str, start: u64, allow_empty: bool) -> RedisResult<u64> {
     static PUBLISH: LazyLock<Script> = LazyLock::new(|| {
         Script::new(
             r"
@@ -270,6 +299,10 @@ async fn publish_seed(token: &str, temp: &str, start: u64) -> RedisResult<u64> {
         local length = redis.call('LLEN', KEYS[1])
         if length < tonumber(ARGV[2]) then
             return redis.error_reply('Resource changes feed was truncated during seed')
+        end
+        if ARGV[4] ~= '1' and tonumber(ARGV[2]) > 0 and redis.call('EXISTS', KEYS[3]) == 0 then
+            return redis.error_reply('Resource changes seed found no references while the feed '
+                .. 'holds ' .. ARGV[2] .. ' lines: run resource-changes-seed-empty to publish it')
         end
         for offset = tonumber(ARGV[2]), length - 1, 1000 do
             local tail = redis.call('LRANGE', KEYS[1], offset, math.min(offset + 999, length - 1))
@@ -296,6 +329,7 @@ async fn publish_seed(token: &str, temp: &str, start: u64) -> RedisResult<u64> {
         .arg(token)
         .arg(start)
         .arg(epoch_seed())
+        .arg(if allow_empty { "1" } else { "0" })
         .invoke_async(&mut conn)
         .await?)
 }
@@ -348,6 +382,18 @@ mod tests {
         );
         assert!(object_path("author", "pubky://someone-else/pub/test.app/tags/one").is_err());
         assert!(object_path("author", "pubky://author/private/one").is_err());
+    }
+
+    #[test]
+    fn older_and_newer_lines_parse() {
+        // A line with no optional field, as an older build may have stored one
+        let minimal = r#"{"op":"del","resource_id":"r","uri":"https://example.com/a","kind":"tag","author":"a","object_path":"/pub/pubky.app/tags/x","at":1}"#;
+        let line: ResourceChange = serde_json::from_str(minimal).unwrap();
+        assert_eq!((line.op, line.label), (ResourceChangeOp::Del, None));
+        // A line with a field this build does not know, as a later build may store one
+        let extended = r#"{"op":"put","resource_id":"r","uri":"https://example.com/a","kind":"tag","author":"a","label":"l","object_path":"/pub/pubky.app/tags/x","at":2,"later":{"any":1}}"#;
+        let line: ResourceChange = serde_json::from_str(extended).unwrap();
+        assert_eq!((line.label.as_deref(), line.at), (Some("l"), 2));
     }
 
     // Runs exclusively via nextest: it replaces the shared feed, never the graph.
@@ -408,7 +454,7 @@ mod tests {
                     Query::new(
                         "seed_feed_test_edges",
                         r"
-                MERGE (u:User {id: $author})
+                MERGE (u:User {id: $author}) ON CREATE SET u.epoch = 'v0'
                 MERGE (r:Resource {id: $resource_id}) SET r.uri = $uri, r.scheme = 'https'
                 MERGE (u)-[t:TAGGED {id: $id}]->(r)
                 SET t.label = $label, t.uri = $tag_uri, t.indexed_at = $at
@@ -424,7 +470,7 @@ mod tests {
                 )
                 .await?;
         }
-        ResourceChange::reseed().await?;
+        ResourceChange::reseed(false).await?;
         let (seeded, new_epoch, length) = ResourceChange::get_from_index(0, 1000).await?;
         assert_ne!(new_epoch, epoch);
         assert_eq!(length as usize, seeded.lines.len());
@@ -445,19 +491,21 @@ mod tests {
         deleted.store().await?;
         let before = ResourceChange::get_from_index(0, 1000).await?;
         assert_eq!(before.1, new_epoch, "staging must not publish early");
-        assert!(publish_seed("wrong-token", &temp, start).await.is_err());
+        assert!(publish_seed("wrong-token", &temp, start, false)
+            .await
+            .is_err());
         assert_eq!(
             ResourceChange::get_from_index(0, 1000).await?.0.lines,
             before.0.lines
         );
-        assert_eq!(publish_seed(&token, &temp, start).await?, 2);
+        assert_eq!(publish_seed(&token, &temp, start, false).await?, 2);
         release_lock(SEED_LOCK, &token).await?;
         let after = ResourceChange::get_from_index(0, 1000).await?;
         assert_eq!(after.0.lines, [first, deleted]);
         assert_ne!(after.1, before.1);
 
         graph.run(Query::new("cleanup_feed_test", "MATCH (u:User {id: $author}) OPTIONAL MATCH (u)-[:TAGGED]->(r:Resource) DETACH DELETE r, u").param("author", author)).await?;
-        ResourceChange::reseed().await?;
+        ResourceChange::reseed(false).await?;
         Ok(())
     }
 
@@ -469,30 +517,33 @@ mod tests {
         let mut conn = get_redis_conn().await?;
         let graph = get_neo4j_graph()?;
         let author = pubky::Keypair::random().public_key().to_z32();
-        // One edge more than a seed batch, then two edges written before tags kept their
-        // address: one of another app, one of pubky.app
+        // One edge more than a seed batch, then two edges the seed cannot turn into lines, which
+        // it skips: one with no stored address, one whose address is another user's
         let edges = BATCH_SIZE + 1;
+        let other = pubky::Keypair::random().public_key().to_z32();
         graph
             .run(
                 Query::new(
                     "seed_batches_test_edges",
                     r"
-            MERGE (u:User {id: $author})
+            MERGE (u:User {id: $author}) ON CREATE SET u.epoch = 'v0'
             WITH u
             UNWIND range(0, $edges + 1) AS i
             CREATE (r:Resource {id: $author + ':' + toString(i), scheme: 'https',
                 uri: 'https://example.com/seed-batches/' + $author + '/' + toString(i)})
             CREATE (u)-[t:TAGGED {id: 'seed' + toString(i), label: 'test', indexed_at: i}]->(r)
-            SET t.uri = CASE WHEN i < $edges
-                    THEN 'pubky://' + $author + '/pub/pubky.app/tags/seed' + toString(i) END,
-                t.app = CASE WHEN i = $edges THEN 'mapky' END
+            SET t.uri = CASE
+                WHEN i < $edges THEN 'pubky://' + $author + '/pub/pubky.app/tags/seed' + toString(i)
+                WHEN i > $edges THEN 'pubky://' + $other + '/pub/pubky.app/tags/seed' + toString(i)
+            END
         ",
                 )
                 .param("author", author.as_str())
+                .param("other", other.as_str())
                 .param("edges", edges as i64),
             )
             .await?;
-        let length = ResourceChange::reseed().await?;
+        let length = ResourceChange::reseed(false).await?;
         let (seeded, _, read) = ResourceChange::get_from_index(0, usize::MAX).await?;
         assert_eq!((read, seeded.lines.len() as u64), (length, length));
         let own: Vec<_> = seeded
@@ -500,17 +551,15 @@ mod tests {
             .into_iter()
             .filter(|line| line.author == author)
             .collect();
-        let mut paths: Vec<String> = (0..edges)
+        let paths: Vec<String> = (0..edges)
             .map(|i| format!("/pub/pubky.app/tags/seed{i}"))
             .collect();
-        paths.push(format!("/pub/mapky/tags/seed{edges}"));
-        paths.push(format!("/pub/pubky.app/tags/seed{}", edges + 1));
         assert_eq!(
             own.iter()
                 .map(|line| line.object_path.as_str())
                 .collect::<Vec<_>>(),
             paths,
-            "each edge once, in indexed_at order"
+            "each good edge once, in indexed_at order, and the bad ones skipped"
         );
 
         // Appends made while a seed runs, more than one copy chunk of them, follow the seed
@@ -529,7 +578,7 @@ mod tests {
             .collect::<RedisResult<Vec<_>>>()?;
         let _: () = conn.rpush(RESOURCE_CHANGES_KEY, &json).await?;
         // The lease is released before any assertion, so a failure leaves no seed blocked
-        let published = publish_seed(&token, &temp, start).await;
+        let published = publish_seed(&token, &temp, start, false).await;
         release_lock(SEED_LOCK, &token).await?;
         assert_eq!(published?, 2501);
         let (published, _, _) = ResourceChange::get_from_index(0, usize::MAX).await?;
@@ -537,7 +586,47 @@ mod tests {
         assert_eq!(published.lines[1..], appended[..]);
 
         graph.run(Query::new("cleanup_feed_test", "MATCH (u:User {id: $author}) OPTIONAL MATCH (u)-[:TAGGED]->(r:Resource) DETACH DELETE r, u").param("author", author)).await?;
-        ResourceChange::reseed().await?;
+        ResourceChange::reseed(false).await?;
+        Ok(())
+    }
+
+    // Runs exclusively via nextest: it replaces the shared feed, never the graph.
+    #[tokio_shared_rt::test(shared)]
+    async fn live_empty_seed_does_not_replace_a_feed_with_lines(
+    ) -> Result<(), crate::types::DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let mut conn = get_redis_conn().await?;
+        let author = pubky::Keypair::random().public_key().to_z32();
+        tag(&author, "kept", 1).store().await?;
+        let before = ResourceChange::get_from_index(0, usize::MAX).await?;
+        let token = format!("feed-test-{author}");
+        let temp = format!("{RESOURCE_CHANGES_KEY}:Seed:{token}");
+        assert!(try_acquire_lock(SEED_LOCK, &token, SEED_TTL).await?);
+        let start: u64 = conn.llen(RESOURCE_CHANGES_KEY).await?;
+        assert!(start > 0);
+
+        // A snapshot that read no references, as from an empty or wrong graph
+        let refused = publish_seed(&token, &temp, start, false).await;
+        let after_refusal = ResourceChange::get_from_index(0, usize::MAX).await?;
+        // Allowed explicitly, it publishes the empty feed under a new epoch
+        let allowed = publish_seed(&token, &temp, start, true).await;
+        let after_allowed = ResourceChange::get_from_index(0, usize::MAX).await?;
+        release_lock(SEED_LOCK, &token).await?;
+        ResourceChange::reseed(false).await?;
+
+        let refused = refused.expect_err("an empty snapshot must not replace the feed");
+        assert!(
+            refused.to_string().contains("found no references"),
+            "{refused}"
+        );
+        assert_eq!(after_refusal.0.lines, before.0.lines);
+        assert_eq!(
+            (after_refusal.1, after_refusal.2),
+            (before.1.clone(), before.2)
+        );
+        assert_eq!(allowed?, 0);
+        assert!(after_allowed.0.lines.is_empty());
+        assert_ne!(after_allowed.1, before.1);
         Ok(())
     }
 }

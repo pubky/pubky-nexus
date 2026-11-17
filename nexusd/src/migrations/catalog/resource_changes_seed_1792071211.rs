@@ -5,7 +5,8 @@ use nexus_common::types::DynError;
 
 /// Run after upgrading all writers to append resource changes. The seed retains
 /// their concurrent appends and publishes a new epoch atomically. Older writers
-/// do not append, so upgrade them before running this migration.
+/// do not append, so upgrade them before running this migration. It never replaces a feed
+/// that holds lines with an empty one (see `ResourceChange::reseed`).
 pub struct ResourceChangesSeed1792071211;
 
 #[async_trait]
@@ -20,7 +21,7 @@ impl Migration for ResourceChangesSeed1792071211 {
         Ok(())
     }
     async fn backfill(&self) -> Result<(), DynError> {
-        let lines = ResourceChange::reseed().await?;
+        let lines = ResourceChange::reseed(false).await?;
         tracing::info!(lines, "Seeded resource changes feed");
         Ok(())
     }
