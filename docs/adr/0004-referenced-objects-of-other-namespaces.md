@@ -91,8 +91,11 @@ its DEL are events Nexus processes, so Nexus holds its current content, or a `de
 tombstone while relationships remain, or nothing after a hard delete.
 
 A referenced target is never observed. Deleting a tag, reply or embed deletes that reference,
-not the target, and a Resource disappears only when its last incoming reference goes. A
-target's own edit or delete is an event under its namespace, which Nexus skips (2.1).
+not the target, and a Resource disappears only when its last incoming edge goes. A deleted post
+kept as a tombstone keeps its Resource edges until its hard delete: its references are retracted
+from the feed and from every Resource-side read, and the Resource stays, with zero counts, while
+nothing else names it (ADR 0002). A target's own edit or delete is an event under its namespace,
+which Nexus skips (2.1).
 
 #### 2.4 Target freshness (decided: consumers' scheduled refresh)
 
