@@ -1,12 +1,38 @@
-# Referenced objects of other namespaces: design
+# ADR 0004: Referenced Objects of Other Namespaces
 
-Status: **design for review, not implemented.** Nothing in this document changes code, a wire
-format, a graph label or an endpoint. "Decided" marks a direction this design takes; the
-implementation of any of it is a separate change with its own review.
+## Status
 
-Code is cited as it stands on this branch. Where a route or field exists only on this branch
-(it is added by the resource changes feed and external references changes beneath this
-document, and is not on `main`), it is marked *branch*.
+Proposed — 2026-10-27
+
+## Context
+
+Social users tag, reply to and embed objects of other apps' namespaces. Today each
+becomes an untyped `Resource` pointer. Clients want to filter and read these like
+posts. The identity, graph model, wire names, validation split, lifecycle and API need
+fixing before anything is built, and the boundary needs stating: Nexus does not watch
+other namespaces.
+
+## Decision
+
+This ADR is a design. Nothing in it changes code, a wire format, a graph label or an
+endpoint; each implementation step is a separate change with its own review.
+
+Decided:
+
+1. Nexus does not watch other namespaces (section 1).
+2. Referenced objects stay `Resource` nodes, with metadata from the address and, only
+   if approved, from one read (section 4).
+3. A referenced object's type is its namespace plus the envelope's top-level string
+   `kind` (section 3.1).
+4. Every current following, reach and web-of-trust behaviour is kept exactly, with no
+   new relation filter (section 2.5).
+5. Target freshness is the consumers' scheduled refresh: eventual, without an SLA
+   (section 2.4).
+
+The sections below give the details. Code is cited as it stands on this branch. Where a
+route or field exists only on this branch (it is added by the resource changes feed and
+external references changes beneath this document, and is not on `main`), it is marked
+*branch*.
 
 Versioning on this carrier: `/v0` is frozen (fixes only). Existing `/v0` routes below
 describe historical client behaviour; shared routes also have `/v1` mounts. The branch-only
@@ -15,7 +41,7 @@ metadata field or paging extension in this document belong to `/v1` only. Consum
 migrate these branch-only calls to `/v1`; this document does not claim a deployed client
 has already migrated. No new behaviour is proposed for `/v0`.
 
-## 1. Rules
+### 1. Rules
 
 1. **Nexus does not watch other namespaces**, now or later. Seeing a homeserver event under
    `/pub/<namespace>/…` is not a reason to fetch, parse or index it.
@@ -27,9 +53,9 @@ has already migrated. No new behaviour is proposed for `/v0`.
 5. Social validation stays strict: social objects are read only with the social spec's closed
    kind sets, and nothing read from another namespace feeds social indexing.
 
-## 2. Current behaviour
+### 2. Current behaviour
 
-### 2.1 Routing
+#### 2.1 Routing
 
 The watcher routes an event by its namespace segment (`nexus-watcher/src/events/route.rs`,
 `route`) and decides once whether to fetch it (`nexus-watcher/src/events/classify.rs`,
@@ -38,7 +64,7 @@ other apps' folders are skipped before any fetch; nothing else is an address Nex
 pinned spec crate parses another namespace's path as `Resource::Foreign { namespace, version,
 rest }`, "skipped by social readers".
 
-### 2.2 References create Resources
+#### 2.2 References create Resources
 
 A reference names a URI; Nexus normalises and hashes it (`universal_tag::normalize`) into one
 `Resource` node `{id, uri, scheme, indexed_at}` and never fetches it.
@@ -58,7 +84,7 @@ reason, such as a tag on a file, is left as it is.
 The feed's `kind` is the kind of **reference**. It is not, and must never be reused as, the
 kind of the referenced object (section 4).
 
-### 2.3 Social posts versus referenced targets
+#### 2.3 Social posts versus referenced targets
 
 A social post is indexed from its author's own PUT; each edit (a new `social/v1` version) and
 its DEL are events Nexus processes, so Nexus holds its current content, or a `deleted`
@@ -68,7 +94,7 @@ A referenced target is never observed. Deleting a tag, reply or embed deletes th
 not the target, and a Resource disappears only when its last incoming reference goes. A
 target's own edit or delete is an event under its namespace, which Nexus skips (2.1).
 
-### 2.4 Target freshness (decided: consumers' scheduled refresh)
+#### 2.4 Target freshness (decided: consumers' scheduled refresh)
 
 Consumers that show a target keep it current themselves. Pinakes re-reads each stored external
 resource on a schedule, with a per-card TTL, backoff, a dead-letter state and an unreachable
@@ -77,7 +103,7 @@ state for `401`/`403` (not treated as deleted), and treats `404`/`410` as missin
 bound; queueing, backoff, homeserver unavailability and dead-lettering delay an edit or delete
 without limit until a refresh succeeds. No Nexus watcher and no known-URI event signal is added.
 
-### 2.5 Following, reach and web of trust (decided: keep current behaviour exactly)
+#### 2.5 Following, reach and web of trust (decided: keep current behaviour exactly)
 
 Routes that take a social relation apply it to different subjects. Each row is current
 behaviour on this branch's base, and every one is kept as it is. `reach` is `followers |
@@ -105,16 +131,16 @@ questions, and both already exist on different routes. This design keeps every r
 and adds no relation filter and no new meaning for an existing one. A relation filter on the
 resource streams would be a separate future proposal.
 
-## 3. Identity
+### 3. Identity
 
-### 3.1 Namespace + kind (decided)
+#### 3.1 Namespace + kind (decided)
 
 A referenced object's type is the pair `(namespace, kind)`. `kind` is the **top-level string**
 `kind` of the object's envelope; it is never a fixed `custom` kind with a `subkind` inside
 `content`. The same kind name in two namespaces is two kinds: `review` in `alpha` and `review`
 in `beta` never share a filter, a count or a validator.
 
-### 3.2 What an address proves, and what it does not
+#### 3.2 What an address proves, and what it does not
 
 - The key in `pubky://<key>/…` identifies the **account**, the public key whose signed
   discovery record points to a homeserver. It does not name the homeserver, and it is not
@@ -127,7 +153,7 @@ in `beta` never share a filter, a count or a validator.
   the target's URI, derived from the address alone); and a **verified envelope author**, which
   exists only if the envelope was actually read from that account's homeserver and validated.
 
-### 3.3 Spec compatibility
+#### 3.3 Spec compatibility
 
 Two spec pins matter: this branch's base pins `pubky-social-specs` at `acde362` (crate version
 `1.0.0-alpha.5`); the separate social 1.1 work pins the draft `b2916840` (`1.1.0-alpha.1`).
@@ -183,7 +209,7 @@ type is never used for `social` (both pins reserve it), and nothing it reads ent
 indexing. Objects in a namespace that does not use this layout have no envelope kind; Nexus
 reports their kind as unknown and never guesses it from a path.
 
-## 4. Graph model (decided: Resource, with metadata from the address and, only if approved, from one read)
+### 4. Graph model (decided: Resource, with metadata from the address and, only if approved, from one read)
 
 Both models were compared on the same terms. Neither needs a watcher: either would get a target's
 metadata or content only from a read made because it was referenced (4.1, unapproved), and either
@@ -206,7 +232,7 @@ timelines or counts. The Post model is not rejected for needing a watcher; it ne
 rejected for the post-key migration and for serving referenced content through routes that
 present it as current.
 
-### 4.1 Where the metadata comes from
+#### 4.1 Where the metadata comes from
 
 - `namespace`: parsed from the URI at write time, no fetch. Only for `pubky://` URIs whose
   namespace segment passes the namespace syntax rule (the 1.1 draft's `validate_namespace`, 3.3);
@@ -224,7 +250,7 @@ present it as current.
   inside `content` is read or stored, and no URI found in the envelope is followed.
 - Without that approval, `kind` and `envelope_author` are never set.
 
-### 4.2 Wire names
+#### 4.2 Wire names
 
 All proposed metadata sits in the Resource view's `details`, beside today's `id`, `uri`,
 `scheme` and `indexed_at`: `namespace` and `address_owner` (from the URI), and `kind`,
@@ -234,7 +260,7 @@ the kind-name syntax the spec is asked to define (3.3), and until then no `kind`
 all. A value that fails its rule is reported as unknown and is not filterable. The resource
 changes feed stays as it is: its `kind` is the reference kind (2.2).
 
-## 5. Validation
+### 5. Validation
 
 Content validation belongs to the app that owns the namespace. Nexus does not validate another
 namespace's content and must never present it as validated. Nexus keeps its own safety envelope
@@ -242,7 +268,7 @@ on everything it stores or returns: URI length and scheme bounds, normalisation 
 label bounds, the namespace and kind bounds in 4.2, cardinality caps so a writer cannot create
 unbounded index entries, and the hydration bounds in 4.1.
 
-## 6. Discovery and deletion limits
+### 6. Discovery and deletion limits
 
 - Only references discover objects; an object nobody references is unknown to Nexus.
 - Deleting a reference never means the target was deleted.
@@ -250,9 +276,9 @@ unbounded index entries, and the hydration bounds in 4.1.
   that finds a target missing records that in its own state.
 - A hydrated `kind` describes the object as read at `hydrated_at`, nothing later.
 
-## 7. API
+### 7. API
 
-### 7.1 Current Resource routes
+#### 7.1 Current Resource routes
 
 | Route | Where | Returns | Bounds |
 |---|---|---|---|
@@ -282,7 +308,7 @@ Consumer contract after migration to this branch: Pinakes reads the feed (`limit
 Separately, the current Pinakes client also asks for `GET /v0/user/{viewer}/reach-set?depth=2`,
 which no Nexus route serves; it reads the 404 as an empty set.
 
-### 7.2 Returned fields, filter parameters, search routes
+#### 7.2 Returned fields, filter parameters, search routes
 
 Three different things; a field in a view is not a filter, and a search route is not a stream
 filter. The post column lists parameters of `GET /v0/stream/posts` and the separate search
@@ -304,14 +330,14 @@ routes as they exist on `main` and this branch's base.
 | Deletion state | none (6) | none | a `deleted` tombstone in a post view; **not** a filter |
 | Content text | none | none | separate search route `GET /v0/search/posts/by_content` (social posts); not a stream filter |
 
-### 7.3 Machine feed versus client queries
+#### 7.3 Machine feed versus client queries
 
 - **Machine feed** (*branch*): append-only, at-least-once, append-ordered, resumed by
   `(epoch, cursor)`; an epoch change means rebuild from zero. Never filtered: a filtered append
   log cannot be resumed without skipping lines. Bootstrap is reading from cursor 0 after a seed.
 - **Client queries**: filtered and sorted, paged as in 7.4, with no completeness guarantee.
 
-### 7.4 Proposed stable paging for filtered resource queries
+#### 7.4 Proposed stable paging for filtered resource queries
 
 Today the resource stream orders by `score <order>, r.id <order>` (descending by default, on
 `main` and this branch's base). Two ways of paging it exist, with different properties:
@@ -346,7 +372,7 @@ Proposed:
   an index on `Resource.namespace` so the namespace filter narrows first. Both need a
   backfill from existing edges.
 
-### 7.5 Proposed requests and responses (examples)
+#### 7.5 Proposed requests and responses (examples)
 
 ```http
 GET /v1/stream/resources/ids?namespace=alpha&kind=review&tags=coffee&limit=50
@@ -390,12 +416,56 @@ content, the writing app or authorship. `kind`, `envelope_author` and `hydrated_
 unless an owner-approved hydration (4.1) has read the envelope. There is no title, content or
 deletion field.
 
-## 8. Decisions and remaining review items
+## Consequences
 
-Decided: no namespace watch (1); Resource graph model (4); top-level string kind scoped by
-namespace (3.1); every current following, reach and web-of-trust behaviour kept exactly, no new
-relation filter (2.5); target freshness by consumers' scheduled refresh, eventual and without an
-SLA (2.4).
+### Positive ✅
+
+- No change to social post keys, timelines or counts.
+- One identity per URI for everything that references it, and metadata whose age is
+  explicit.
+- Nexus's work does not grow with other apps' data: it reads nothing it was not
+  pointed at.
+
+### Negative ❌
+
+- Nexus knows only referenced objects, and has no deleted state for a Resource
+  (section 6).
+- A target's edits and deletes reach consumers only through their own refresh.
+- `kind` stays unknown until a hydration is approved, and needs spec work (section 3.3).
+
+### Neutral ⚠️
+
+- Cursor paging needs a maintained `Resource.last_tagged_at`, an index on it and on
+  `Resource.namespace`, and a backfill (section 7.4).
+
+## Alternatives Considered
+
+### A Post per referenced object
+
+Compared with the Resource model in section 4. Rejected for the post-key migration and
+for serving referenced content through routes that present it as current, not for
+needing a watcher: it needs none.
+
+### Watching other namespaces
+
+Nexus would index objects nobody referenced and its work would grow with every app.
+Rule 1 rules it out.
+
+### `kind = custom` with a subkind inside `content`
+
+Nexus would have to read app content to know the type. The top-level string `kind`,
+scoped by namespace, is one rule for every namespace (section 3.1).
+
+### A Nexus-local indexer kind type
+
+It would work against either spec pin, but would make Nexus the owner of a naming rule
+the spec should own (section 3.3).
+
+### A relation filter on the resource streams
+
+Not part of this design; it would be a separate future proposal (section 2.5).
+
+## Not Decided Here
 
 Not authorised by this design:
 
