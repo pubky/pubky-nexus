@@ -390,11 +390,7 @@ pub fn create_resource_tag(
         OPTIONAL MATCH (tagger)-[existing:TAGGED {label: $label}]->(resource)
         MERGE (tagger)-[t:TAGGED {label: $label}]->(resource)
         ON CREATE SET t.id = $tag_id, t.indexed_at = $indexed_at
-        // The edge belongs to the file that created it; an equivalent file (same
-        // normalized target and label, or the other folder's copy of the same tag)
-        // must not take over its path. An edge from a build that stored none takes
-        // the first file's.
-        SET t.uri = coalesce(t.uri, $tag_uri)
+        SET t.uri = $tag_uri
         RETURN existing IS NOT NULL AS flag;",
     )
     .param("tagger_id", tagger_id)

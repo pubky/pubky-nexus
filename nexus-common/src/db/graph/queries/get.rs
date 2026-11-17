@@ -202,13 +202,11 @@ pub fn get_post_replies(author_id: &str, post_id: &str, cursor: &[String], limit
 
 // Read the target details for a tag without deleting the TAGGED edge.
 // Used in tag del to read before graph-last deletion. The edge is found by its id alone,
-// whichever folder wrote the tag, or by the id it had before the flip gave it a new one.
-// `moved_at` is set on a resource tag the flip moved from `v0_uri` until the move is published.
+// whichever folder wrote the tag.
 pub fn get_tag_target(user_id: &str, tag_id: &str) -> Query {
     Query::new(
         "get_tag_target",
-        "MATCH (user:User {id: $user_id})-[tag:TAGGED]->(target)
-         WHERE tag.id = $tag_id OR tag.v0_id = $tag_id
+        "MATCH (user:User {id: $user_id})-[tag:TAGGED {id: $tag_id}]->(target)
          OPTIONAL MATCH (target)<-[:AUTHORED]-(author:User)
          WITH CASE WHEN target:User THEN target.id ELSE null END AS user_id,
               CASE WHEN target:Post THEN target.id ELSE null END AS post_id,
@@ -216,31 +214,12 @@ pub fn get_tag_target(user_id: &str, tag_id: &str) -> Query {
               CASE WHEN target:Post THEN target.uri ELSE null END AS post_uri,
               CASE WHEN target:Resource THEN target.id ELSE null END AS resource_id,
               CASE WHEN target:Resource THEN target.uri ELSE null END AS resource_uri,
-              tag.indexed_at AS tag_indexed_at,
               tag.label AS label,
-              tag.uri AS tag_uri,
-              tag.id AS tag_id,
-              tag.v0_id AS v0_id,
-              tag.v0_uri AS v0_uri,
-              tag.moved_at AS moved_at
-         RETURN user_id, post_id, author_id, post_uri, resource_id, resource_uri, tag_indexed_at, label, tag_uri, tag_id, v0_id, v0_uri, moved_at",
+              tag.uri AS tag_uri
+         RETURN user_id, post_id, author_id, post_uri, resource_id, resource_uri, label, tag_uri",
     )
     .param("user_id", user_id)
     .param("tag_id", tag_id)
-}
-
-/// Whether a tag `author` wrote is stored at `tag_uri`, as `live`: an edge whose stored address
-/// is `tag_uri`, or, for an edge stored before addresses were, whose app folder and id give it.
-/// Anchored on the author.
-pub fn tag_address_is_live(author: &str, tag_uri: &str) -> Query {
-    Query::new(
-        "tag_address_is_live",
-        "MATCH (u:User {id: $author})-[t:TAGGED]->()
-         WHERE coalesce(t.uri, 'pubky://' + u.id + '/pub/' + coalesce(t.app, 'pubky.app') + '/tags/' + t.id) = $tag_uri
-         RETURN count(t) > 0 AS live",
-    )
-    .param("author", author)
-    .param("tag_uri", tag_uri)
 }
 
 /// Stored time of a resource tag, including a normalization-equivalent replay
