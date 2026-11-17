@@ -99,7 +99,9 @@ pub trait TEventProcessor: Send + Sync + 'static {
             homeserver,
         );
         let started = tokio::time::Instant::now();
-        let mut handle = tokio::spawn(self.run_internal().instrument(span));
+        // `span` is kept so the failure lines below land in it: an ERROR event inside a span
+        // is what marks it as errored in the exported trace.
+        let mut handle = tokio::spawn(self.run_internal().instrument(span.clone()));
 
         let join_result = loop {
             match tokio::time::timeout(slow_run_threshold, &mut handle).await {
@@ -123,6 +125,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
         let run_internal_result = join_result
             .inspect_err(|je| {
                 error!(
+                    parent: &span,
                     service = %instance_name,
                     homeserver,
                     error = ?je,
@@ -136,6 +139,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
             Ok(RunOutcome::BudgetSpent) => Err(RunError::BudgetSpent),
             Err(e) => {
                 error!(
+                    parent: &span,
                     service = %instance_name,
                     homeserver,
                     error = ?e,

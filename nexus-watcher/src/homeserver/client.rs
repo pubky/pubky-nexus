@@ -480,11 +480,15 @@ mod tests {
         assert_eq!(started.elapsed(), Duration::from_secs(1));
     }
 
-    /// A homeserver that keeps rate-limiting fails the poll with its 429, labelled as
-    /// the homeserver's poll, once the retries run out.
+    /// A homeserver that keeps rate-limiting is polled once and retried three times, after
+    /// 1, 2 and 3 s, then the poll fails with its 429, labelled as the homeserver's poll.
     #[tokio::test(start_paused = true)]
     async fn rate_limited_poll_gives_up_after_the_retries() {
+        let sends = AtomicUsize::new(0);
+        let started = Instant::now();
+
         let error = poll_events_with(&hs_id(), || async {
+            sends.fetch_add(1, Ordering::SeqCst);
             Ok(response(429, "Rate limit exceeded"))
         })
         .await
@@ -495,6 +499,8 @@ mod tests {
             matches!(error.kind, HsErrorKind::RateLimited(_)),
             "{error:?}"
         );
+        assert_eq!(sends.load(Ordering::SeqCst), 4);
+        assert_eq!(started.elapsed(), Duration::from_secs(1 + 2 + 3));
     }
 
     // --- event_lines_from_response ---
