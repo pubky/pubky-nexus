@@ -867,8 +867,8 @@ pub async fn sync_del(
     // If the post is a reply, cannot delete from the main feeds
     // In the main feed, we just include the root posts and reposts
     // It could be a situation that relationship would not exist and we will treat the post as a not reply
-    // A tombstoned external reply has lost its Resource edge but keeps its reply flag.
-    let is_reply = references::is_reply(&author_id, &post_id).await?;
+    // An external reply, a tombstoned one too, keeps its Resource reply edge.
+    let is_reply = PostDetails::is_reply_in_graph(&author_id, &post_id).await?;
 
     // DELETE TO INDEX - PHASE 1, remove the post counts
     // Idempotent: JSON DEL + ZREM from engagement sorted set.
