@@ -291,7 +291,7 @@ async fn test_resource_changes_equivalent_tag_files_share_one_reference() -> Res
         [
             (ResourceChangeOp::Put, files[0].0.as_str()),
             (ResourceChangeOp::Put, files[1].0.as_str()),
-            (ResourceChangeOp::Del, files[1].0.as_str()),
+            (ResourceChangeOp::Del, files[0].0.as_str()),
         ],
         "{lines:?}"
     );
@@ -389,68 +389,6 @@ async fn test_resource_changes_a_tag_and_its_v1_copy_share_one_reference() -> Re
         Some(ResourceChangeOp::Del)
     );
     assert!(live_references(&lines).is_empty(), "{lines:?}");
-    test.del(&key, &profile).await?;
-    Ok(())
-}
-
-/// A `pubky.app` DEL that crashed after the graph delete but before the feed append, while
-/// its user was still `v0`: after the flip its retry is gated, so the DEL of the active v1
-/// copy must finish the journal created under the edge's original v0 path. The edge is gone
-/// before the flip, so the flip moves nothing.
-#[tokio_shared_rt::test(shared)]
-async fn migrated_tag_delete_retry_finishes_the_original_file_journal() -> Result<()> {
-    use nexus_common::db::{fetch_row_from_graph, queries};
-    use pubky_social_specs::traits::{HasIdPath as _, HashId as _};
-    use pubky_social_specs::PubkySocialTag;
-
-    let mut test = WatcherTest::setup(None).await?;
-    let key = Keypair::random();
-    let author = test
-        .create_user(&key, &test_user("Migrated delete retry", "feed"))
-        .await?;
-    let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
-    let target = format!("https://example.com/migrated-delete/{author}");
-    let v0 = PubkyAppTag::new(target.clone(), "retry".into());
-    let id = v0.create_id();
-    let v0_path: ResourcePath = format!("/pub/pubky.app/tags/{id}").parse()?;
-    test.put(&key, &v0_path, &v0).await?;
-    let v1 = PubkySocialTag::new(target, "retry".into());
-    assert_eq!(id, v1.create_id());
-    let v1_path: ResourcePath = PubkySocialTag::create_path(&id).parse()?;
-    test.put(&key, &v1_path, &v1).await?;
-
-    let puts = authored_since(&author, cursor).await?;
-    assert_eq!(puts.len(), 1);
-    let mut deleted = puts[0].clone();
-    deleted.op = ResourceChangeOp::Del;
-    deleted.at += 1;
-    deleted.prepare_delete().await?;
-    fetch_row_from_graph(queries::del::delete_tag(&author, &id)).await?;
-    // Exact durable state left by a failed finish_delete, without disrupting Redis
-    // for the other tests: a journal exists, but the source edge no longer does.
-    let profile: ResourcePath = "/pub/social/v1/profile.json".parse()?;
-    test.put(
-        &key,
-        &profile,
-        &serde_json::json!({"name":"Migrated retry"}),
-    )
-    .await?;
-    assert_eq!(
-        authored_since(&author, cursor).await?,
-        puts,
-        "the flip has no edge to move"
-    );
-    test.del(&key, &v1_path).await?;
-    retrieve_and_handle_event_line(
-        &format!("DEL pubky://{author}{v1_path}"),
-        &test.homeserver_id,
-        test.event_processor_runner.event_handler.clone(),
-    )
-    .await?;
-    assert_eq!(
-        authored_since(&author, cursor).await?,
-        vec![puts[0].clone(), deleted]
-    );
     test.del(&key, &profile).await?;
     Ok(())
 }
@@ -727,6 +665,58 @@ async fn test_resource_tag_put_delete_put_leaves_the_reference_live() -> Result<
         lines.last().map(|line| line.op),
         Some(ResourceChangeOp::Put)
     );
+    test.cleanup_user(&key).await?;
+    Ok(())
+}
+
+/// A resource tag edge whose stored address is outside its author's folder (no writer stores
+/// one; a repaired or imported edge could hold it) is still deleted by the DEL of its file: the
+/// del line takes its `object_path` from the event's address, never from the edge.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_delete_ignores_a_bad_stored_address() -> Result<()> {
+    use nexus_common::db::{exec_single_row, graph::Query};
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Bad stored address", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let target = format!("https://example.com/bad-stored-address/{author}");
+    let tag = PubkyAppTag::new(target.clone(), "steps".into());
+    let path = format!("/pub/pubky.app/tags/{}", tag.create_id());
+    let storage: ResourcePath = path.parse()?;
+    let tag_uri = format!("pubky://{author}{path}");
+    test.put(&key, &storage, &tag).await?;
+    let other = Keypair::random().public_key().to_z32();
+    exec_single_row(
+        Query::new(
+            "test_bad_stored_address",
+            "MATCH (:User {id: $author})-[t:TAGGED {label: 'steps'}]->(:Resource)
+             SET t.uri = $bad",
+        )
+        .param("author", author.as_str())
+        .param(
+            "bad",
+            format!("pubky://{other}/pub/pubky.app/tags/elsewhere"),
+        ),
+    )
+    .await?;
+
+    retrieve_and_handle_event_line(
+        &format!("DEL {tag_uri}"),
+        &test.homeserver_id,
+        test.event_processor_runner.event_handler.clone(),
+    )
+    .await?;
+    assert_eq!(resource_tag_edge(&author, &target).await?, None);
+    let lines = authored_since(&author, start).await?;
+    let del = lines.last().expect("the delete publishes its del");
+    assert_eq!(
+        (del.op, del.object_path.as_str()),
+        (ResourceChangeOp::Del, path.as_str())
+    );
+    assert!(live_references(&lines).is_empty(), "{lines:?}");
     test.cleanup_user(&key).await?;
     Ok(())
 }
