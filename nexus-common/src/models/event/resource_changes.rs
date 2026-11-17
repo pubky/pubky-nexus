@@ -144,6 +144,10 @@ impl ResourceChange {
             .arg(self.json()?)
             .invoke_async::<()>(&mut conn)
             .await?;
+        #[cfg(any(test, feature = "test-utils"))]
+        if self.op == ResourceChangeOp::Del {
+            crate::utils::test_utils::feed_del_fault(&self.author)?;
+        }
         Ok(())
     }
 
