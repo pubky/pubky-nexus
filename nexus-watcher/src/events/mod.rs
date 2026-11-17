@@ -303,8 +303,9 @@ pub async fn handle_del_event(
     match translate_del(&event.target)? {
         TranslatedDel::User { user_id } => handlers::user::del(user_id).await,
         TranslatedDel::Post(key) => match handlers::post::del(key, &ingestor).await {
-            // Any version DEL removes the logical v1 post. A retry after the graph
-            // deletion must still acknowledge the event once its feed journal is drained.
+            // Any version DEL removes the logical v1 post. A DEL of a post already gone
+            // (another version's DEL, or a retry after the graph delete) has nothing left to
+            // retract or delete: acknowledge it.
             Err(EventProcessorError::SkipIndexing)
                 if matches!(event.target, target::EventTarget::Social(_)) =>
             {

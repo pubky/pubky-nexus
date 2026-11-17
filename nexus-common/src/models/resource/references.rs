@@ -1,17 +1,14 @@
 //! References from social posts to universal Resources. Content stays on the Post.
 
 use crate::db::graph::{GraphError, Query};
-use crate::db::kv::RedisError;
-use crate::db::{fetch_row_from_graph, get_neo4j_graph, get_redis_conn};
+use crate::db::{fetch_row_from_graph, get_neo4j_graph};
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::event::resource_changes::{
     ResourceChange, ResourceChangeKind, ResourceChangeOp,
 };
 use crate::models::post::PostDetails;
 use crate::universal_tag::normalize::{normalize_uri, resource_id};
-use deadpool_redis::redis::AsyncCommands;
 use futures::TryStreamExt;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub fn reference(
@@ -119,7 +116,7 @@ pub async fn sync(post: &PostDetails, lines: Vec<ResourceChange>) -> ModelResult
 
 /// Commit edges and recovery metadata, without acknowledging the feed append.
 ///
-/// Like [`flush`], [`prepare_delete`] and [`finish_delete`], it reads and then writes the post's
+/// Like [`flush`] and [`retract`], it reads and then writes the post's
 /// references and outbox: its callers serialize every handler of one post (the watcher's post
 /// lock), so another one's write cannot land between its read and its write.
 pub async fn stage(post: &PostDetails, mut lines: Vec<ResourceChange>) -> ModelResult<()> {
@@ -237,89 +234,29 @@ pub async fn stage(post: &PostDetails, mut lines: Vec<ResourceChange>) -> ModelR
     Ok(())
 }
 
-fn delete_key(author: &str, id: &str) -> String {
-    format!("Event:ResourceChanges:PostDelete:{author}:{id}")
-}
-
-#[derive(Serialize, Deserialize)]
-struct DeleteJournal {
-    revision: String,
-    lines: Vec<ResourceChange>,
-}
-
-/// Retain all targets and their revision before the post's delete. A tombstone keeps its
-/// Resource edges and retracted them when it became one, so its later hard delete journals
-/// nothing.
-pub async fn prepare_delete(author: &str, id: &str) -> ModelResult<()> {
+/// Retracts the post's references on the feed before its delete changes the graph, as a tag's
+/// delete does: the del of each of its Resource edges, once a staged outbox is published, so
+/// the dels follow its puts. A tombstone keeps its edges and retracted them when it became one,
+/// so its later hard delete appends nothing. A delete that fails after this append leaves the
+/// post, and its retry reads the edges again and appends their dels again: consumers tolerate
+/// duplicates.
+///
+/// It reads the post's references and outbox, like [`stage`]: call it under the post lock.
+pub async fn retract(author: &str, id: &str) -> ModelResult<()> {
     flush(author, id).await?;
     let State {
-        revision,
-        deleted,
-        mut lines,
-        ..
+        deleted, mut lines, ..
     } = state(author, id).await?;
     if deleted || lines.is_empty() {
         return Ok(());
     }
+    let at = chrono::Utc::now().timestamp_millis();
     for line in &mut lines {
         line.op = ResourceChangeOp::Del;
-        line.at = chrono::Utc::now().timestamp_millis();
+        line.at = at;
     }
-    let raw = serde_json::to_string(&DeleteJournal { revision, lines })
-        .map_err(ModelError::from_generic)?;
-    get_redis_conn()
-        .await?
-        .set_nx::<_, _, bool>(delete_key(author, id), raw)
-        .await
-        .map_err(RedisError::from)?;
+    ResourceChange::store_batch(&lines).await?;
     Ok(())
-}
-
-pub async fn finish_delete(author: &str, id: &str) -> ModelResult<()> {
-    let key = delete_key(author, id);
-    let mut conn = get_redis_conn().await?;
-    let Some(raw): Option<String> = conn.get(&key).await.map_err(RedisError::from)? else {
-        return Ok(());
-    };
-    finish_delete_journal(author, id, &key, &raw).await
-}
-
-async fn finish_delete_journal(author: &str, id: &str, key: &str, raw: &str) -> ModelResult<()> {
-    let DeleteJournal { revision, lines } =
-        serde_json::from_str(raw).map_err(ModelError::from_generic)?;
-    // Lock the source before checking its revision: a delayed delete must not publish the
-    // dels of references a later accepted PUT made. An absent source is a hard delete, whose
-    // DETACH DELETE removed the edges; a tombstone keeps them, and every Resource-side reader
-    // skips a deleted post.
-    let applied = fetch_row_from_graph(
-        Query::new(
-            "resource_references_delete",
-            r"
-        OPTIONAL MATCH (p:Post {id: $id}) WHERE EXISTS { (:User {id: $author})-[:AUTHORED]->(p) }
-        SET p.resource_ref_revision = coalesce(p.resource_ref_revision, '')
-        WITH p WHERE p IS NULL OR p.resource_ref_revision = $revision
-        RETURN p IS NOT NULL AS live
-    ",
-        )
-        .param("author", author)
-        .param("id", id)
-        .param("revision", revision),
-    )
-    .await?;
-    let Some(applied) = applied else {
-        // Compare-and-delete only this stale journal, without publishing stale DELs.
-        return ResourceChange::finish_batch_delete(key, raw, &[]).await;
-    };
-    cleanup(&lines).await?;
-    // A surviving tombstone keeps its relationships, rebuilt from the graph with its external
-    // edges, as the edit path rebuilds them: its later hard delete reads them as its gate. A
-    // hard-deleted post has none left.
-    if applied.get::<bool>("live")? {
-        crate::models::post::PostRelationships::reindex(author, id).await?;
-    } else {
-        crate::models::post::PostRelationships::delete(author, id).await?;
-    }
-    ResourceChange::finish_batch_delete(key, raw, &lines).await
 }
 
 /// Existence check without hydrating tags or reference counts.
@@ -333,24 +270,6 @@ pub async fn exists(id: &str) -> ModelResult<bool> {
     )
     .await?
     .is_some())
-}
-
-async fn cleanup(lines: &[ResourceChange]) -> ModelResult<()> {
-    let ids: Vec<_> = lines.iter().map(|line| line.resource_id.clone()).collect();
-    get_neo4j_graph()?
-        .run(
-            Query::new(
-                "resource_reference_orphans",
-                r"
-        UNWIND $ids AS id MATCH (r:Resource {id: id})
-        WITH DISTINCT r WHERE NOT EXISTS { (r)--() } DELETE r
-    ",
-            )
-            .param("ids", ids),
-        )
-        .await
-        .map_err(GraphError::from)?;
-    Ok(())
 }
 
 /// Indexed Resource lookup, stable newest-first pagination over live source posts.
@@ -398,7 +317,7 @@ mod tests {
     use crate::{StackConfig, StackManager};
 
     #[tokio_shared_rt::test(shared)]
-    async fn edited_orphans_and_delayed_delete_are_revision_safe(
+    async fn edited_orphans_are_revision_safe_and_a_delete_retracts_the_current_edges(
     ) -> Result<(), crate::types::DynError> {
         StackManager::setup(&StackConfig::default()).await?;
         let author = pubky::Keypair::random().public_key().to_z32();
@@ -435,30 +354,38 @@ mod tests {
             ResourceChangeKind::Reply,
         )?;
         sync(&post, vec![first.clone()]).await?;
-        prepare_delete(&author, &id).await?;
-        let key = delete_key(&author, &id);
-        let raw: String = get_redis_conn().await?.get(&key).await?;
-        // A delete worker has read this journal; pause it while an edit commits.
+        // An edit commits its edges and outbox, without its append yet
         stage(&post, vec![second.clone()]).await?;
         assert!(
             !exists(&first.resource_id).await?,
             "orphan cleanup commits with edges, before append"
         );
         assert!(exists(&second.resource_id).await?);
-        flush(&author, &id).await?;
+        // A delete retracts what the graph holds now, after the edit's outbox
         let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
-        finish_delete_journal(&author, &id, &key, &raw).await?;
-        assert_eq!(
-            posts(&second.resource_id, ResourceChangeKind::Reply, 0, 10).await?,
-            [(author.clone(), id.clone())]
-        );
-        assert!(!get_redis_conn().await?.exists::<_, bool>(&key).await?);
-        assert!(ResourceChange::get_from_index(cursor, 1000)
+        retract(&author, &id).await?;
+        let lines: Vec<_> = ResourceChange::get_from_index(cursor, 1000)
             .await?
             .0
             .lines
-            .iter()
-            .all(|line| line.author != author));
+            .into_iter()
+            .filter(|line| line.author == author)
+            .map(|line| (line.op, line.resource_id))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                (ResourceChangeOp::Del, first.resource_id.clone()),
+                (ResourceChangeOp::Put, second.resource_id.clone()),
+                (ResourceChangeOp::Del, second.resource_id.clone()),
+            ],
+            "the edit's outbox, then the dels of the current edges"
+        );
+        assert_eq!(
+            posts(&second.resource_id, ResourceChangeKind::Reply, 0, 10).await?,
+            [(author.clone(), id.clone())],
+            "the retraction leaves the graph to the delete"
+        );
         // A retry after the committed edit cannot resurrect the removed target.
         sync(&post, vec![second.clone()]).await?;
         assert!(!exists(&first.resource_id).await?);
@@ -537,8 +464,7 @@ mod tests {
                 .iter()
                 .any(|line| same_reference(line, expected) && line.op == ResourceChangeOp::Put));
         }
-        prepare_delete(&author, id).await?;
-        finish_delete(&author, id).await?;
+        retract(&author, id).await?;
         get_neo4j_graph()?.run(Query::new("reference_seed_cleanup", "MATCH (u:User {id:$author}) OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post) DETACH DELETE p,u").param("author", author)).await?;
         Ok(())
     }
@@ -654,8 +580,7 @@ mod tests {
             .collect();
         assert_eq!(collected.len(), items as usize, "each item once");
 
-        prepare_delete(&author, &short.id).await?;
-        finish_delete(&author, &short.id).await?;
+        retract(&author, &short.id).await?;
         graph
             .run(
                 Query::new(

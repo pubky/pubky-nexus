@@ -93,8 +93,7 @@ async fn resource_reference_routes_order_ties_by_author_then_post() -> Result<()
     );
 
     for (author, id, _) in &written {
-        references::prepare_delete(author, id).await?;
-        references::finish_delete(author, id).await?;
+        references::retract(author, id).await?;
     }
     for author in &authors {
         graph.run(Query::new("reference_ties_cleanup", "MATCH (u:User {id:$author}) OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post) DETACH DELETE p, u").param("author", author.clone())).await?;
@@ -313,8 +312,7 @@ async fn resource_reference_routes_counts_pagination_and_validation() -> Result<
     let remaining = get_request(&format!("/v1/resource/{rid}/replies")).await?;
     assert_eq!(remaining.as_array().unwrap().len(), 1);
     for id in &ids {
-        references::prepare_delete(&author, id).await?;
-        references::finish_delete(&author, id).await?;
+        references::retract(&author, id).await?;
     }
     graph.run(Query::new("reference_api_cleanup", "MATCH (u:User {id:$author}) OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post) DETACH DELETE p, u").param("author", author)).await?;
     graph
