@@ -1,6 +1,7 @@
 use anyhow::Result;
 use axum::http::StatusCode;
 use pubky_app_specs::post_uri_builder;
+use serde_json::json;
 
 use crate::utils::{get_request, invalid_get_request};
 
@@ -9,6 +10,8 @@ const PUBKY_TAG_ID: &str = "2Z1N8QBQK9EG0";
 const PUBKY_TAGGED_POST_ID: &str = "2Z1N8QBERF700";
 const INVALID_PUBKY_TAGGER_ID: &str = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz";
 const INVALID_PUBKY_TAG_ID: &str = "0000000000000";
+const AMSTERDAM: &str = "emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy";
+const BOGOTA: &str = "ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny";
 
 #[tokio_shared_rt::test(shared)]
 async fn test_tag_view() -> Result<()> {
@@ -33,6 +36,33 @@ async fn test_tag_view() -> Result<()> {
     assert_eq!(body["uri"], expected_post_uri);
     assert_eq!(body["indexed_at"], 1724134095000_i64);
     assert_eq!(body["label"], "anti");
+
+    Ok(())
+}
+
+/// A tag on a web link, or on an object of an app Nexus does not index, is a tag on a
+/// `Resource`. Its view returns the resource's `uri`.
+#[tokio_shared_rt::test(shared)]
+async fn test_tag_view_of_a_tag_on_a_resource() -> Result<()> {
+    let body = get_request(&format!("/v0/tags/{AMSTERDAM}/RES_TAG_001")).await?;
+    assert_eq!(
+        body,
+        json!({
+            "uri": "https://example.com/article",
+            "label": "bitcoin",
+            "indexed_at": 1724544095000_i64,
+        })
+    );
+
+    let body = get_request(&format!("/v0/tags/{BOGOTA}/RES_TAG_004")).await?;
+    assert_eq!(
+        body,
+        json!({
+            "uri": "pubky://somepk/pub/eventky.app/events/E001",
+            "label": "calendar",
+            "indexed_at": 1724544095003_i64,
+        })
+    );
 
     Ok(())
 }
