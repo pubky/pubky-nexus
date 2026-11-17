@@ -603,8 +603,13 @@ async fn newer_version_waits_for_the_post_lock_before_its_post_write() -> Result
     Ok(())
 }
 
+/// A tombstoned external reply keeps its Resource reply edge, as every tombstone keeps its
+/// edges, and its reference is retracted: one del, when it becomes a tombstone. It stays out of
+/// the root timelines and in the author's replies and reply count, also after its cache is
+/// lost, and the Resource neither lists nor counts it. Its later hard delete publishes no second
+/// del, and removes the Resource with the last edge.
 #[tokio_shared_rt::test(shared)]
-async fn tombstones_release_external_targets_and_cached_relationships() -> Result<()> {
+async fn tombstones_keep_external_edges_and_retract_them_once() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
     let key = Keypair::random();
     test.register_user(&key).await?;
@@ -614,6 +619,8 @@ async fn tombstones_release_external_targets_and_cached_relationships() -> Resul
         .await?;
     super::utils::watcher::rank_user(&author).await?;
     let target = format!("https://example.com/tombstone/{author}");
+    let (normalized, _) = normalize_uri(&target).map_err(anyhow::Error::msg)?;
+    let rid = resource_id(&normalized);
     let id = generate_post_id();
     let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
     test.put(
@@ -622,26 +629,42 @@ async fn tombstones_release_external_targets_and_cached_relationships() -> Resul
         &json!({"kind":"note","content":"resource reply","parent":target}),
     )
     .await?;
-    assert!(PostRelationships::get_by_id(&author, &id)
-        .await?
-        .unwrap()
-        .replied
-        .is_some());
     let child_id = generate_post_id();
     let child: ResourcePath = format!("/pub/social/v1/posts/{child_id}/{child_id}.json").parse()?;
     test.put(&key, &child, &json!({"kind":"note","content":"keep the parent tombstone","parent":format!("pubky://{author}/pub/social/v1/posts/{id}")})).await?;
+    let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+    let ours = |lines: Vec<ResourceChange>| -> Vec<ResourceChange> {
+        lines
+            .into_iter()
+            .filter(|line| line.author == author && line.resource_id == rid)
+            .collect()
+    };
+
     test.del(&key, &path).await?;
     assert!(PostDetails::get_by_id(&author, &id).await?.unwrap().deleted);
-    assert!(PostRelationships::get_by_id(&author, &id)
-        .await?
-        .unwrap()
-        .replied
-        .is_none());
-    assert!(
-        ResourceView::get_by_id(&resource_id(&target), None, None, None, None)
-            .await?
-            .is_none()
+    let lines = ours(ResourceChange::get_from_index(cursor, 1000).await?.0.lines);
+    assert_eq!(
+        lines.iter().map(|line| line.op).collect::<Vec<_>>(),
+        [ResourceChangeOp::Del],
+        "the tombstone retracts its reference once"
     );
+    // The edge stays, off the Resource's lists and counts
+    assert!(PostDetails::is_reply_in_graph(&author, &id).await?);
+    assert_eq!(
+        PostRelationships::get_by_id(&author, &id)
+            .await?
+            .unwrap()
+            .replied,
+        Some(normalized.clone())
+    );
+    let view = ResourceView::get_by_id(&rid, None, None, None, None)
+        .await?
+        .expect("the tombstone's edge keeps the Resource");
+    assert_eq!(view.replies_count, 0);
+    assert!(references::posts(&rid, ResourceChangeKind::Reply, 0, 10)
+        .await?
+        .is_empty());
+    // Out of the root timelines and in the author's replies, after cache loss too
     PostDetails::remove_from_index_multiple_json(&[&[author.as_str(), id.as_str()]]).await?;
     PostDetails::reindex(&author, &id).await?;
     assert!(
@@ -659,7 +682,32 @@ async fn tombstones_release_external_targets_and_cached_relationships() -> Resul
             .await?
             .is_some()
     );
+    assert_eq!(
+        UserCounts::get_by_id(&author).await?.unwrap().replies,
+        2,
+        "the tombstone and the child are both replies"
+    );
+
+    // The child goes, and the replayed DEL hard-deletes the tombstone
     test.del(&key, &child).await?;
+    retrieve_and_handle_event_line(
+        &format!("DEL pubky://{author}{path}"),
+        test.event_processor_runner.event_handler.clone(),
+    )
+    .await?;
+    assert!(PostDetails::get_from_graph(&author, &id).await?.is_none());
+    let lines = ours(ResourceChange::get_from_index(cursor, 1000).await?.0.lines);
+    assert_eq!(
+        lines.iter().map(|line| line.op).collect::<Vec<_>>(),
+        [ResourceChangeOp::Del],
+        "the hard delete of a tombstone publishes no second del"
+    );
+    assert!(
+        ResourceView::get_by_id(&rid, None, None, None, None)
+            .await?
+            .is_none(),
+        "the Resource goes with its last edge"
+    );
     test.del(&key, &profile).await?;
     Ok(())
 }
@@ -738,7 +786,7 @@ async fn hard_delete_of_a_tombstoned_external_reply_leaves_author_replies() -> R
     Ok(())
 }
 
-/// A tombstoned external reply lost its Resource reply edge but is still a reply, as the
+/// A tombstoned external reply keeps its Resource reply edge and is still a reply, as the
 /// author's replies set keeps it. The graph reads must classify it so too: a kind-filtered author
 /// stream lists root posts only, the ranking refresh's entries and the post's counts call it a
 /// reply, and the author's reply count keeps it.

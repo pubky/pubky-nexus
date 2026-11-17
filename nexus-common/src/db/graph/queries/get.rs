@@ -84,6 +84,18 @@ pub fn get_posts_details_by_ids(author_id: &str, post_ids: &[String]) -> Query {
     .param("post_ids", post_ids.to_vec())
 }
 
+/// Whether the post replies to anything, as `is_reply`: a post, or an external target it has a
+/// Resource reply edge to. A tombstone keeps its reply edge, so it stays a reply.
+pub fn post_is_reply(author_id: &str, post_id: &str) -> Query {
+    Query::new(
+        "post_is_reply",
+        "MATCH (:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+         RETURN EXISTS { (p)-[:REPLIED]->() } AS is_reply",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}
+
 pub fn post_counts(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "post_counts",
@@ -103,8 +115,7 @@ pub fn post_counts(author_id: &str, post_id: &str) -> Query {
                 reposts: COUNT { (p)<-[:REPOSTED]-() },
                 collections: COUNT { (p)<-[:COLLECTED]-() }
             } AS counts,
-            // A tombstoned external reply lost its Resource reply edge, not its reply flag.
-            (EXISTS { (p)-[:REPLIED]->() } OR coalesce(p.resource_reply, false)) AS is_reply
+            EXISTS { (p)-[:REPLIED]->() } AS is_reply
     ",
     )
     .param("author_id", author_id)
@@ -457,7 +468,7 @@ pub fn author_post_entries(author_id: &str, after: (i64, &str), limit: usize) ->
         RETURN author.id AS author_id,
             p.id AS post_id,
             p.indexed_at AS indexed_at,
-            (EXISTS { (p)-[:REPLIED]->() } OR coalesce(p.resource_reply, false)) AS is_reply,
+            EXISTS { (p)-[:REPLIED]->() } AS is_reply,
             COLLECT { MATCH (p)<-[tag:TAGGED]-(:User) RETURN DISTINCT tag.label } AS labels,
             COUNT { (p)<-[:TAGGED]-() }
                 + COUNT { (p)<-[:REPLIED]-() }
@@ -1063,7 +1074,7 @@ const USER_COUNT_FIELDS: &[(&str, &str)] = &[
     ("posts", POSTS_COUNT),
     (
         "replies",
-        "COUNT { (u)-[:AUTHORED]->(p:Post) WHERE EXISTS { (p)-[:REPLIED]->() } OR coalesce(p.resource_reply, false) }",
+        "COUNT { (u)-[:AUTHORED]->(:Post)-[:REPLIED]->() }",
     ),
     (
         "collections",
@@ -1694,12 +1705,10 @@ pub fn post_stream(
     // the parents-only filter here would silently drop bookmarked replies on the
     // graph path (reachable via kind/exclude_kinds or engagement sort), diverging
     // from the index path. Every other source that routes here wants parents only.
-    // A tombstoned external reply has lost its Resource reply edge, but keeps
-    // `resource_reply`: it is still a reply (see `references::is_reply`).
     if !matches!(source, StreamSource::Bookmarks { .. }) {
         append_condition(
             &mut cypher,
-            "NOT ( EXISTS { (p)-[:REPLIED]->() } OR coalesce(p.resource_reply, false) )",
+            "NOT ( (p)-[:REPLIED]->() )",
             &mut where_clause_applied,
         );
     }
@@ -2154,7 +2163,7 @@ mod tests {
         let clauses = [
             "MATCH (:User)-[tag:TAGGED]->(p)",
             "p.kind = 'short'",
-            "NOT ( EXISTS { (p)-[:REPLIED]->() } OR coalesce(p.resource_reply, false) )",
+            "NOT ( (p)-[:REPLIED]->() )",
             "WITH DISTINCT p\nORDER BY p.indexed_at DESC, p.id DESC",
             "MATCH (p)<-[:AUTHORED]-(author:User)",
             &rule,

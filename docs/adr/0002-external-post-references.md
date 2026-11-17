@@ -43,8 +43,16 @@ for an external reply, as before these references.
 
 Resource replies stay in the author's replies rather than root timelines, including
 after cache loss. Deleting the last incoming reference removes the Resource; a
-remaining tag, reply, embed, collection or another relationship keeps it. A deleted
-post's tombstone does not retain external-reference counts.
+remaining tag, reply, embed, collection or another relationship keeps it.
+
+A deleted post that still has other relationships (replies, reposts, tags and so on)
+becomes a tombstone, which keeps its Resource edges. Every Resource-side reader skips a
+deleted post: the Resource's reply and embed lists, its counts and the feed's seed. A
+tombstoned external reply is still a reply, through its kept `REPLIED` edge: it stays
+out of root timelines and in the author's replies and reply count. Its references are
+retracted on the feed when it becomes a tombstone; its later hard delete removes the
+edges without retracting them again, and a Resource it leaves with no relationship
+goes with them.
 
 The resource changes feed emits the reserved `reply`, `embed`, and `collection`
 kinds. See [the delivery and replay contract](0001-resource-changes-feed.md#post-references).
@@ -67,7 +75,7 @@ changes feed.
 - No backfill: posts indexed before this change gain their references only when their
   PUT is replayed. The seed job rebuilds the feed from edges that exist.
 - Feed consumers key post references by `(author, object_path, kind, resource_id)`,
-  wider than the tag-only key.
+  and tags by `(author, uri, label)`.
 
 ### Neutral ⚠️
 
@@ -87,6 +95,13 @@ Resource, and the counts are missing.
 A profile, file or tag is a native object, and a bookmark, a follow or a private path
 is never referenced by Nexus. Resource edges for them would duplicate native
 relationships and count objects Nexus does not model, so only external targets get one.
+
+### Removing a tombstone's Resource edges
+
+A tombstone that dropped its Resource edges would need a flag to stay a reply, and
+every reader that tests a post's reply edge (counts, timelines, the author's replies,
+the ranking refresh) would need to read it too. Every Resource-side reader already
+skips a deleted post, so the tombstone keeps its edges as it keeps all others.
 
 ### A separate node per reference kind
 

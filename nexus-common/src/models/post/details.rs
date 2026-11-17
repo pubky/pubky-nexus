@@ -1,8 +1,8 @@
 use super::{PostKind, PostStream};
 use crate::db::kv::RedisResult;
 use crate::db::{
-    execute_graph_operation, fetch_all_rows_from_graph, fetch_row_from_graph, queries, GraphResult,
-    OperationOutcome, RedisOps,
+    execute_graph_operation, fetch_all_rows_from_graph, fetch_key_from_graph, fetch_row_from_graph,
+    queries, GraphResult, OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelResult;
 use crate::models::ResourceKey;
@@ -48,6 +48,16 @@ where
 }
 
 impl PostDetails {
+    /// Whether the post replies to anything in the graph: a post, or an external target it
+    /// has a Resource reply edge to, which a tombstone keeps.
+    pub async fn is_reply_in_graph(author_id: &str, post_id: &str) -> GraphResult<bool> {
+        Ok(
+            fetch_key_from_graph(queries::get::post_is_reply(author_id, post_id), "is_reply")
+                .await?
+                .unwrap_or(false),
+        )
+    }
+
     /// Retrieves post details from Redis, or from the graph on a miss.
     ///
     /// A miss is not written back to Redis: the watcher owns the index. A read
@@ -135,9 +145,7 @@ impl PostDetails {
         }
         // External replies have no native post key. Graph recovery must still
         // keep them out of root timelines and restore the author's replies set.
-        if parent_key_wrapper.is_none()
-            && crate::models::resource::references::is_reply(author_id, &self.id).await?
-        {
+        if parent_key_wrapper.is_none() && Self::is_reply_in_graph(author_id, &self.id).await? {
             PostStream::remove_from_timeline_sorted_set(author_id, &self.id).await?;
             PostStream::remove_from_per_user_sorted_set(author_id, &self.id).await?;
             PostStream::delete_from_engagement_sorted_set(author_id, &self.id).await?;
