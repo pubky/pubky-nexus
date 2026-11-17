@@ -4,6 +4,12 @@ use crate::models::tag::traits::collection::taggers_page;
 use crate::models::tag::traits::taggers::TaggersTuple;
 use crate::types::Pagination;
 
+/// The longest target URI a resource tag may name, in code points: the social/v1 spec's cap on
+/// a reference URI, applied to `pubky.app` tags as well. Each put and del of a resource tag
+/// copies its target into a resource changes feed line.
+pub const RESOURCE_TAG_TARGET_MAX_LENGTH: usize =
+    pubky_social_specs::VALIDATION_LIMITS.reference_uri_max_length;
+
 /// Tags on Resource nodes. They live in the graph only: unlike user and post
 /// tags, they keep no Redis index to serve stale or rebuild, besides the global
 /// tag search. A resource's tag list is read with its details, through

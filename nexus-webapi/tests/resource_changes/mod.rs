@@ -87,7 +87,7 @@ async fn pages_headers_bounds_and_read_only_empty_feed() -> Result<()> {
         )
         .await?;
     }
-    ResourceChange::reseed().await?;
+    ResourceChange::reseed(false).await?;
     let rebuilt = client.do_get(&path).await?;
     assert_ne!(
         rebuilt.header("x-events-epoch").as_deref(),

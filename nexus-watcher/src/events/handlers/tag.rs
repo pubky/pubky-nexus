@@ -6,7 +6,7 @@ use nexus_common::models::event::resource_changes::{ResourceChange, ResourceChan
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::search::PostsByTagSearch;
 use nexus_common::models::post::{PostCounts, PostStream};
-use nexus_common::models::resource::tag::TagResource;
+use nexus_common::models::resource::tag::{TagResource, RESOURCE_TAG_TARGET_MAX_LENGTH};
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
@@ -111,7 +111,8 @@ pub async fn sync_put(
 
 /// Indexes a tag on a foreign resource or a file (at either epoch's address) as a generic
 /// `Resource` tag, keyed by the target's normalized address: a file is never waited for, and a
-/// v0 file and its v1 copy are two targets.
+/// v0 file and its v1 copy are two targets. A target longer than
+/// [`RESOURCE_TAG_TARGET_MAX_LENGTH`] is rejected for good, whichever folder wrote the tag.
 #[tracing::instrument(
     name = "tag.put_resource",
     skip_all,
@@ -119,6 +120,12 @@ pub async fn sync_put(
 )]
 pub async fn sync_put_resource(tag: TagInput, key: ResourceKey) -> Result<(), EventProcessorError> {
     debug!("Indexing resource tag");
+    if tag.tagged.uri.chars().count() > RESOURCE_TAG_TARGET_MAX_LENGTH {
+        return Err(EventProcessorError::SpecValidation(format!(
+            "The tagged resource {} is longer than {RESOURCE_TAG_TARGET_MAX_LENGTH} characters",
+            bounded(&tag.tagged.uri)
+        )));
+    }
     let _tagger_lock = lock_tagger(key.owner_id.as_ref()).await;
     let (normalized, scheme) =
         normalize_uri(&tag.tagged.uri).map_err(EventProcessorError::generic)?;
