@@ -5,8 +5,7 @@ use nexus_common::db::get_neo4j_graph;
 use nexus_common::db::graph::Query;
 use nexus_common::models::event::EventLine;
 use nexus_common::types::DynError;
-use nexus_watcher::events::{Event, EventTarget, EventType, ParseResult};
-use pubky_social_specs::legacy_v0::Resource;
+use pubky_social_specs::legacy_v0::{ExtendedParsedUri, Resource};
 use std::collections::BTreeMap;
 use tracing::info;
 
@@ -66,25 +65,35 @@ struct PageUris {
 
 /// Maps each tag PUT line in a page to its edge and its file's path, and each profile.json PUT
 /// line to its user and the file's path. Other lines, and lines that don't parse, are skipped.
+///
+/// The lines were written by the v0 watcher, so they are read with its frozen reader, not the
+/// watcher's current router: that one skips another app's tag file (`/pub/mapky/tags/…`), whose
+/// edges indexed before still need their file's address.
 fn fold_page(lines: &[String]) -> PageUris {
     let mut page = PageUris::default();
     for line in lines {
-        let Ok(ParseResult::Parsed(event)) = Event::parse_event(line) else {
+        let Some(("PUT", uri)) = line.split_once(' ') else {
             continue;
         };
-        if event.event_type != EventType::Put {
+        let Ok(parsed_uri) = ExtendedParsedUri::try_from(uri) else {
+            continue;
+        };
+        // The parser ignores segments past the resource id: only the address it renders back
+        // is the file's own, so an alias path can't give the edge another address.
+        if !parsed_uri
+            .try_to_uri_str()
+            .is_ok_and(|canonical| canonical == uri)
+        {
             continue;
         }
-        let EventTarget::Legacy(parsed_uri) = &event.target else {
-            continue;
-        };
         let user_id = parsed_uri.user_id().to_string();
         match parsed_uri.resource() {
             Resource::Tag(tag_id) => {
-                page.edges.insert((user_id, tag_id.clone()), event.uri);
+                page.edges
+                    .insert((user_id, tag_id.clone()), uri.to_string());
             }
             Resource::User => {
-                page.profiles.insert(user_id, event.uri);
+                page.profiles.insert(user_id, uri.to_string());
             }
             _ => {}
         }
@@ -327,7 +336,7 @@ mod tests {
         assert_eq!(page, PageUris::default());
     }
 
-    /// An alias path parses to the same edge, but the parser rejects it, so it can't give the
+    /// An alias path parses to the same edge, but it is not canonical, so it can't give the
     /// edge an address that isn't its file's.
     #[test]
     fn alias_paths_are_skipped() {
