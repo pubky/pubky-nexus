@@ -40,7 +40,9 @@ pub fn reference(
 #[derive(Default)]
 struct State {
     revision: String,
-    external_reply: bool,
+    /// The post is a tombstone: it keeps its Resource edges, whose dels were published when it
+    /// became one.
+    deleted: bool,
     outbox: Option<String>,
     lines: Vec<ResourceChange>,
 }
@@ -51,7 +53,7 @@ async fn state(author: &str, id: &str) -> ModelResult<State> {
         OPTIONAL MATCH (p)-[e:REPLIED|EMBEDS|COLLECTED]->(r:Resource)
         WITH p, e, r ORDER BY type(e), r.id
         RETURN coalesce(p.resource_ref_revision, '') AS revision,
-               coalesce(p.resource_reply, false) AS external_reply,
+               coalesce(p.deleted, false) AS deleted,
                p.resource_ref_outbox AS outbox,
                collect(CASE WHEN e IS NOT NULL THEN {
                  op: 'put', resource_id: r.id, uri: r.uri,
@@ -62,7 +64,7 @@ async fn state(author: &str, id: &str) -> ModelResult<State> {
     match row {
         Some(row) => Ok(State {
             revision: row.get("revision")?,
-            external_reply: row.get("external_reply")?,
+            deleted: row.get("deleted")?,
             outbox: row.get("outbox")?,
             lines: row.get("lines")?,
         }),
@@ -135,7 +137,7 @@ pub async fn stage(post: &PostDetails, mut lines: Vec<ResourceChange>) -> ModelR
     }
     lines.sort_by_key(|line| (format!("{:?}", line.kind), line.resource_id.clone()));
     lines.dedup_by(|a, b| same_reference(a, b));
-    if old.lines.is_empty() && lines.is_empty() && !old.external_reply {
+    if old.lines.is_empty() && lines.is_empty() {
         return Ok(());
     }
     let mut changes: Vec<_> = old
@@ -159,8 +161,7 @@ pub async fn stage(post: &PostDetails, mut lines: Vec<ResourceChange>) -> ModelR
         SET p.resource_ref_revision = coalesce(p.resource_ref_revision, '')
         WITH p WHERE p.content = $content AND p.kind = $kind AND NOT coalesce(p.deleted, false)
           AND p.resource_ref_revision = $previous
-        SET p.resource_ref_revision = $revision, p.resource_ref_outbox = $outbox,
-            p.resource_reply = $is_reply
+        SET p.resource_ref_revision = $revision, p.resource_ref_outbox = $outbox
         WITH p
     ",
     );
@@ -221,12 +222,6 @@ pub async fn stage(post: &PostDetails, mut lines: Vec<ResourceChange>) -> ModelR
                 .map(|line| line.resource_id.clone())
                 .collect::<Vec<_>>(),
         )
-        .param(
-            "is_reply",
-            lines
-                .iter()
-                .any(|line| line.kind == ResourceChangeKind::Reply),
-        )
         .param("previous", old.revision)
         .param("revision", revision)
         .param("outbox", outbox)
@@ -252,15 +247,18 @@ struct DeleteJournal {
     lines: Vec<ResourceChange>,
 }
 
-/// Retain all targets and their revision before a hard delete removes the graph source.
+/// Retain all targets and their revision before the post's delete. A tombstone keeps its
+/// Resource edges and retracted them when it became one, so its later hard delete journals
+/// nothing.
 pub async fn prepare_delete(author: &str, id: &str) -> ModelResult<()> {
     flush(author, id).await?;
     let State {
         revision,
+        deleted,
         mut lines,
         ..
     } = state(author, id).await?;
-    if lines.is_empty() {
+    if deleted || lines.is_empty() {
         return Ok(());
     }
     for line in &mut lines {
@@ -289,9 +287,10 @@ pub async fn finish_delete(author: &str, id: &str) -> ModelResult<()> {
 async fn finish_delete_journal(author: &str, id: &str, key: &str, raw: &str) -> ModelResult<()> {
     let DeleteJournal { revision, lines } =
         serde_json::from_str(raw).map_err(ModelError::from_generic)?;
-    // Lock the source before checking its revision. A delayed delete must not
-    // remove the Resource edges (or cache) installed by a later accepted PUT.
-    // An absent source is a hard delete whose journal still needs publication.
+    // Lock the source before checking its revision: a delayed delete must not publish the
+    // dels of references a later accepted PUT made. An absent source is a hard delete, whose
+    // DETACH DELETE removed the edges; a tombstone keeps them, and every Resource-side reader
+    // skips a deleted post.
     let applied = fetch_row_from_graph(
         Query::new(
             "resource_references_delete",
@@ -299,9 +298,6 @@ async fn finish_delete_journal(author: &str, id: &str, key: &str, raw: &str) -> 
         OPTIONAL MATCH (p:Post {id: $id}) WHERE EXISTS { (:User {id: $author})-[:AUTHORED]->(p) }
         SET p.resource_ref_revision = coalesce(p.resource_ref_revision, '')
         WITH p WHERE p IS NULL OR p.resource_ref_revision = $revision
-        CALL (p) {
-            MATCH (p)-[e:REPLIED|EMBEDS|COLLECTED]->(:Resource) DELETE e
-        }
         RETURN p IS NOT NULL AS live
     ",
         )
@@ -315,34 +311,15 @@ async fn finish_delete_journal(author: &str, id: &str, key: &str, raw: &str) -> 
         return ResourceChange::finish_batch_delete(key, raw, &[]).await;
     };
     cleanup(&lines).await?;
-    // A surviving tombstone keeps its relationships, rebuilt without the external edges: its
-    // later hard delete reads them as its gate. A hard-deleted post has none left.
+    // A surviving tombstone keeps its relationships, rebuilt from the graph with its external
+    // edges, as the edit path rebuilds them: its later hard delete reads them as its gate. A
+    // hard-deleted post has none left.
     if applied.get::<bool>("live")? {
         crate::models::post::PostRelationships::reindex(author, id).await?;
     } else {
         crate::models::post::PostRelationships::delete(author, id).await?;
     }
     ResourceChange::finish_batch_delete(key, raw, &lines).await
-}
-
-/// Reply classification survives removal of an external edge on a tombstone.
-/// The edge fallback covers posts indexed before the property was introduced.
-pub async fn is_reply(author: &str, id: &str) -> ModelResult<bool> {
-    Ok(fetch_row_from_graph(
-        Query::new(
-            "resource_reply_classification",
-            r"
-        MATCH (p:Post {id: $id}) WHERE EXISTS { (:User {id: $author})-[:AUTHORED]->(p) }
-        RETURN coalesce(p.resource_reply, false) OR EXISTS { (p)-[:REPLIED]->() } AS is_reply
-    ",
-        )
-        .param("author", author)
-        .param("id", id),
-    )
-    .await?
-    .map(|row| row.get("is_reply"))
-    .transpose()?
-    .unwrap_or(false))
 }
 
 /// Existence check without hydrating tags or reference counts.
@@ -485,10 +462,10 @@ mod tests {
         // A retry after the committed edit cannot resurrect the removed target.
         sync(&post, vec![second.clone()]).await?;
         assert!(!exists(&first.resource_id).await?);
-        assert!(is_reply(&author, &id).await?);
+        assert!(PostDetails::is_reply_in_graph(&author, &id).await?);
         sync(&post, vec![]).await?;
         assert!(!exists(&second.resource_id).await?);
-        assert!(!is_reply(&author, &id).await?);
+        assert!(!PostDetails::is_reply_in_graph(&author, &id).await?);
         get_neo4j_graph()?.run(Query::new("reference_revision_cleanup", "MATCH (u:User {id:$author}) OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post) DETACH DELETE p,u").param("author", author)).await?;
         Ok(())
     }
