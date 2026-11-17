@@ -1,4 +1,27 @@
-# Resource reference feed
+# ADR 0001: Resource Reference Feed
+
+## Status
+
+Proposed — 2026-10-28
+
+## Context
+
+Consumers that build on Nexus's Resource references, such as Pinakes, need every put
+and delete of a reference, in order, with a way to resume after a restart and to
+rebuild after Redis is replaced. The resource streams cannot give that: they are
+filtered, sorted and paged, with no replay guarantee, and they do not show deletes.
+Hydrating the referenced Resources one request at a time is also too slow.
+
+Users also move from `pubky.app` to `social/v1` (the flip), which rewrites the stored
+address of each tag they wrote. A consumer that keys a reference by its tag file must
+see that move, or a later `social/v1` delete retracts a path it never saw.
+
+## Decision
+
+Nexus keeps an append-only feed of accepted references to generic Resources,
+`GET /v1/resources/changes`, and a batch view to hydrate them,
+`POST /v1/stream/resources/by_ids`. Nexus never fetches a referenced target. The
+contract follows.
 
 `GET /v1/resources/changes?cursor=0&limit=500` returns a JSON object with `lines` and
 `next_cursor`. Each line describes an accepted reference to a generic Resource;
@@ -16,7 +39,7 @@ route below are served under `/v1` only: `/v0` is frozen and answers 404 for bot
 URI, as written. Which tag folders reach this feed is decided by the tag routing, so the
 example leaves the folder open.
 
-## Delivery contract
+### Delivery contract
 
 Lines are delivered **at least once, in append order**. A consumer must apply `put`
 as an upsert keyed by **(author, object_path)** and `del` as a delete by the same key.
@@ -115,7 +138,7 @@ when a header is absent. An epoch first appearing when none was saved is not its
 a reset signal. An empty/end page returns an empty array and the unchanged cursor.
 Limits are 1–1000 (default 500); invalid values return 400.
 
-## Deployment and rebuilding
+### Deployment and rebuilding
 
 Upgrade all watcher writers before seeding; older binaries do not append this feed.
 Run the repository's migration command using the production database configuration:
@@ -169,7 +192,7 @@ delete that still exists;
 This feed follows accepted tag events; it does not add hooks for unrelated graph
 maintenance or profile-deletion cascades. Rebuilding reconciles current graph state.
 
-## Hydrating references
+### Hydrating references
 
 `POST /v1/stream/resources/by_ids` accepts exactly one of `resource_ids` or `uris`
 (1–100 entries) and optional `viewer_id`. URI entries are at most 2048 bytes and are
@@ -178,3 +201,56 @@ normalized and hashed as `GET /v1/resource/by-uri` does. Results are the usual
 Each entry includes `details.id`. Invalid inputs return 400; no matches returns 200 with an
 empty array. No remote fetch or resource creation occurs. Use this with the feed
 to hydrate referenced IDs without a request per resource.
+
+## Consequences
+
+### Positive ✅
+
+- A consumer follows every reference change from a cursor, resumes after a restart and
+  rebuilds from zero on an epoch change.
+- Nexus never fetches a referenced target: the feed only reflects accepted writes.
+- A user's flip never fails because of the feed: moves are published after the epoch
+  write and retried by a sweep.
+- Many Resources are hydrated in one request.
+
+### Negative ❌
+
+- Delivery is at least once: consumers must upsert by key and accept duplicates.
+- A handler whose retries run out between its graph write and its append leaves the
+  feed behind the graph until the seed job runs.
+- The per-file ordering holds for one watcher process per Neo4j and Redis.
+- After loss of Redis state the feed must be reseeded, and a seed gives current
+  references, not past deletions.
+
+### Neutral ⚠️
+
+- A sweep runs in the watcher every minute, backed by an index on `TAGGED(moved_at)`;
+  an idle sweep reads an empty index range.
+- When a move's first publish fails, consumers see it up to one sweep later.
+
+## Alternatives Considered
+
+### Polling the resource streams
+
+They are filtered, sorted and paged, with no replay guarantee, and a consumer cannot
+tell what was deleted.
+
+### A filtered feed
+
+A filtered view of an append log cannot be resumed without skipping lines. Filtered
+client queries stay on the resource streams.
+
+### No feed lines for the flip
+
+The consumer would keep each reference under its `pubky.app` path, and the user's
+later `social/v1` delete would retract a path the consumer never saw.
+
+### Publishing the moves as one of the flip's steps
+
+A Redis failure would then fail the flip and hold the user's `social/v1` writes.
+
+### Holding the move dels in Redis
+
+It needed a release path in every delete and could only be published by a later flip.
+A record on the graph edge has one owner, survives restarts, and any process that
+holds the lock can publish it.
