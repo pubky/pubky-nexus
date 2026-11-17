@@ -232,6 +232,10 @@ async fn test_resource_changes_excludes_posts_and_users() -> Result<()> {
     Ok(())
 }
 
+/// Two equivalent tag files of one tagger (two spellings of one URL, so two file ids) land on
+/// one edge, which carries the first file's id. Both puts publish the one `(author, uri,
+/// label)` reference; deleting the file whose id the edge carries removes the edge and
+/// publishes one del, and the other file's delete finds no edge and publishes nothing.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_changes_equivalent_tag_files_share_one_reference() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -280,7 +284,9 @@ async fn test_resource_changes_equivalent_tag_files_share_one_reference() -> Res
         )
         .await?;
     }
-    let lines = authored_since(&author, start).await?;
+    let mut lines = authored_since(&author, start).await?;
+    // Each PUT is handled twice (by the test's write and by the replay): duplicates
+    lines.dedup();
     // Both files publish the one reference; the delete of the file whose id the edge carries
     // retracts it, and the other file's delete finds no edge
     assert_eq!(
@@ -295,7 +301,9 @@ async fn test_resource_changes_equivalent_tag_files_share_one_reference() -> Res
         ],
         "{lines:?}"
     );
-    assert!(lines.windows(2).all(|pair| pair[0].uri == pair[1].uri));
+    assert!(lines.windows(2).all(|pair| pair[0].uri == pair[1].uri
+        && pair[0].label == pair[1].label
+        && pair[0].resource_id == pair[1].resource_id));
     assert!(live_references(&lines).is_empty(), "{lines:?}");
     test.cleanup_user(&key).await?;
     Ok(())
@@ -383,10 +391,12 @@ async fn test_resource_changes_a_tag_and_its_v1_copy_share_one_reference() -> Re
             .all(|line| line.object_path == v1_path),
         "after the flip only the v1 file is published: {lines:?}"
     );
-    assert!(lines.iter().all(|line| line.uri == before_flip[0].uri));
+    // The v1 DEL retracts the reference the pubky.app put published
+    let (put, del) = (&before_flip[0], lines.last().unwrap());
+    assert_eq!(del.op, ResourceChangeOp::Del);
     assert_eq!(
-        lines.last().map(|line| line.op),
-        Some(ResourceChangeOp::Del)
+        (&del.author, &del.uri, &del.label, &del.resource_id),
+        (&put.author, &put.uri, &put.label, &put.resource_id)
     );
     assert!(live_references(&lines).is_empty(), "{lines:?}");
     test.del(&key, &profile).await?;
@@ -824,5 +834,181 @@ async fn test_resource_tag_target_over_the_cap_is_rejected() -> Result<()> {
         "only the target at the cap is published: {lines:?}"
     );
     test.cleanup_user(&key).await?;
+    Ok(())
+}
+
+/// Alice and Bob tag the same URL with the same label: their tag files have the same id and
+/// path, each in its own folder. Alice's delete publishes her del only, and leaves Bob's edge
+/// and the shared Resource: the feed ends put (Alice), put (Bob), del (Alice).
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_one_taggers_delete_leaves_anothers_tag() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let handler = test.event_processor_runner.event_handler.clone();
+    let (alice_key, bob_key) = (Keypair::random(), Keypair::random());
+    let alice = test
+        .create_user(&alice_key, &test_user("Two taggers Alice", "feed"))
+        .await?;
+    let bob = test
+        .create_user(&bob_key, &test_user("Two taggers Bob", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let target = format!("https://example.com/two-taggers/{alice}");
+    let tag = PubkyAppTag::new(target.clone(), "steps".into());
+    let path = format!("/pub/pubky.app/tags/{}", tag.create_id());
+    let storage: ResourcePath = path.parse()?;
+    for (key, author) in [(&alice_key, &alice), (&bob_key, &bob)] {
+        test.put(key, &storage, &tag).await?;
+        retrieve_and_handle_event_line(
+            &format!("PUT pubky://{author}{path}"),
+            &test.homeserver_id,
+            handler.clone(),
+        )
+        .await?;
+    }
+    test.del(&alice_key, &storage).await?;
+    retrieve_and_handle_event_line(
+        &format!("DEL pubky://{alice}{path}"),
+        &test.homeserver_id,
+        handler.clone(),
+    )
+    .await?;
+
+    let mut lines = Vec::new();
+    let mut cursor = start;
+    loop {
+        let (page, _, _) = ResourceChange::get_from_index(cursor, 1000).await?;
+        if page.lines.is_empty() {
+            break;
+        }
+        cursor = page.next_cursor;
+        lines.extend(
+            page.lines
+                .into_iter()
+                .filter(|line| line.author == alice || line.author == bob),
+        );
+    }
+    // Each PUT is handled twice (by the test's write and by the replay): duplicates
+    lines.dedup();
+    assert_eq!(
+        lines
+            .iter()
+            .map(|line| (line.op, line.author.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (ResourceChangeOp::Put, alice.as_str()),
+            (ResourceChangeOp::Put, bob.as_str()),
+            (ResourceChangeOp::Del, alice.as_str()),
+        ],
+        "{lines:?}"
+    );
+    assert!(lines.iter().all(|line| line.object_path == path));
+    let (normalized, _) = normalize_uri(&target).unwrap();
+    assert_eq!(
+        live_references(&lines),
+        [(bob.clone(), normalized, "steps".to_string())].into()
+    );
+    assert_eq!(resource_tag_edge(&alice, &target).await?, None);
+    assert_eq!(
+        resource_tag_edge(&bob, &target).await?,
+        Some(format!("pubky://{bob}{path}")),
+        "Bob's edge, and so the Resource, stay"
+    );
+
+    test.del(&bob_key, &storage).await?;
+    test.cleanup_user(&alice_key).await?;
+    test.cleanup_user(&bob_key).await?;
+    Ok(())
+}
+
+/// The feed writes before the graph on delete: a DEL that stops after appending its del line
+/// leaves the edge, and its retry reads the edge again, appends the del again and deletes the
+/// edge. A further retry finds no edge and appends nothing.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_delete_retry_after_its_append_deletes_the_edge() -> Result<()> {
+    use nexus_common::utils::test_utils::fail_feed_dels_after_append;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    let author = test
+        .create_user(&key, &test_user("Delete retry", "feed"))
+        .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+    let target = format!("https://example.com/delete-retry/{author}");
+    run_tag_steps(&author, &target, &[TagStep::Put]).await?;
+
+    fail_feed_dels_after_append(&author, true);
+    let failed = tag_handler(&author, &target, TagStep::Del)?.await;
+    fail_feed_dels_after_append(&author, false);
+    assert!(failed.is_err(), "the injected failure stops the DEL");
+    assert!(
+        resource_tag_edge(&author, &target).await?.is_some(),
+        "a DEL that stops after its append leaves the edge"
+    );
+    let ops = |lines: &[ResourceChange]| lines.iter().map(|line| line.op).collect::<Vec<_>>();
+    assert_eq!(
+        ops(&authored_since(&author, start).await?),
+        [ResourceChangeOp::Put, ResourceChangeOp::Del]
+    );
+
+    // The retry
+    tag_handler(&author, &target, TagStep::Del)?.await?;
+    assert_eq!(resource_tag_edge(&author, &target).await?, None);
+    // Once more: the edge is gone, nothing is appended
+    tag_handler(&author, &target, TagStep::Del)?.await?;
+    let lines = authored_since(&author, start).await?;
+    assert_eq!(
+        ops(&lines),
+        [
+            ResourceChangeOp::Put,
+            ResourceChangeOp::Del,
+            ResourceChangeOp::Del
+        ]
+    );
+    assert_eq!(lines[1].uri, lines[2].uri);
+    assert!(live_references(&lines).is_empty(), "{lines:?}");
+    test.cleanup_user(&key).await?;
+    Ok(())
+}
+
+/// After puts, deletes, an equivalent file and a second tagger, a reseed rebuilds the feed
+/// from the graph with exactly one put per live edge, under the same `(author, uri, label)` the
+/// handlers published. Runs alone (`.config/nextest.toml`): it replaces the shared feed.
+#[tokio_shared_rt::test(shared)]
+async fn test_resource_changes_reseed_gives_one_put_per_edge() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let (alice_key, bob_key) = (Keypair::random(), Keypair::random());
+    let alice = test
+        .create_user(&alice_key, &test_user("Reseed Alice", "feed"))
+        .await?;
+    let bob = test
+        .create_user(&bob_key, &test_user("Reseed Bob", "feed"))
+        .await?;
+    let shared = format!("https://example.com/reseed/{alice}/shared");
+    let gone = format!("https://example.com/reseed/{alice}/gone");
+    let twice = format!("https://example.com/reseed/{alice}/twice");
+    for author in [&alice, &bob] {
+        run_tag_steps(author, &shared, &[TagStep::Put]).await?;
+    }
+    run_tag_steps(&alice, &gone, &[TagStep::Put, TagStep::Del]).await?;
+    run_tag_steps(&alice, &twice, &[TagStep::Put, TagStep::Put]).await?;
+    let ours = |line: &ResourceChange| line.author == alice || line.author == bob;
+    let (handled, _, _) = ResourceChange::get_from_index(0, usize::MAX).await?;
+    let handled: Vec<_> = handled.lines.into_iter().filter(ours).collect();
+
+    ResourceChange::reseed(false).await?;
+    let (seeded, _, _) = ResourceChange::get_from_index(0, usize::MAX).await?;
+    let seeded: Vec<_> = seeded.lines.into_iter().filter(ours).collect();
+    assert!(seeded.iter().all(|line| line.op == ResourceChangeOp::Put));
+    let keys: Vec<_> = seeded
+        .iter()
+        .map(|line| (line.author.clone(), line.uri.clone(), line.label.clone()))
+        .collect();
+    let distinct: std::collections::BTreeSet<_> = keys.iter().cloned().collect();
+    assert_eq!(keys.len(), distinct.len(), "one put per edge: {seeded:?}");
+    assert_eq!(live_references(&seeded), live_references(&handled));
+    assert_eq!(seeded.len(), 3, "{seeded:?}");
+
+    test.cleanup_user(&alice_key).await?;
+    test.cleanup_user(&bob_key).await?;
     Ok(())
 }
