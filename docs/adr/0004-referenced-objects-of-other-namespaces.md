@@ -30,15 +30,15 @@ Decided:
    (section 2.4).
 
 The sections below give the details. Code is cited as it stands on this branch. Where a
-route or field exists only on this branch (it is added by the resource changes feed and
-external references changes beneath this document, and is not on `main`), it is marked
-*branch*.
+route or field exists only on this branch (it is added by the resource changes feed,
+external references and reach set changes beneath this document, and is not on `main`), it is
+marked *branch*.
 
 Versioning on this carrier: `/v0` is frozen (fixes only). Existing `/v0` routes below
 describe historical client behaviour; shared routes also have `/v1` mounts. The branch-only
-feed, batch views and reference routes, their added view fields, and every proposed filter,
-metadata field or paging extension in this document belong to `/v1` only. Consumers must
-migrate these branch-only calls to `/v1`; this document does not claim a deployed client
+feed, batch views, reference routes and reach set, their added view fields, and every proposed
+filter, metadata field or paging extension in this document belong to `/v1` only. Consumers
+must migrate these branch-only calls to `/v1`; this document does not claim a deployed client
 has already migrated. No new behaviour is proposed for `/v0`.
 
 ### 1. Rules
@@ -121,10 +121,12 @@ following | friends | wot | wot_1..wot_3` (bare `wot` is depth 2) anchored on th
 | `GET /v0/search/users/by_tags?user_id=&reach=` | **tagged users** in reach (never `user_id`), scores unchanged | `queries/get.rs` `search_users_by_tags_with_reach` |
 | `GET /v0/stream/users?source=influencers&user_id=&reach=` | **users** in reach, ranked as influencers | `models/user/stream.rs` |
 | `GET /v0/post/{a}/{id}/tags`, `GET /v0/user/{id}/tags`, `/taggers/{label}`, `GET /v0/user/{id}` with `viewer_id=&depth=1..3` | **taggers** of those tags within `depth` follow steps of the viewer (the post taggers route ignores `depth`) | `queries/get.rs` `get_viewer_trusted_network_tags`, `get_viewer_trusted_network_post_tags` |
+| *branch* `GET /v1/user/{user_id}/reach-set?depth=1..3` | the **users** within `depth` follow steps of `user_id`, the authors `source=wot` reads, whether or not they posted (never `user_id`); at most 1000, `truncated` past that | `routes/v0/user/reach_set.rs`, `models/follow/reach.rs` `reach_set` |
 | `GET /v0/stream/resources`, `/ids`, Resource routes | no relation parameter | `routes/v0/stream/resources.rs` |
 
 Pinakes applies reach to **referrers** of Resources itself: it reads
-`GET /v0/user/{viewer}/following|friends` (limit 200) and filters its own references.
+`GET /v0/user/{viewer}/following|friends` (limit 200) and, for `wot_2` when configured for it,
+asks for the reach set (7.1), and filters its own references.
 
 "Authored by someone I follow" and "tagged or embedded by someone I follow" are different
 questions, and both already exist on different routes. This design keeps every row above as it is
@@ -304,9 +306,13 @@ of this design, and nothing here depends on it.
 
 Consumer contract after migration to this branch: Pinakes reads the feed (`limit=1000`,
 `(epoch, cursor)` committed with its references), hydrates with
-`POST /v1/stream/resources/by_ids`, and reads follow lists for reach.
-Separately, the current Pinakes client also asks for `GET /v0/user/{viewer}/reach-set?depth=2`,
-which no Nexus route serves; it reads the 404 as an empty set.
+`POST /v1/stream/resources/by_ids`, reads follow lists for reach and, for `wot_2`,
+`GET /v1/user/{viewer}/reach-set?depth=2`. That route (*branch*, `/v1` only) returns
+`{authors, truncated}`: the users within `depth` (1–3, default 2) follow steps, at most 1000,
+with a weak `ETag` and a 304 while `If-None-Match` still matches; another depth is a 400 and an
+unknown user a 404. The current Pinakes client, when configured for it, asks for
+`GET /v0/user/{viewer}/reach-set?depth=2`, which `/v0` does not serve, and reads the 404 as an
+empty set.
 
 #### 7.2 Returned fields, filter parameters, search routes
 
@@ -477,6 +483,5 @@ Not authorised by this design:
 Open for the reviews of later implementation changes:
 
 1. Whether the address-derived `namespace` and the cursor paging (7.4) land on their own.
-2. Whether Nexus should serve the reach-set route Pinakes asks for.
-3. The spec work (3.3): a released spec carrying the 1.1 draft's namespace rule and reference
+2. The spec work (3.3): a released spec carrying the 1.1 draft's namespace rule and reference
    parser, and a namespace-agnostic indexer kind type with a kind-name syntax, which no pin has.
