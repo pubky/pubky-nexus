@@ -120,7 +120,11 @@ async fn test_legacy_app_folder_tag_survives_its_del() -> Result<()> {
     let survived = find_resource_tag(&resource_id, label).await?;
 
     // Clean up before asserting, so a failure leaves nothing behind
-    handlers::tag::del(resource_key(&user_id, &tag_id)?).await?;
+    handlers::tag::del_at(
+        resource_key(&user_id, &tag_id)?,
+        &format!("pubky://{user_id}/pub/mapky/tags/{tag_id}"),
+    )
+    .await?;
     test.cleanup_user(&user_kp).await?;
 
     let survived = survived.expect("the legacy edge survives the app-folder DEL");

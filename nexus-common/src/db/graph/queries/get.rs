@@ -221,19 +221,6 @@ pub fn get_tag_target(user_id: &str, tag_id: &str) -> Query {
     .param("tag_id", tag_id)
 }
 
-/// Stored time of a resource tag, including a normalization-equivalent replay
-/// whose raw URI produced a different object ID.
-pub fn get_resource_tag_indexed_at(author: &str, resource_id: &str, label: &str) -> Query {
-    Query::new(
-        "get_resource_tag_indexed_at",
-        "MATCH (:User {id: $author})-[t:TAGGED {label: $label}]->(:Resource {id: $resource_id})
-         RETURN t.indexed_at AS tag_indexed_at, t.uri AS tag_uri",
-    )
-    .param("author", author)
-    .param("resource_id", resource_id)
-    .param("label", label)
-}
-
 // t.id collides across taggers (hashes only {target_uri, label}), so the keyset is the row value
 // [tagger.id, t.id]: TAGGED is MERGEd per (tagger, post, label) and t.id maps 1:1 to label within
 // a post, which makes the pair unique per row.

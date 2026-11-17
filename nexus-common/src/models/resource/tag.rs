@@ -1,4 +1,3 @@
-use crate::db::graph::exec::execute_graph_operation;
 use crate::db::{fetch_row_from_graph, queries, GraphResult, OperationOutcome};
 use crate::models::error::ModelResult;
 use crate::models::tag::traits::collection::taggers_page;
@@ -32,7 +31,9 @@ impl TagResource {
 
     /// Creates or merges a TAGGED relationship between a user and a Resource node.
     /// Unlike Post/User tags which use MATCH (target must exist), this uses MERGE
-    /// for the Resource (first tag creates it).
+    /// for the Resource (first tag creates it). Returns the outcome and, unless the tagger is
+    /// missing, the edge's `indexed_at`: the time of the put that created it, which a replay or an
+    /// equivalent file keeps.
     #[allow(clippy::too_many_arguments)]
     pub async fn put_to_graph_resource(
         tagger_id: &str,
@@ -43,7 +44,7 @@ impl TagResource {
         tag_uri: &str,
         label: &str,
         indexed_at: i64,
-    ) -> GraphResult<OperationOutcome> {
+    ) -> GraphResult<(OperationOutcome, Option<i64>)> {
         let query = queries::put::create_resource_tag(
             tagger_id,
             resource_id,
@@ -54,6 +55,13 @@ impl TagResource {
             label,
             indexed_at,
         );
-        execute_graph_operation(query).await
+        let Some(row) = fetch_row_from_graph(query).await? else {
+            return Ok((OperationOutcome::MissingDependency, None));
+        };
+        let outcome = match row.get("flag")? {
+            true => OperationOutcome::Updated,
+            false => OperationOutcome::CreatedOrDeleted,
+        };
+        Ok((outcome, Some(row.get("indexed_at")?)))
     }
 }
