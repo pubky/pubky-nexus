@@ -745,9 +745,9 @@ async fn key_based_processor_continues_after_retryable_client_error() -> Result<
     Ok(())
 }
 
-/// Verifies retryable fetch errors skip only the affected user.
+/// Verifies a stream request the homeserver rejects skips only that user.
 #[tokio_shared_rt::test(shared)]
-async fn key_based_processor_continues_after_retryable_fetch_error() -> Result<(), DynError> {
+async fn key_based_processor_continues_after_rejected_stream_request() -> Result<(), DynError> {
     setup().await?;
 
     let (_hs_keypair, homeserver) = create_homeserver().await?;

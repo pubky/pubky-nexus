@@ -59,7 +59,7 @@ impl RetryScheduler {
                 | PubkyClientError::PkarrFailed(..) => true,
 
                 PubkyClientError::NotFound404 { .. }
-                | PubkyClientError::ClientError4xx { .. }
+                | PubkyClientError::RequestRejected { .. }
                 | PubkyClientError::AuthenticationFailed(..)
                 | PubkyClientError::BuildFailed(..)
                 | PubkyClientError::ParseFailed(..) => false,

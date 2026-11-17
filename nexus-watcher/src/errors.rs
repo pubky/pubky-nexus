@@ -150,7 +150,7 @@ impl From<HsError> for EventProcessorError {
             HsErrorKind::ServerError(..) => PubkyClientError::ServerError5xx { message }.into(),
             // 408 is a timeout, retried like one.
             HsErrorKind::Rejected(status, _) if (400..500).contains(&status) && status != 408 => {
-                PubkyClientError::ClientError4xx { status, message }.into()
+                PubkyClientError::RequestRejected { status, message }.into()
             }
             HsErrorKind::Rejected(..)
             | HsErrorKind::Transport(_)
@@ -390,7 +390,7 @@ mod tests {
             for status in [400, 401, 403, 410] {
                 let err = hs_error(op, HsErrorKind::Rejected(status, "".into()));
                 assert!(
-                    matches!(&err, EventProcessorError::PubkyClientError(e) if matches!(e.as_ref(), PubkyClientError::ClientError4xx { status: s, .. } if *s == status)),
+                    matches!(&err, EventProcessorError::PubkyClientError(e) if matches!(e.as_ref(), PubkyClientError::RequestRejected { status: s, .. } if *s == status)),
                     "{err:?}"
                 );
                 assert!(
