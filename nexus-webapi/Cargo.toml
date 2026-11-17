@@ -117,3 +117,7 @@ harness = false
 [[bench]]
 name = "resource_references"
 harness = false
+
+[[bench]]
+name = "social_events"
+harness = false
