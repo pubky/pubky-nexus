@@ -168,8 +168,9 @@ async fn test_post_and_mention_users_on_unknown_homeserver() -> Result<()> {
 }
 
 /// A node that does not deserialize reads as no user, but it is one: a
-/// mention must not make the ingestor write a stub over it. The mentioned
-/// user's homeserver resolves, so a wrongly ingested user would be written.
+/// mention must not make the ingestor look the user up and bind them to a
+/// homeserver, nor rewrite the node. The mentioned user's homeserver
+/// resolves, so a wrongly ingested user would be bound to it.
 #[tokio_shared_rt::test(shared)]
 async fn test_mention_keeps_a_malformed_user_node() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -213,7 +214,8 @@ async fn test_mention_keeps_a_malformed_user_node() -> Result<()> {
         Query::new(
             "malformed_user_after_mention",
             "MATCH (u:User {id: $id})
-             RETURN u.name AS name, u.deleted AS deleted, u.indexed_at AS indexed_at",
+             RETURN u.name AS name, u.deleted AS deleted, u.indexed_at AS indexed_at,
+                    EXISTS { (u)-[:HOSTED_BY]->(:Homeserver) } AS hosted",
         )
         .param("id", mentioned_id.clone()),
     )
@@ -233,6 +235,10 @@ async fn test_mention_keeps_a_malformed_user_node() -> Result<()> {
     assert!(
         node.get::<Option<i64>>("indexed_at")?.is_none(),
         "the node is not rewritten"
+    );
+    assert!(
+        !node.get::<bool>("hosted")?,
+        "a known user is not bound to a homeserver"
     );
 
     Ok(())

@@ -113,7 +113,8 @@ impl UserIngestor {
     pub async fn maybe_ingest_user(&self, user_id: &PubkyId) -> ModelResult<()> {
         let user_id_str = user_id.to_string();
         // Whether the node exists, not whether it reads: one that does not
-        // deserialize is still a known user, and the stub would overwrite it.
+        // deserialize is still a known user, and must not be looked up and
+        // bound to a homeserver again.
         if users_exist(&[&user_id_str]).await? {
             tracing::debug!("Skipping ingestion: {user_id_str} already known");
             return Ok(());
