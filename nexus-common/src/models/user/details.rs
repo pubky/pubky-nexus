@@ -156,9 +156,17 @@ impl UserDetails {
         (live, evicted)
     }
 
-    /// Writes the node without a `uri`, keeping the stored one: stubs use it.
+    /// Writes the node without a `uri`, keeping the stored one, and overwrites every other
+    /// profile field. Key discovery must not use it: see [`Self::create_stub_in_graph`].
     pub async fn put_to_graph(&self) -> GraphResult<()> {
         exec_single_row(queries::put::create_user(self, None)?).await
+    }
+
+    /// Creates `user_id`'s node as the stub [`Self::from_pubky`] gives, unless the user has a
+    /// node: a profile indexed since the caller last looked is kept as it is.
+    pub async fn create_stub_in_graph(user_id: &PubkyId) -> GraphResult<()> {
+        let stub = Self::from_pubky(user_id.clone());
+        exec_single_row(queries::put::create_user_stub(&stub)).await
     }
 
     /// Creates a minimal `UserDetails` with only the public key: the stub of a user whose
