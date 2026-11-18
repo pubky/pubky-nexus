@@ -2,11 +2,12 @@ use std::collections::{HashMap, VecDeque};
 
 use tokio::sync::Mutex;
 
-use nexus_common::db::PubkyClientResult;
-use nexus_common::models::user::PkdnsHomeserverResolver;
+use nexus_common::db::{PubkyClientError, PubkyClientResult};
+use nexus_common::models::user::{PkdnsHomeserverResolver, PkdnsRecord};
+use nexus_common::utils::test_utils::signed_packet_naming;
 use nexus_watcher::homeserver::{HomeserverClient, HsError, HsErrorKind, HsOp, HsStreamEvent};
-use pubky::{PubkyResource, PublicKey};
-use pubky_app_specs::PubkyId;
+use pubky::{Keypair, PubkyResource, PublicKey};
+use pubky_social_specs::PubkyId;
 
 type UserEventsResult = Result<Vec<HsStreamEvent>, HsErrorKind>;
 
@@ -34,11 +35,23 @@ pub struct MockHomeserverClient {
     /// Useful for asserting the processor continued to, or stopped before, specific users.
     calls: Mutex<Vec<(String, String, u64, u16)>>,
 
-    /// Bodies served by `get_resource`, by URI. Any other URI is a 404.
+    /// Bodies served by `get_resource` and `get_blob`, by URI. Any other URI is a 404.
     resources: HashMap<String, Vec<u8>>,
 
-    /// The homeserver every user resolves to. None by default.
-    homeserver_of: Option<PubkyId>,
+    /// Failures `get_resource` and `get_blob` answer instead, by URI. Checked before
+    /// `resources`.
+    resource_errors: HashMap<String, HsErrorKind>,
+
+    /// Blob URIs `get_blob` was asked for, in fetch order, served or not, so a test that
+    /// asserts no download happened reads this.
+    blob_fetches: Mutex<Vec<String>>,
+
+    /// The user whose record every lookup is answered with, and the homeserver
+    /// it names, if any. None by default.
+    homeserver_of: Option<(Keypair, Option<PubkyId>)>,
+
+    /// Whether every homeserver lookup fails instead.
+    homeserver_lookup_fails: bool,
 }
 
 impl MockHomeserverClient {
@@ -75,13 +88,31 @@ impl MockHomeserverClient {
         self
     }
 
-    pub fn with_homeserver_of(mut self, hs: PubkyId) -> Self {
-        self.homeserver_of = Some(hs);
+    pub fn with_homeserver_of(mut self, user: Keypair, hs: PubkyId) -> Self {
+        self.homeserver_of = Some((user, Some(hs)));
+        self
+    }
+
+    /// Answers every lookup with `user`'s record, which names no homeserver.
+    pub fn with_record_naming_no_homeserver(mut self, user: Keypair) -> Self {
+        self.homeserver_of = Some((user, None));
+        self
+    }
+
+    pub fn with_failing_homeserver_lookup(mut self) -> Self {
+        self.homeserver_lookup_fails = true;
         self
     }
 
     pub fn with_resource(mut self, uri: impl Into<String>, body: impl Into<Vec<u8>>) -> Self {
         self.resources.insert(uri.into(), body.into());
+        self
+    }
+
+    /// `get_resource` of `uri` fails with `kind`, labelled with the owner's key as the real
+    /// client labels a failed fetch.
+    pub fn with_resource_error(mut self, uri: impl Into<String>, kind: HsErrorKind) -> Self {
+        self.resource_errors.insert(uri.into(), kind);
         self
     }
 
@@ -101,6 +132,11 @@ impl MockHomeserverClient {
     pub async fn call_details(&self) -> Vec<(String, String, u64, u16)> {
         self.calls.lock().await.clone()
     }
+
+    /// The blob URIs `get_blob` was asked for, in fetch order.
+    pub async fn blob_fetches(&self) -> Vec<String> {
+        self.blob_fetches.lock().await.clone()
+    }
 }
 
 /// A 404 for `resource`, labelled with its owner's key, as the real client labels a failed
@@ -112,8 +148,18 @@ fn not_found(resource: &PubkyResource, op: HsOp) -> HsError {
 
 #[async_trait::async_trait]
 impl PkdnsHomeserverResolver for MockHomeserverClient {
-    async fn resolve_homeserver(&self, _user_pk: &PublicKey) -> PubkyClientResult<Option<PubkyId>> {
-        Ok(self.homeserver_of.clone())
+    async fn resolve_record(&self, _user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+        if self.homeserver_lookup_fails {
+            return Err(PubkyClientError::RequestFailed {
+                message: "homeserver lookup failed".into(),
+            });
+        }
+        Ok(match &self.homeserver_of {
+            Some((user, homeserver)) => {
+                PkdnsRecord::Published(signed_packet_naming(user, homeserver.as_ref(), 1))
+            }
+            None => PkdnsRecord::Missing,
+        })
     }
 }
 
@@ -165,13 +211,26 @@ impl HomeserverClient for MockHomeserverClient {
     }
 
     async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
-        self.resources
-            .get(&resource.to_pubky_url())
-            .cloned()
-            .ok_or_else(|| not_found(resource, HsOp::GetResource))
+        self.serve(resource, HsOp::GetResource)
     }
 
     async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
-        Err(not_found(resource, HsOp::GetBlob))
+        self.blob_fetches.lock().await.push(resource.to_pubky_url());
+        self.serve(resource, HsOp::GetBlob)
+    }
+}
+
+impl MockHomeserverClient {
+    /// The scripted answer for `resource`: its failure, its body, or a 404, labelled with `op`.
+    fn serve(&self, resource: &PubkyResource, op: HsOp) -> Result<Vec<u8>, HsError> {
+        let url = resource.to_pubky_url();
+        if let Some(kind) = self.resource_errors.get(&url) {
+            let owner = PubkyId::from(resource.owner.clone());
+            return Err(HsError::new(&owner, op, kind.clone()));
+        }
+        self.resources
+            .get(&url)
+            .cloned()
+            .ok_or_else(|| not_found(resource, op))
     }
 }

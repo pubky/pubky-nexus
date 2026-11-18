@@ -69,14 +69,13 @@ criterion_group! {
               kind::bench_stream_post_kind_link,
               kind::bench_stream_post_kind_file,
               kind::bench_stream_post_exclude_kinds,
+              kind::bench_stream_post_locked,
               wot::bench_stream_wot_depth1_timeline,
               wot::bench_stream_wot_depth2_timeline,
               wot::bench_stream_wot_depth3_timeline,
               wot::bench_stream_wot_domain_depth2,
               resource::bench_stream_resources_all_timeline,
-              resource::bench_stream_resources_app_timeline,
-              resource::bench_stream_resources_tag_timeline,
-              resource::bench_stream_resources_app_tag_timeline
+              resource::bench_stream_resources_tag_timeline
 }
 
 criterion_main!(streams);

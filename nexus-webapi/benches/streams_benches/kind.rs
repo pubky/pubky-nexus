@@ -2,9 +2,9 @@ use crate::run_setup;
 use crate::streams_benches::LIMIT_20;
 use criterion::Criterion;
 use nexus_common::db::kv::SortOrder;
+use nexus_common::models::post::PostKind;
 use nexus_common::models::post::{KindFilter, PostStream, StreamSource};
 use nexus_common::types::StreamSorting;
-use pubky_app_specs::PubkyAppPostKind;
 use tokio::runtime::Runtime;
 
 /// POST KIND RELATED STREAMS BENCHMARKS
@@ -30,7 +30,7 @@ pub fn bench_stream_post_kind_short(c: &mut Criterion) {
                 StreamSorting::Timeline,
                 None,
                 None,
-                Some(KindFilter::Kind(PubkyAppPostKind::Short)),
+                Some(KindFilter::Kind(PostKind::Short)),
             )
             .await
             .unwrap();
@@ -61,7 +61,7 @@ pub fn bench_stream_post_kind_long(c: &mut Criterion) {
                 StreamSorting::Timeline,
                 None,
                 None,
-                Some(KindFilter::Kind(PubkyAppPostKind::Long)),
+                Some(KindFilter::Kind(PostKind::Long)),
             )
             .await
             .unwrap();
@@ -92,7 +92,7 @@ pub fn bench_stream_post_kind_image(c: &mut Criterion) {
                 StreamSorting::Timeline,
                 None,
                 None,
-                Some(KindFilter::Kind(PubkyAppPostKind::Image)),
+                Some(KindFilter::Kind(PostKind::Image)),
             )
             .await
             .unwrap();
@@ -123,7 +123,7 @@ pub fn bench_stream_post_kind_video(c: &mut Criterion) {
                 StreamSorting::Timeline,
                 None,
                 None,
-                Some(KindFilter::Kind(PubkyAppPostKind::Video)),
+                Some(KindFilter::Kind(PostKind::Video)),
             )
             .await
             .unwrap();
@@ -154,7 +154,7 @@ pub fn bench_stream_post_kind_link(c: &mut Criterion) {
                 StreamSorting::Timeline,
                 None,
                 None,
-                Some(KindFilter::Kind(PubkyAppPostKind::Link)),
+                Some(KindFilter::Kind(PostKind::Link)),
             )
             .await
             .unwrap();
@@ -185,7 +185,7 @@ pub fn bench_stream_post_kind_file(c: &mut Criterion) {
                 StreamSorting::Timeline,
                 None,
                 None,
-                Some(KindFilter::Kind(PubkyAppPostKind::File)),
+                Some(KindFilter::Kind(PostKind::File)),
             )
             .await
             .unwrap();
@@ -216,7 +216,38 @@ pub fn bench_stream_post_exclude_kinds(c: &mut Criterion) {
                 StreamSorting::Timeline,
                 None,
                 None,
-                Some(KindFilter::Exclude(vec![PubkyAppPostKind::Collection])),
+                Some(KindFilter::Exclude(vec![PostKind::Collection])),
+            )
+            .await
+            .unwrap();
+            std::hint::black_box(post_stream);
+        });
+    });
+}
+
+pub fn bench_stream_post_locked(c: &mut Criterion) {
+    println!("***************************************************************************");
+    println!("Benchmarking the post streams keeping only locked posts");
+    println!("***************************************************************************");
+
+    run_setup();
+
+    let rt = Runtime::new().unwrap();
+
+    c.bench_function("stream_posts_locked", |b| {
+        b.to_async(&rt).iter(|| async {
+            // Define all the arguments of the post stream
+            let source = StreamSource::All;
+
+            // Run the benchmark
+            let post_stream = PostStream::get_posts(
+                source,
+                LIMIT_20,
+                SortOrder::Descending,
+                StreamSorting::Timeline,
+                None,
+                None,
+                Some(KindFilter::Locked),
             )
             .await
             .unwrap();

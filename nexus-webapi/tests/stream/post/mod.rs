@@ -1,4 +1,5 @@
-use nexus_webapi::routes::v0::endpoints;
+use const_format::concatcp;
+use nexus_webapi::routes::v0::endpoints::{self, V0_PREFIX};
 
 pub mod author;
 pub mod author_replies;
@@ -14,8 +15,8 @@ pub mod trust_filter;
 pub mod utils;
 pub mod wot;
 
-pub const ROOT_PATH: &str = endpoints::STREAM_POSTS_ROUTE;
-pub const KEYS_ROOT_PATH: &str = endpoints::STREAM_POST_KEYS_ROUTE;
+pub const ROOT_PATH: &str = concatcp!(V0_PREFIX, endpoints::STREAM_POSTS_ROUTE);
+pub const KEYS_ROOT_PATH: &str = concatcp!(V0_PREFIX, endpoints::STREAM_POST_KEYS_ROUTE);
 
 // Aldert
 pub const USER_ID: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";

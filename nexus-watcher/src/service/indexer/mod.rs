@@ -159,13 +159,13 @@ pub trait TEventProcessor: Send + Sync + 'static {
     }
 
     /// Parses a single event line and dispatches to [`Self::handle_event`].
-    /// Universal tag events are handled via `ExtendedParsedUri::UniversalTag` →
-    /// `DefaultEventHandler` → `tag::sync_put_resource`.
+    /// A tag event from `pubky.app/tags` (and `social/v1/tags` after the flip) reaches `put_tag`,
+    /// which picks its flow by the resolved target.
     async fn process_event_line(&self, line: &str) -> Result<(), EventProcessorError> {
         match Event::parse_event(line) {
             // Invalid event lines come from untrusted homeservers; treat as bad peer data, not Nexus errors.
             Err(e) => warn!(error = %e, "Invalid event line"),
-            Ok(ParseResult::Skipped) => {}
+            Ok(ParseResult::Skipped(_)) => {}
             Ok(ParseResult::UnrecognizedUri { reason, .. }) => {
                 warn!(%reason, "Unrecognized event URI");
             }
@@ -197,6 +197,9 @@ pub trait TEventProcessor: Send + Sync + 'static {
         }
 
         if !RetryScheduler::should_enqueue_related_event(&error) {
+            // No flip is dropped here: its step runs before the fetch and every failure of it
+            // is queued, so a `social/v1` profile PUT that is 404 or invalid is a `v1` user's
+            // own edit.
             debug!(
                 event.uri = %event.uri,
                 error = %error,
@@ -230,7 +233,8 @@ pub trait TEventProcessor: Send + Sync + 'static {
     /// Called at the start of [`Self::handle_event`], before the event is handed
     /// to the event handler. The default always processes the event;
     /// [`HsEventProcessor`](crate::service::indexer::HsEventProcessor) overrides
-    /// this to skip events from users bound to a different homeserver.
+    /// this to skip events from users bound to a different homeserver, or who
+    /// have no `HOSTED_BY` edge and publish a different homeserver.
     async fn should_process_event(&self, _event: &Event) -> Result<bool, EventProcessorError> {
         Ok(true)
     }
@@ -240,11 +244,11 @@ pub trait TEventProcessor: Send + Sync + 'static {
         name = "event.process",
         skip_all,
         fields(
-            event.resource = %event.parsed_uri.resource(),
+            event.resource = %event.target.resource_name(),
             event.uri = %event.uri,
             event.r#type = %event.event_type,
-            event.user_id = %event.parsed_uri.user_id(),
-            event.resource_id = event.parsed_uri.resource().id().unwrap_or_default(),
+            event.user_id = %event.target.user_id(),
+            event.resource_id = event.target.resource_id(),
             otel.status_code = tracing::field::Empty,
             otel.status_message = tracing::field::Empty,
         )

@@ -1,6 +1,7 @@
 use crate::models::PubkyId;
 use crate::routes::v0::endpoints::USER_ROUTE;
 use crate::routes::v0::types::resolve_tag_wot_depth;
+use crate::routes::v0::version::{versioned_handlers, ApiVersion};
 use crate::routes::Path;
 use crate::routes::Query;
 use crate::{Error, Result};
@@ -17,34 +18,12 @@ pub struct ProfileQuery {
     depth: Option<u8>,
 }
 
-#[utoipa::path(
-    get,
-    path = USER_ROUTE,
-    description = "\
-User profile.
-
-**social_graph_status** says how established the account is in the follow graph, from a seeded \
-ranking recomputed on a schedule. `null` means no ranking is available and the badge should be \
-hidden, which is not the same as `new`. It is not an endorsement: a high value means an account is \
-expensive to fake, not that it is trustworthy.",
-    tag = "User",
-    params(
-        ("user_id" = PubkyId, Path, description = "User Pubky ID"),
-        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("depth" = Option<usize>, Query, description = "WoT depth (1-3) for filtering the profile's tags through the viewer's network. Requires `viewer_id`; a value outside 1-3 (or `depth` without `viewer_id`) returns 400")
-    ),
-    responses(
-        (status = 200, description = "User Profile", body = UserView),
-        (status = 400, description = "Invalid parameters"),
-        (status = 404, description = "User not found"),
-        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn user_view_handler(
+/// The one body behind `user_view_handler_v0` and `user_view_handler_v1`: the view in the
+/// version's shape.
+pub async fn user_view<V: ApiVersion>(
     Path(user_id): Path<PubkyId>,
     Query(query): Query<ProfileQuery>,
-) -> Result<Json<UserView>> {
+) -> Result<Json<V::UserView>> {
     debug!(
         "GET {USER_ROUTE} user_id:{}, viewer_id:{:?}, depth: {:?}",
         user_id, query.viewer_id, query.depth
@@ -54,14 +33,41 @@ pub async fn user_view_handler(
     // depth is a 400, not a silent fall-back to global tags.
     let depth = resolve_tag_wot_depth(query.viewer_id.as_deref(), query.depth)?;
     match UserView::get_by_id(&user_id, query.viewer_id.as_deref(), depth.map(|d| d.get())).await? {
-        Some(user) => Ok(Json(user)),
+        Some(user) => Ok(Json(V::UserView::from(user))),
         None => Err(Error::user_not_found(user_id)),
     }
 }
 
+versioned_handlers! {
+    user_view_handler_v0 / user_view_handler_v1 => user_view(path: Path<PubkyId>, query: Query<ProfileQuery>) -> shapes::UserView;
+    #[utoipa::path(
+        get,
+        path = USER_ROUTE,
+        operation_id = "user_view_handler",
+        description = "\
+User profile.
+
+**social_graph_status** says how established the account is in the follow graph, from a seeded \
+ranking recomputed on a schedule. `null` means no ranking is available and the badge should be \
+hidden, which is not the same as `new`. It is not an endorsement: a high value means an account is \
+expensive to fake, not that it is trustworthy.",
+        tag = "User",
+        params(
+            ("user_id" = PubkyId, Path, description = "User Pubky ID"),
+            ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
+            ("depth" = Option<usize>, Query, description = "WoT depth (1-3) for filtering the profile's tags through the viewer's network. Requires `viewer_id`; a value outside 1-3 (or `depth` without `viewer_id`) returns 400")
+        )
+    )]
+    responses(
+        (status = 200, description = "User Profile"),
+        (status = 400, description = "Invalid parameters"),
+        (status = 404, description = "User not found"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error")
+    )
+}
+
+/// The schemas the user view nests in every version; the view itself is each version's.
 #[derive(OpenApi)]
-#[openapi(
-    paths(user_view_handler),
-    components(schemas(UserView, SocialGraphStatus, TagDetails, PubkyId))
-)]
+#[openapi(components(schemas(SocialGraphStatus, TagDetails, PubkyId)))]
 pub struct UserViewApiDoc;

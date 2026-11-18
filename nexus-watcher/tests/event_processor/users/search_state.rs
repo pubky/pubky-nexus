@@ -6,8 +6,10 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::user::{UserDetails, UserSearch};
 use nexus_watcher::events::handlers::user;
+use nexus_watcher::events::inputs::UserInput;
 use pubky::Keypair;
-use pubky_app_specs::{user_uri_builder, PubkyAppTag, PubkyAppUser, PubkyId};
+use pubky_social_specs::legacy_v0::{user_uri_builder, PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::PubkyId;
 
 async fn found_by_name(name: &str, user_id: &str) -> Result<bool> {
     Ok(UserSearch::get_by_name(name, None, None)
@@ -25,8 +27,10 @@ async fn found_by_id(user_id: &str) -> Result<bool> {
 /// its graph write leaves it.
 async fn put_profile_to_graph_only(user_id: &str, user: &PubkyAppUser) -> Result<()> {
     let pubky_id = PubkyId::try_from(user_id).map_err(anyhow::Error::msg)?;
-    UserDetails::from_homeserver(user.clone(), &pubky_id)
-        .put_profile_to_graph(&user_uri_builder(user_id.to_string()))
+    let uri = user_uri_builder(user_id.to_string());
+    UserInput::from_v0(user.clone(), uri.clone())
+        .into_details(&pubky_id)
+        .put_profile_to_graph(&uri)
         .await?;
     Ok(())
 }
@@ -102,7 +106,11 @@ async fn test_search_recovers_after_a_failed_sync_following_the_graph_write() ->
 
     // The retry of the same event
     let pubky_id = PubkyId::try_from(user_id.as_str()).map_err(anyhow::Error::msg)?;
-    user::sync_put(renamed.clone(), user_uri_builder(user_id.clone()), pubky_id).await?;
+    user::sync_put(
+        UserInput::from_v0(renamed.clone(), user_uri_builder(user_id.clone())),
+        pubky_id,
+    )
+    .await?;
 
     assert!(!found_by_name("Watcher:SearchState:BeforeFailure", &user_id).await?);
     assert!(found_by_name("Watcher:SearchState:AfterFailure", &user_id).await?);

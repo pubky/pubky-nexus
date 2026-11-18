@@ -4,9 +4,11 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::db::{fetch_all_rows_from_graph, queries, RedisOps};
 use nexus_common::models::tag::user::TagUser;
-use nexus_common::models::user::{UserDetails, UserSearch, UsersByTagSearch};
+use nexus_common::models::user::{UserSearch, UsersByTagSearch};
+use nexus_watcher::events::inputs::UserInput;
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppTag, PubkyAppUser, PubkyId};
+use pubky_social_specs::legacy_v0::{user_uri_builder, PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::PubkyId;
 
 /// The backfill enumerates pairs from a graph snapshot but derives every
 /// score from the live taggers set, so a delete landing after the snapshot
@@ -305,7 +307,7 @@ async fn test_sync_index_score_removal_guard() -> Result<()> {
     );
 
     // Guard cleared: the derive restores the member from the set cardinality
-    let restored = UserDetails::from_homeserver(
+    let restored = UserInput::from_v0(
         PubkyAppUser {
             bio: None,
             image: None,
@@ -313,8 +315,9 @@ async fn test_sync_index_score_removal_guard() -> Result<()> {
             name: "Watcher:GuardCheck:Restored".to_string(),
             status: None,
         },
-        &pubky_id,
-    );
+        user_uri_builder(user_id.clone()),
+    )
+    .into_details(&pubky_id);
     UserSearch::index_profile(&restored).await?;
     UsersByTagSearch::sync_index_score(&user_id, label).await?;
     let score = check_member_user_tag_taggers(&user_id, label)

@@ -663,7 +663,7 @@ mod tests {
         let stub = UserDetails::from_pubky(random_pubky_id());
         let mut legacy = UserDetails::from_pubky(random_pubky_id());
         legacy.name = "Legacy Profile".to_string();
-        let profile = UserDetails::from_pubky(random_pubky_id());
+        let mut profile = UserDetails::from_pubky(random_pubky_id());
         let ids = [&stub, &legacy, &profile].map(|details| details.id.to_string());
         let [stub_id, legacy_id, profile_id] = &ids;
 

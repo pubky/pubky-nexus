@@ -3,7 +3,8 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::{set_user_homeserver, set_user_homeserver_stale};
 use nexus_common::types::DynError;
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppUser, PubkyId};
+use pubky_social_specs::legacy_v0::PubkyAppUser;
+use pubky_social_specs::PubkyId;
 
 /// Helper: create a PubkyAppUser with a given name.
 fn make_test_user(name: &str) -> PubkyAppUser {
@@ -133,7 +134,7 @@ async fn test_stale_users_excluded_from_active_homeservers() -> Result<(), DynEr
     );
 
     // Marking the only user stale drops the homeserver off the active list.
-    set_user_homeserver_stale(&user_id, true).await?;
+    set_user_homeserver_stale(&user_id, true, None).await?;
     let hs_ids = Homeserver::get_all_active_from_graph().await?;
     assert!(
         !hs_ids.contains(&hs.to_string()),

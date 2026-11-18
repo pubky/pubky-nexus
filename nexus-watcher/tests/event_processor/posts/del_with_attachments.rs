@@ -4,7 +4,7 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::{file::FileDetails, traits::Collection};
 use pubky::Keypair;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     blob_uri_builder, file_uri_builder,
     traits::{HasIdPath, HashId},
     PubkyAppBlob, PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
@@ -80,7 +80,7 @@ async fn test_homeserver_del_post_with_attachments() -> Result<()> {
 
     assert_eq!(post_details.id, post_id);
     assert_eq!(post_details.content, post.content);
-    assert_eq!(post_details.attachments, Some(post_attachments));
+    assert_eq!(post_details.attachments, post_attachments);
 
     // Cleanup
     test.cleanup_post(&user_kp, &post_path).await?;

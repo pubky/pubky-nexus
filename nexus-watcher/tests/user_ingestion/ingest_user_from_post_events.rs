@@ -4,7 +4,7 @@ use anyhow::Result;
 use nexus_common::db::{exec_single_row, fetch_row_from_graph, graph::Query, queries};
 use nexus_common::models::user::UserDetails;
 use pubky::Keypair;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     post_uri_builder, traits::TimestampId, PubkyAppCollectionContent, PubkyAppPost,
     PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
 };

@@ -8,7 +8,7 @@ use chrono::Utc;
 use nexus_common::models::event::EventLine;
 use nexus_common::models::tag::{traits::TagCollection, user::TagUser};
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{PubkyAppTag, PubkyAppUser};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_put_tag_user_self() -> Result<()> {
