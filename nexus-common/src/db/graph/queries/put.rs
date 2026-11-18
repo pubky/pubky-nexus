@@ -391,7 +391,8 @@ pub fn create_resource_tag(
         MERGE (tagger)-[t:TAGGED {label: $label}]->(resource)
         ON CREATE SET t.id = $tag_id, t.indexed_at = $indexed_at
         SET t.uri = $tag_uri
-        RETURN existing IS NOT NULL AS flag;",
+        // Returns true if the edge already existed, and the time of the put that created it
+        RETURN existing IS NOT NULL AS flag, t.indexed_at AS indexed_at;",
     )
     .param("tagger_id", tagger_id)
     .param("resource_id", resource_id)

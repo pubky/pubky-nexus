@@ -36,10 +36,12 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use utoipa::{IntoParams, OpenApi, ToSchema};
 
-use super::endpoints::{POST_BOOKMARK_ROUTE, V0_PREFIX, V1_PREFIX};
+use super::endpoints::{POST_BOOKMARK_ROUTE, STREAM_RESOURCES_BY_IDS_ROUTE, V0_PREFIX, V1_PREFIX};
 use super::stream::posts::{PostStreamByIdsRequest, StreamSourceKind};
 use super::types::TaggersInfoResponse;
-use super::{bootstrap, file, notification, post, resource, search, stream, tag, user};
+use super::{
+    bootstrap, file, notification, post, resource, resource_changes, search, stream, tag, user,
+};
 use crate::models::{
     v1, IncludeAttachmentMetadata, KindToken, PostStreamDetailed, PostViewDetailed,
     StoredKindToken, StoredPostKinds, TagLabel, TagLabels, Tags,
@@ -207,7 +209,8 @@ pub trait ApiVersion: Send + Sync + 'static {
 
     /// The routes only this version serves, as `(expensive, default)` buckets mounted next to
     /// the shared ones: `/v0` keeps the bookmark route until R1 and the file details routes
-    /// for as long as it lives, `/v1` has none. A route leaves a version by moving from the
+    /// for as long as it lives; `/v1` has the routes added since `/v0` froze, which answer in
+    /// the `/v1` shapes only. A route leaves a version by moving from the
     /// shared builders into the other version's list here, and its path into that version's
     /// [`Self::docs`], so the compiler and the path parity test both see it.
     fn own_routes() -> (Router<AppState>, Router<AppState>);
@@ -495,10 +498,14 @@ impl ApiVersion for V1 {
         axum::routing::get(stream::resources::stream_resource_ids_handler_v1)
     }
 
-    /// None: `/v1` serves no route of its own yet, and no bookmark or file details route at
-    /// all.
+    /// The routes added since `/v0` froze: the resource views by IDs or URIs and the resource
+    /// changes feed. No bookmark or file details route at all.
     fn own_routes() -> (Router<AppState>, Router<AppState>) {
-        (Router::new(), Router::new())
+        let expensive = Router::new().route(
+            STREAM_RESOURCES_BY_IDS_ROUTE,
+            axum::routing::post(stream::resources::stream_resources_by_ids_handler),
+        );
+        (expensive, resource_changes::routes())
     }
 
     fn docs() -> utoipa::openapi::OpenApi {
@@ -703,7 +710,7 @@ pub(crate) use versioned_handlers;
 struct V0Doc;
 
 /// The same routes on `/v1`, the bookmark and file details routes left out, with the
-/// `social/v1` schemas and the `social/v1` label rule.
+/// `social/v1` schemas and the `social/v1` label rule, and the routes `/v1` alone serves.
 #[derive(OpenApi)]
 #[openapi(
     paths(
@@ -734,6 +741,8 @@ struct V0Doc;
         search::tags::search_tags_by_prefix_handler_v1,
         stream::resources::stream_resources_handler_v1,
         stream::resources::stream_resource_ids_handler_v1,
+        stream::resources::stream_resources_by_ids_handler,
+        resource_changes::resource_changes_handler,
     ),
     components(schemas(
         v1::PostView,
@@ -755,6 +764,7 @@ struct V0Doc;
         v1::ResourceTagsResponse,
         v1::TagLabel,
         v1::Tags,
+        stream::resources::ResourceStreamByIdsRequest,
     ))
 )]
 struct V1Doc;

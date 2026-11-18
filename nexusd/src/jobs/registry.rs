@@ -36,6 +36,12 @@ impl JobRegistry {
         Self { jobs }
     }
 
+    /// The registered jobs, for tests that check a property of every job.
+    #[cfg(test)]
+    pub(crate) fn jobs(&self) -> &[Arc<dyn Job>] {
+        &self.jobs
+    }
+
     /// Names of all available jobs; used for `jobs list` and error messages.
     pub fn job_names(&self) -> Vec<&'static str> {
         self.jobs.iter().map(|job| job.name()).collect()
@@ -116,6 +122,9 @@ impl JobRegistry {
                 source,
             })?;
             if let Some(schedule) = cron {
+                if !job.schedulable() {
+                    return Err(JobError::UnschedulableJob { job: name });
+                }
                 jobs.push(ScheduledJob {
                     schedule,
                     job: Arc::clone(job),

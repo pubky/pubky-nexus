@@ -7,7 +7,7 @@ use crate::event_processor::utils::watcher::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use pubky::{recovery_file, Keypair};
+use pubky::{recovery_file, Keypair, ResourcePath};
 use pubky_social_specs::legacy_v0::traits::HashId;
 use pubky_social_specs::legacy_v0::{
     post_uri_builder, tag_uri_builder, PubkyAppPost, PubkyAppTag, PubkyAppUser,
@@ -278,6 +278,90 @@ async fn test_takedown_of_a_tag_holds_on_replay() -> Result<()> {
         "the takedown holds when the tag is replayed"
     );
 
+    Ok(())
+}
+
+/// A `social/v1` tag on a URL is published on the feed under its file's address. A takedown
+/// retracts it under that same address, and the author's later delete of the file appends
+/// nothing and leaves no put live.
+#[tokio_shared_rt::test(shared)]
+async fn test_moderation_of_a_social_v1_resource_tag_retracts_its_feed_line() -> Result<()> {
+    use nexus_common::models::event::resource_changes::{ResourceChange, ResourceChangeOp};
+    use pubky_social_specs::traits::{HasIdPath, HashId as _};
+    use pubky_social_specs::PubkySocialTag;
+
+    async fn authored_since(author: &str, mut cursor: u64) -> Result<Vec<ResourceChange>> {
+        let mut lines = Vec::new();
+        loop {
+            let (page, _, _) = ResourceChange::get_from_index(cursor, 1000).await?;
+            if page.lines.is_empty() {
+                break;
+            }
+            cursor = page.next_cursor;
+            lines.extend(page.lines.into_iter().filter(|line| line.author == author));
+        }
+        Ok(lines)
+    }
+
+    let mut test = WatcherTest::setup(None).await?;
+    let moderator_kp = create_moderator(&mut test).await?;
+    let (tagger_kp, tagger_id) = create_tagger(&mut test, "social-v1-feed").await?;
+    let profile: ResourcePath = "/pub/social/v1/profile.json".parse()?;
+    test.put(
+        &tagger_kp,
+        &profile,
+        &serde_json::json!({"name":"V1 feed tagger"}),
+    )
+    .await?;
+    let (_, _, start) = ResourceChange::get_from_index(0, 0).await?;
+
+    let target_uri = format!("https://example.com/moderate-v1-feed/{tagger_id}");
+    let label = "mod_v1_feed";
+    let tag = PubkySocialTag::new(target_uri.clone(), label.into());
+    let path = PubkySocialTag::create_path(&tag.create_id());
+    let storage: ResourcePath = path.parse()?;
+    let tag_uri = format!("pubky://{tagger_id}{path}");
+    test.put(&tagger_kp, &storage, &tag).await?;
+    let resource_id = compute_resource_id(&target_uri);
+    assert!(find_resource_tag(&resource_id, label).await?.is_some());
+
+    let lines = authored_since(&tagger_id, start).await?;
+    let put = lines
+        .iter()
+        .find(|line| line.op == ResourceChangeOp::Put)
+        .expect("the v1 tag is published on the feed")
+        .clone();
+    assert_eq!(put.object_path, path);
+
+    moderate_tag(&mut test, &moderator_kp, &tag_uri).await?;
+    assert!(
+        find_resource_tag(&resource_id, label).await?.is_none(),
+        "the v1 tag is taken down"
+    );
+    let lines = authored_since(&tagger_id, start).await?;
+    let last = lines.last().expect("the takedown appends a del line");
+    assert_eq!(
+        last.op,
+        ResourceChangeOp::Del,
+        "the takedown retracts the put"
+    );
+    assert_eq!(last.object_path, put.object_path);
+    assert_eq!(last.resource_id, put.resource_id);
+    let after_takedown = lines.len();
+
+    // The author's own delete finds nothing left to retract.
+    test.del(&tagger_kp, &storage).await?;
+    retrieve_and_handle_event_line(
+        &format!("DEL {tag_uri}"),
+        test.event_processor_runner.event_handler.clone(),
+    )
+    .await?;
+    let lines = authored_since(&tagger_id, start).await?;
+    assert_eq!(lines.len(), after_takedown, "a later DEL appends nothing");
+    assert_eq!(lines.last().unwrap().op, ResourceChangeOp::Del);
+    assert!(lines.iter().all(|line| line.object_path == put.object_path));
+
+    test.del(&tagger_kp, &profile).await?;
     Ok(())
 }
 

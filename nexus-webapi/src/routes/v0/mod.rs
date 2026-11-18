@@ -20,6 +20,7 @@ pub mod info;
 pub mod notification;
 pub mod post;
 pub mod resource;
+pub mod resource_changes;
 pub mod search;
 pub mod stream;
 pub mod tag;

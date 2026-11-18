@@ -53,6 +53,14 @@ pub trait Job: Send + Sync {
         None
     }
 
+    /// Whether a `cron` may schedule this job. A job whose every run has an effect an
+    /// operator must choose each time (e.g. resetting every consumer of a feed) returns
+    /// `false`: a `[jobs.<name>]` section giving it a `cron` then fails config resolution,
+    /// and the job runs only on demand.
+    fn schedulable(&self) -> bool {
+        true
+    }
+
     /// Executes a single run. A returned error is logged but doesn't stop future
     /// scheduled runs.
     async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
