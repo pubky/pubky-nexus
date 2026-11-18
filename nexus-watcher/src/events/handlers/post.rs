@@ -13,13 +13,12 @@ use nexus_common::models::post::{
 use nexus_common::models::resource::references;
 use nexus_common::models::user::UserIngestor;
 use pubky_social_specs::PubkyId;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::LazyLock;
 use tokio::sync::{Mutex, MutexGuard};
 use tracing::{debug, Instrument};
 
 use super::utils::{
-    bounded, fail_on_permanent_ingest_error, post_kind, post_relationships_is_reply,
+    bounded, fail_on_permanent_ingest_error, lock_stripe, post_kind, post_relationships_is_reply,
 };
 use crate::events::inputs::{PostInput, PostKind, Reference, ReferenceTarget, ResourceKey};
 
@@ -36,12 +35,13 @@ static POST_LOCKS: LazyLock<Vec<Mutex<()>>> =
 /// replace that version's references with its own, or append an outbox that a concurrent
 /// delete already published and retracted. With it, the post's references are the ones of the
 /// version handled last (the handlers do not compare versions). The locks are a fixed set of
-/// stripes, as [`super::tag::lock_tag`]'s: two posts that share one only wait for each other. A
-/// crash releases it. It orders the handlers of one watcher process.
+/// stripes, as [`super::tag::lock_tagger`]'s, picked by [`lock_stripe`]: two posts that share
+/// one only wait for each other, and nobody can pick a post id that shares another's. A crash
+/// releases it. It orders the handlers of one watcher process. A PUT looks up the unknown
+/// authors of its collection items before it takes the lock: they take network round trips,
+/// and no other handler of the post depends on them.
 pub async fn lock_post(author_id: &str, post_id: &str) -> MutexGuard<'static, ()> {
-    let mut hasher = DefaultHasher::new();
-    (author_id, post_id).hash(&mut hasher);
-    POST_LOCKS[hasher.finish() as usize % POST_LOCK_STRIPES]
+    POST_LOCKS[lock_stripe((author_id, post_id), POST_LOCK_STRIPES)]
         .lock()
         .await
 }
@@ -62,6 +62,7 @@ pub async fn sync_put_at(
     source_uri: &str,
 ) -> Result<(), EventProcessorError> {
     reject_unsupported_parent(&post)?;
+    ingest_collection_item_authors(&post, ingestor).await;
     let _post_lock = lock_post(key.owner_id.as_ref(), &key.resource_id).await;
     let mut lines: Vec<ResourceChange> = Vec::new();
     for (target, kind) in post
@@ -285,12 +286,10 @@ async fn sync_put_details(
                 }
                 if let Some(notify) = put_change(&existing_details, &post_details) {
                     sync_edit(
-                        &post,
                         stored.unwrap_or_default().replied,
                         author_id.clone(),
                         post_id.clone(),
                         post_details,
-                        ingestor,
                         notify,
                         existing_details.kind,
                     )
@@ -348,7 +347,6 @@ async fn sync_put_details(
         }
     }
 
-    ingest_collection_item_authors(&post, ingestor).await;
     if is_collection {
         let items = post.collected_posts();
         sync_collected_edges(&author_id, &post_id, &items, Some(&post_details)).await?;
@@ -611,14 +609,11 @@ async fn recover_post_index_state(
 
 /// `replied` is the post's stored reply parent: the edit can't change it, and the notification
 /// links it by its stored address, not the one the edit wrote.
-#[allow(clippy::too_many_arguments)]
 async fn sync_edit(
-    post: &PostInput,
     replied: Option<PostParent>,
     author_id: PubkyId,
     post_id: String,
     post_details: PostDetails,
-    ingestor: &UserIngestor,
     notify: bool,
     was_kind: PostKind,
 ) -> Result<(), EventProcessorError> {
@@ -627,11 +622,8 @@ async fn sync_edit(
         .put_to_index(&author_id, None, true, None)
         .await?;
 
-    // Re-run on edits; `maybe_ingest_user` is a no-op for already-known users.
-    ingest_collection_item_authors(post, ingestor).await;
-
-    // A lock-only toggle refreshes the cache and re-runs ingestion above, but is
-    // not a content edit, so it must not notify interactors.
+    // A lock-only toggle refreshes the cache, but is not a content edit, so it must not
+    // notify interactors.
     if !notify {
         return Ok(());
     }
@@ -773,9 +765,10 @@ fn stored_curated_items(
         .unwrap_or_default()
 }
 
-/// Best-effort ingestion of the owner of every item a Collection lists. No-op for
-/// non-Collection posts, whose item list is empty; an item that names no user is skipped,
-/// and failures (blacklisted HS) are logged so the Collection is still indexed.
+/// Best-effort ingestion of the owner of every item a Collection lists, on every PUT before the
+/// post lock (`maybe_ingest_user` is a no-op for known users). No-op for non-Collection posts,
+/// whose item list is empty; an item that names no user is skipped, and failures (blacklisted
+/// HS) are logged so the Collection is still indexed.
 async fn ingest_collection_item_authors(post: &PostInput, ingestor: &UserIngestor) {
     for item in &post.collection_items {
         let Some(owner_id) = item.target.owner_id() else {
