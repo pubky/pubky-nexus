@@ -2,17 +2,18 @@ use crate::models::{
     BoundedLimit, BoundedPagination, BoundedSkip, PostId, PubkyId, Tags, UserIds, UsernamePrefix,
 };
 use crate::routes::v0::endpoints::{
-    STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE, STREAM_USERS_USERNAME_SEARCH_ROUTE,
-    STREAM_USER_IDS_ROUTE,
+    STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_DETAILS_BY_IDS_ROUTE, STREAM_USERS_ROUTE,
+    STREAM_USERS_USERNAME_SEARCH_ROUTE, STREAM_USER_IDS_ROUTE,
 };
 use crate::routes::Json as RequestJson;
 use crate::routes::Query;
 use crate::{Error, Result};
 use axum::Json;
 use nexus_common::config::watcher::MODERATED_TAGS;
+use nexus_common::db::RedisOps;
 use nexus_common::models::user::{
-    UserIdStream, UserStream, UserStreamInput, UserStreamSource, GLOBAL_INFLUENCERS_CACHE_SIZE,
-    STARTER_PACK_MAX_SKIP,
+    UserDetails, UserIdStream, UserStream, UserStreamInput, UserStreamSource,
+    GLOBAL_INFLUENCERS_CACHE_SIZE, STARTER_PACK_MAX_SKIP,
 };
 use nexus_common::types::{StreamReach, Timeframe};
 use serde::Deserialize;
@@ -228,6 +229,38 @@ pub async fn stream_users_by_ids_handler(
     }
 }
 
+#[derive(ToSchema, Deserialize)]
+pub struct UserDetailsByIdsRequest {
+    pub user_ids: UserIds,
+}
+
+#[utoipa::path(
+    post,
+    path = STREAM_USERS_DETAILS_BY_IDS_ROUTE,
+    tag = "Stream",
+    description = "User details by ID, without tags, counts or relationship. Ids Nexus does not know are left out of the response; deleted users come back with `deleted: true`.",
+    request_body = UserDetailsByIdsRequest,
+    responses(
+        (status = 200, description = "User details, in request order", body = Vec<UserDetails>),
+        (status = 400, description = "Invalid request body"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn stream_users_details_by_ids_handler(
+    RequestJson(request): RequestJson<UserDetailsByIdsRequest>,
+) -> Result<Json<Vec<UserDetails>>> {
+    debug!(
+        "POST {} user_ids: {:?}",
+        STREAM_USERS_DETAILS_BY_IDS_ROUTE, request.user_ids
+    );
+
+    let user_ids = request.user_ids.to_string_vec();
+    let details = UserDetails::mget(&user_ids).await?;
+
+    Ok(Json(details.into_iter().flatten().collect()))
+}
+
 fn build_user_stream_input(
     query: UserStreamQuery,
 ) -> Result<(UserStreamInput, Option<String>, Option<u8>)> {
@@ -382,13 +415,15 @@ fn source_name(source: &UserStreamSource) -> &'static str {
         stream_users_handler,
         stream_user_ids_handler,
         stream_username_search_handler,
-        stream_users_by_ids_handler
+        stream_users_by_ids_handler,
+        stream_users_details_by_ids_handler
     ),
     components(schemas(
         UserIdStream,
         UserStream,
         UserStreamSource,
         UserStreamByIdsRequest,
+        UserDetailsByIdsRequest,
         UserIds,
         UsernamePrefix,
         StreamReach,

@@ -1,7 +1,7 @@
 use crate::routes::v0::endpoints::{
     STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_KEYS_ROUTE, STREAM_RESOURCES_ROUTE,
-    STREAM_RESOURCE_IDS_ROUTE, STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE,
-    STREAM_USERS_USERNAME_SEARCH_ROUTE, STREAM_USER_IDS_ROUTE,
+    STREAM_RESOURCE_IDS_ROUTE, STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_DETAILS_BY_IDS_ROUTE,
+    STREAM_USERS_ROUTE, STREAM_USERS_USERNAME_SEARCH_ROUTE, STREAM_USER_IDS_ROUTE,
 };
 use crate::routes::AppState;
 
@@ -19,6 +19,10 @@ pub fn expensive_routes() -> Router<AppState> {
         .route(
             STREAM_USERS_BY_IDS_ROUTE,
             post(users::stream_users_by_ids_handler),
+        )
+        .route(
+            STREAM_USERS_DETAILS_BY_IDS_ROUTE,
+            post(users::stream_users_details_by_ids_handler),
         )
         .route(
             STREAM_POSTS_BY_IDS_ROUTE,
