@@ -233,6 +233,7 @@ async fn graph_commit_before_append_replays_put_and_a_delete_retry_replays_del()
         .await?;
     super::utils::watcher::rank_user(&author).await?;
     let target = format!("https://example.com/crash/{author}");
+    let rid = resource_id(&normalize_uri(&target).map_err(anyhow::Error::msg)?.0);
     let id = generate_post_id();
     let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
     let envelope = json!({"kind":"note","content":"first","parent":target});
@@ -270,12 +271,12 @@ async fn graph_commit_before_append_replays_put_and_a_delete_retry_replays_del()
         .collect();
     assert_eq!(
         puts.len(),
-        2,
-        "the outbox and handler retry both deliver the same reference key"
+        1,
+        "the handler's retry delivers the outbox, and its own write, which finds the edge, adds nothing"
     );
     assert_eq!(
         (puts[0].resource_id.as_str(), puts[0].kind),
-        (puts[1].resource_id.as_str(), puts[1].kind)
+        (rid.as_str(), ResourceChangeKind::Reply)
     );
     // A DEL that appended its dels and stopped before the graph delete: the post stays
     let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;

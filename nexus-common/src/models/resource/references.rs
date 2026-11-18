@@ -40,6 +40,9 @@ struct State {
     /// The post is a tombstone: it keeps its Resource edges, whose dels were published when it
     /// became one.
     deleted: bool,
+    /// [`retract`] published the dels of the post's edges, and no [`stage`] has published them
+    /// again since: the next one puts every edge, changed or not.
+    retracted: bool,
     outbox: Option<String>,
     lines: Vec<ResourceChange>,
 }
@@ -51,6 +54,7 @@ async fn state(author: &str, id: &str) -> ModelResult<State> {
         WITH p, e, r ORDER BY type(e), r.id
         RETURN coalesce(p.resource_ref_revision, '') AS revision,
                coalesce(p.deleted, false) AS deleted,
+               coalesce(p.resource_ref_retracted, false) AS retracted,
                p.resource_ref_outbox AS outbox,
                collect(CASE WHEN e IS NOT NULL THEN {
                  op: 'put', resource_id: r.id, uri: r.uri,
@@ -62,6 +66,7 @@ async fn state(author: &str, id: &str) -> ModelResult<State> {
         Some(row) => Ok(State {
             revision: row.get("revision")?,
             deleted: row.get("deleted")?,
+            retracted: row.get("retracted")?,
             outbox: row.get("outbox")?,
             lines: row.get("lines")?,
         }),
@@ -114,7 +119,10 @@ pub async fn sync(post: &PostDetails, lines: Vec<ResourceChange>) -> ModelResult
     flush(&post.author, &post.id).await
 }
 
-/// Commit edges and recovery metadata, without acknowledging the feed append.
+/// Commit edges and recovery metadata, without acknowledging the feed append. The outbox holds
+/// the dels of the edges the post loses and the puts of the ones it gains, or of all its edges
+/// after a [`retract`]; with neither, nothing is written and nothing is published. A new edge
+/// takes this write's time, an existing one keeps the time it was first indexed.
 ///
 /// Like [`flush`] and [`retract`], it reads and then writes the post's
 /// references and outbox: its callers serialize every handler of one post (the watcher's post
@@ -134,8 +142,15 @@ pub async fn stage(post: &PostDetails, mut lines: Vec<ResourceChange>) -> ModelR
     }
     lines.sort_by_key(|line| (format!("{:?}", line.kind), line.resource_id.clone()));
     lines.dedup_by(|a, b| same_reference(a, b));
-    if old.lines.is_empty() && lines.is_empty() {
-        return Ok(());
+    // An edge keeps the time it was first indexed, whichever version file names it now.
+    for line in &mut lines {
+        if let Some(edge) = old
+            .lines
+            .iter()
+            .find(|old| old.kind == line.kind && old.resource_id == line.resource_id)
+        {
+            line.at = edge.at;
+        }
     }
     let mut changes: Vec<_> = old
         .lines
@@ -144,12 +159,21 @@ pub async fn stage(post: &PostDetails, mut lines: Vec<ResourceChange>) -> ModelR
         .cloned()
         .map(|mut line| {
             line.op = ResourceChangeOp::Del;
-            line.at = chrono::Utc::now().timestamp_millis();
+            line.at = at;
             line
         })
         .collect();
-    // Always publish the accepted PUT, including replay after a successful graph write.
-    changes.extend(lines.iter().cloned());
+    // Only the references the edges gain are published, so a replay appends nothing. After a
+    // retraction every one is, as the dels it published said they were gone.
+    changes.extend(
+        lines
+            .iter()
+            .filter(|line| old.retracted || !old.lines.iter().any(|old| same_reference(old, line)))
+            .cloned(),
+    );
+    if changes.is_empty() && !old.retracted {
+        return Ok(());
+    }
     let outbox = serde_json::to_string(&changes).map_err(ModelError::from_generic)?;
     let revision = pubky::Keypair::random().public_key().to_z32();
     let mut query = String::from(
@@ -159,6 +183,7 @@ pub async fn stage(post: &PostDetails, mut lines: Vec<ResourceChange>) -> ModelR
         WITH p WHERE p.content = $content AND p.kind = $kind AND NOT coalesce(p.deleted, false)
           AND p.resource_ref_revision = $previous
         SET p.resource_ref_revision = $revision, p.resource_ref_outbox = $outbox
+        REMOVE p.resource_ref_retracted
         WITH p
     ",
     );
@@ -187,7 +212,8 @@ pub async fn stage(post: &PostDetails, mut lines: Vec<ResourceChange>) -> ModelR
                 MERGE (r:Resource {{id: item.id}})
                 ON CREATE SET r.uri = item.uri, r.scheme = item.scheme, r.indexed_at = $at
                 MERGE (p)-[e:{edge}]->(r)
-                SET e.object_path = item.path, e.indexed_at = $at
+                ON CREATE SET e.indexed_at = $at
+                SET e.object_path = item.path
             )
             WITH p
             CALL (p) {{ MATCH (p)-[e:{edge}]->(r:Resource)
@@ -239,7 +265,8 @@ pub async fn stage(post: &PostDetails, mut lines: Vec<ResourceChange>) -> ModelR
 /// the dels follow its puts. A tombstone keeps its edges and retracted them when it became one,
 /// so its later hard delete appends nothing. A delete that fails after this append leaves the
 /// post, and its retry reads the edges again and appends their dels again: consumers tolerate
-/// duplicates.
+/// duplicates. The post is marked retracted first, so the next [`stage`] puts all its edges
+/// again: a PUT after a delete that stopped half-way, or one that brings a tombstone back.
 ///
 /// It reads the post's references and outbox, like [`stage`]: call it under the post lock.
 pub async fn retract(author: &str, id: &str) -> ModelResult<()> {
@@ -250,6 +277,22 @@ pub async fn retract(author: &str, id: &str) -> ModelResult<()> {
     if deleted || lines.is_empty() {
         return Ok(());
     }
+    // Marked before the append: a PUT after a delete that stopped anywhere past here puts the
+    // references again, as the graph still holds them.
+    get_neo4j_graph()?
+        .run(
+            Query::new(
+                "resource_references_retracted",
+                r"
+        MATCH (p:Post {id: $id}) WHERE EXISTS { (:User {id: $author})-[:AUTHORED]->(p) }
+        SET p.resource_ref_retracted = true
+    ",
+            )
+            .param("author", author)
+            .param("id", id),
+        )
+        .await
+        .map_err(GraphError::from)?;
     let at = chrono::Utc::now().timestamp_millis();
     for line in &mut lines {
         line.op = ResourceChangeOp::Del;
@@ -315,6 +358,127 @@ pub async fn posts(
 mod tests {
     use super::*;
     use crate::{StackConfig, StackManager};
+
+    /// A user with one social Short post in the graph, as the post write leaves it.
+    async fn author_with_post(content: &str) -> Result<PostDetails, crate::types::DynError> {
+        let author = pubky::Keypair::random().public_key().to_z32();
+        let id = format!("{:013X}", chrono::Utc::now().timestamp_micros());
+        get_neo4j_graph()?
+            .run(
+                Query::new("reference_test_user", "CREATE (:User {id:$author})")
+                    .param("author", author.clone()),
+            )
+            .await?;
+        let post = PostDetails {
+            uri: format!("pubky://{author}/pub/social/v1/posts/{id}"),
+            id,
+            author,
+            content: content.into(),
+            indexed_at: 1234,
+            kind: crate::models::post::PostKind::Short,
+            attachments: vec![],
+            lock: None,
+            deleted: false,
+        };
+        post.put_to_graph(None, None).await?;
+        Ok(post)
+    }
+
+    /// Deletes `posts` as a post delete does, so the Resources only they reference go with
+    /// them, then their author.
+    async fn delete_posts_and_author(
+        author: &str,
+        posts: &[&str],
+    ) -> Result<(), crate::types::DynError> {
+        for id in posts {
+            get_neo4j_graph()?
+                .run(crate::db::graph::queries::del::delete_post(author, id))
+                .await?;
+        }
+        get_neo4j_graph()?
+            .run(
+                Query::new(
+                    "reference_test_user_cleanup",
+                    "MATCH (u:User {id:$author}) DETACH DELETE u",
+                )
+                .param("author", author.to_string()),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// `author`'s lines appended since `cursor`, as (op, resource id, object path, at).
+    async fn own_lines_since(
+        author: &str,
+        cursor: u64,
+    ) -> Result<Vec<(ResourceChangeOp, String, String, i64)>, crate::types::DynError> {
+        Ok(ResourceChange::get_from_index(cursor, 100_000)
+            .await?
+            .0
+            .lines
+            .into_iter()
+            .filter(|line| line.author == author)
+            .map(|line| (line.op, line.resource_id, line.object_path, line.at))
+            .collect())
+    }
+
+    /// The same PUT handled twice appends its references once: the replay finds the edges it
+    /// would write and publishes nothing. A later version file that names the same target
+    /// moves the edge to its path, publishes the change of key, and keeps the time the edge
+    /// was first indexed, in the graph and on the line.
+    #[tokio_shared_rt::test(shared)]
+    async fn a_replayed_put_appends_nothing_and_an_edge_keeps_its_first_time(
+    ) -> Result<(), crate::types::DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let post = author_with_post("replay fixture").await?;
+        let (author, id) = (post.author.clone(), post.id.clone());
+        let target = format!("https://example.com/{author}/replayed");
+        let first_source = format!("{}/{id}.json", post.uri);
+        let line = |source: &str| reference(&author, source, &target, ResourceChangeKind::Reply);
+        let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+        sync(&post, vec![line(&first_source)?]).await?;
+        let first = own_lines_since(&author, cursor).await?;
+        assert_eq!(first.len(), 1, "{first:?}");
+        let first_at = state(&author, &id).await?.lines[0].at;
+
+        let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+        sync(&post, vec![line(&first_source)?]).await?;
+        assert_eq!(
+            own_lines_since(&author, cursor).await?,
+            [],
+            "a replay appends nothing"
+        );
+
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        let second_source = format!("{}/0033SSE3B1FQ0.json", post.uri);
+        let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+        sync(&post, vec![line(&second_source)?]).await?;
+        let edges = state(&author, &id).await?.lines;
+        assert_eq!(edges.len(), 1);
+        let path = |source: &str| {
+            source
+                .strip_prefix(&format!("pubky://{author}"))
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(edges[0].object_path, path(&second_source));
+        assert_eq!(edges[0].at, first_at, "the edge keeps its first time");
+        let moved = own_lines_since(&author, cursor).await?;
+        assert_eq!(
+            moved
+                .iter()
+                .map(|(op, _, object_path, _)| (*op, object_path.clone()))
+                .collect::<Vec<_>>(),
+            [
+                (ResourceChangeOp::Del, path(&first_source)),
+                (ResourceChangeOp::Put, path(&second_source))
+            ]
+        );
+        assert_eq!(moved[1].3, first_at, "the put carries the edge's time");
+
+        retract(&author, &id).await?;
+        delete_posts_and_author(&author, &[&id]).await
+    }
 
     #[tokio_shared_rt::test(shared)]
     async fn edited_orphans_are_revision_safe_and_a_delete_retracts_the_current_edges(
@@ -393,8 +557,7 @@ mod tests {
         sync(&post, vec![]).await?;
         assert!(!exists(&second.resource_id).await?);
         assert!(!PostDetails::is_reply_in_graph(&author, &id).await?);
-        get_neo4j_graph()?.run(Query::new("reference_revision_cleanup", "MATCH (u:User {id:$author}) OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post) DETACH DELETE p,u").param("author", author)).await?;
-        Ok(())
+        delete_posts_and_author(&author, &[&id]).await
     }
 
     #[tokio_shared_rt::test(shared)]
@@ -465,7 +628,10 @@ mod tests {
                 .any(|line| same_reference(line, expected) && line.op == ResourceChangeOp::Put));
         }
         retract(&author, id).await?;
-        get_neo4j_graph()?.run(Query::new("reference_seed_cleanup", "MATCH (u:User {id:$author}) OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post) DETACH DELETE p,u").param("author", author)).await?;
+        delete_posts_and_author(&author, &[id]).await?;
+        for expected in &lines {
+            assert!(!exists(&expected.resource_id).await?, "no Resource is left");
+        }
         Ok(())
     }
 
@@ -590,7 +756,11 @@ mod tests {
                 .param("author", author.clone()),
             )
             .await?;
-        graph.run(Query::new("reference_seed_cleanup", "MATCH (u:User {id:$author}) OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post) DETACH DELETE p,u").param("author", author)).await?;
+        let ids: Vec<&str> = posts.iter().map(|post| post.id.as_str()).collect();
+        delete_posts_and_author(&author, &ids).await?;
+        for expected in &lines {
+            assert!(!exists(&expected.resource_id).await?, "no Resource is left");
+        }
         ResourceChange::reseed(false).await?;
         Ok(())
     }
