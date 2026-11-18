@@ -27,7 +27,7 @@ use nexus_common::models::bootstrap::{AttachmentFiles, Bootstrap};
 use nexus_common::models::file::{FileDetails, FileUrls};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::{Bookmark, PostDetails, PostKind};
-use nexus_common::models::resource::view::ResourceView;
+use nexus_common::models::resource::view::{ReferenceCounts, ResourceView};
 use nexus_common::models::tag::search::PrefixFold;
 use nexus_common::models::tag::traits::taggers::TaggersTuple;
 use nexus_common::models::tag::TagDetails;
@@ -129,6 +129,11 @@ pub trait ApiVersion: Send + Sync + 'static {
     /// Whether the bootstrap's `files` are read: `/v0` serves the list, `/v1` has no file
     /// details and drops it, so it skips the read rather than fetch what it throws away.
     const ATTACHMENT_FILES: AttachmentFiles;
+
+    /// Whether a resource view reads the counts of the live posts that reference it: `/v1`
+    /// serves them on the resource views and envelopes, `/v0` has no such fields and skips
+    /// the read rather than count what it throws away.
+    const REFERENCE_COUNTS: ReferenceCounts;
 
     /// Whether a post's `attachments_metadata` is fetched, as a client asks in
     /// `include_attachment_metadata=` on the post view and the post stream. `/v0` reads a
@@ -262,6 +267,7 @@ impl ApiVersion for V0 {
     const TAG_PREFIX_FOLD: PrefixFold = PrefixFold::Lowercase;
 
     const ATTACHMENT_FILES: AttachmentFiles = AttachmentFiles::Fetch;
+    const REFERENCE_COUNTS: ReferenceCounts = ReferenceCounts::Skip;
     type IncludeAttachmentMetadata = IncludeAttachmentMetadata;
     type PostStreamByIdsRequest = PostStreamByIdsRequest;
 
@@ -403,6 +409,7 @@ impl ApiVersion for V1 {
     const TAG_PREFIX_FOLD: PrefixFold = PrefixFold::AsGiven;
 
     const ATTACHMENT_FILES: AttachmentFiles = AttachmentFiles::Skip;
+    const REFERENCE_COUNTS: ReferenceCounts = ReferenceCounts::Read;
     type IncludeAttachmentMetadata = v1::NoAttachmentMetadata;
     type PostStreamByIdsRequest = v1::PostStreamByIdsRequest;
 
