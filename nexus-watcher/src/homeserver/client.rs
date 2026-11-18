@@ -74,7 +74,8 @@ impl From<pubky::Event> for HsStreamEvent {
 /// blob with its owner's key.
 ///
 /// It also resolves the homeserver a user publishes ([`PkdnsHomeserverResolver`]), for the
-/// user ingestor and the periodic user-to-homeserver resolver.
+/// user ingestor, the periodic user-to-homeserver resolver, and the primary homeserver's
+/// processor, which checks users without a `HOSTED_BY` edge.
 #[async_trait::async_trait]
 pub trait HomeserverClient: PkdnsHomeserverResolver + Send + Sync + 'static {
     /// Primary-style `GET /events/?cursor=&limit=`. Returns the raw lines, the

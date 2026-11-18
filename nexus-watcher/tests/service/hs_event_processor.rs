@@ -84,6 +84,21 @@ fn build_processor(
     event_handler: Arc<dyn EventHandler>,
     shutdown_rx: watch::Receiver<bool>,
 ) -> Arc<HsEventProcessor> {
+    build_processor_with_client(
+        MockHomeserverClient::default(),
+        store,
+        event_handler,
+        shutdown_rx,
+    )
+}
+
+/// [`build_processor`], reaching homeservers through `client`.
+fn build_processor_with_client(
+    client: MockHomeserverClient,
+    store: Arc<dyn RetryStore>,
+    event_handler: Arc<dyn EventHandler>,
+    shutdown_rx: watch::Receiver<bool>,
+) -> Arc<HsEventProcessor> {
     let retry_scheduler = Arc::new(RetryScheduler::new(
         store,
         InitialBackoff {
@@ -97,7 +112,7 @@ fn build_processor(
         homeserver: Homeserver::new(hs_id),
         limit: 100,
         event_handler,
-        client: Arc::new(MockHomeserverClient::default()),
+        client: Arc::new(client),
         shutdown_rx,
         retry_scheduler,
         hs_mapping_cache: Default::default(),
@@ -112,6 +127,24 @@ fn build_processor(
 /// A random homeserver id keeps the stored cursor from leaking between tests.
 async fn build_processor_at_cursor(
     cursor: u64,
+    store: Arc<dyn RetryStore>,
+    event_handler: Arc<dyn EventHandler>,
+    shutdown_rx: watch::Receiver<bool>,
+) -> Result<Arc<HsEventProcessor>> {
+    build_processor_at_cursor_with_client(
+        cursor,
+        MockHomeserverClient::default(),
+        store,
+        event_handler,
+        shutdown_rx,
+    )
+    .await
+}
+
+/// [`build_processor_at_cursor`], reaching homeservers through `client`.
+async fn build_processor_at_cursor_with_client(
+    cursor: u64,
+    client: MockHomeserverClient,
     store: Arc<dyn RetryStore>,
     event_handler: Arc<dyn EventHandler>,
     shutdown_rx: watch::Receiver<bool>,
@@ -132,7 +165,7 @@ async fn build_processor_at_cursor(
         homeserver,
         limit: 100,
         event_handler,
-        client: Arc::new(MockHomeserverClient::default()),
+        client: Arc::new(client),
         shutdown_rx,
         retry_scheduler,
         hs_mapping_cache: Default::default(),
@@ -379,33 +412,220 @@ async fn test_skips_event_when_user_mapping_to_this_homeserver_is_stale() -> Res
 }
 
 // ============================================================================
-// HOSTED_BY guard: process events from users with no HOSTED_BY edge
+// HOSTED_BY guard: users with no HOSTED_BY edge
 // A missing edge is the common case (e.g. before the resolver has run) and must
-// not block processing.
+// not block processing. The homeserver the user publishes decides instead: only
+// a user who publishes a different homeserver is skipped. A lookup that finds
+// no homeserver cannot be told apart from a DHT miss, so it is processed.
 // ============================================================================
 
 #[tokio_shared_rt::test(shared)]
-async fn test_processes_event_when_user_has_no_homeserver_edge() -> Result<()> {
+async fn test_processes_event_when_user_without_edge_has_no_record() -> Result<()> {
     setup().await?;
 
-    // Fresh user id with no graph state: no User node, no HOSTED_BY edge.
+    // Fresh user id with no graph state: no User node, no HOSTED_BY edge. The
+    // default client finds no PKDNS record for any user.
     let user_id = random_user_id();
     let uri = post_uri_builder(user_id, "noedge".to_string());
 
     let store = new_in_memory_store();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let handler = create_mock_handler(Ok(()), None);
-    let processor = build_processor(store.clone(), handler.clone(), shutdown_rx);
+    let processor =
+        build_processor_at_cursor(10, store.clone(), handler.clone(), shutdown_rx).await?;
 
     processor
-        .process_event_lines(batch([format!("PUT {uri}")]))
+        .process_event_lines(vec![
+            format!("PUT {uri}"),
+            format!("DEL {uri}"),
+            "cursor: 11".to_string(),
+        ])
+        .await?;
+
+    assert_eq!(
+        handler.get_handle_count(),
+        2,
+        "Events from a user without a HOSTED_BY edge whose homeserver lookup finds none must be processed"
+    );
+    assert_eq!(stored_cursor(&processor.homeserver.id).await?, 11);
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_processes_event_when_user_without_edge_publishes_no_homeserver() -> Result<()> {
+    setup().await?;
+
+    let user = Keypair::random();
+    let uri = post_uri_builder(user.public_key().z32(), "nohomeserver".to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = build_processor_with_client(
+        MockHomeserverClient::default().with_record_naming_no_homeserver(user),
+        store.clone(),
+        handler.clone(),
+        shutdown_rx,
+    );
+
+    processor
+        .process_event_lines(batch([format!("PUT {uri}"), format!("DEL {uri}")]))
+        .await?;
+
+    assert_eq!(
+        handler.get_handle_count(),
+        2,
+        "Events from a user without a HOSTED_BY edge whose signed record names no homeserver must be processed"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_processes_event_when_user_without_edge_publishes_this_homeserver() -> Result<()> {
+    setup().await?;
+
+    let user = Keypair::random();
+    let uri = post_uri_builder(user.public_key().z32(), "publishedhere".to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = build_processor_with_client(
+        MockHomeserverClient::default().with_homeserver_of(
+            user,
+            PubkyId::try_from(TEST_HS_ID).expect("Valid test Pubky ID"),
+        ),
+        store.clone(),
+        handler.clone(),
+        shutdown_rx,
+    );
+
+    processor
+        .process_event_lines(batch([format!("PUT {uri}"), format!("DEL {uri}")]))
+        .await?;
+
+    assert_eq!(
+        handler.get_handle_count(),
+        2,
+        "Events from a user without a HOSTED_BY edge who publishes this homeserver must be processed"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_skips_event_when_user_without_edge_publishes_another_homeserver() -> Result<()> {
+    setup().await?;
+
+    let user = Keypair::random();
+    let uri = post_uri_builder(user.public_key().z32(), "elsewhere".to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = build_processor_with_client(
+        MockHomeserverClient::default().with_homeserver_of(user, random_pubky_id()),
+        store.clone(),
+        handler.clone(),
+        shutdown_rx,
+    );
+
+    processor
+        .process_event_lines(batch([format!("PUT {uri}"), format!("DEL {uri}")]))
+        .await?;
+
+    assert_eq!(
+        handler.get_handle_count(),
+        0,
+        "Events from a user who publishes another homeserver must be skipped"
+    );
+    assert!(
+        store.get(&IndexKey::for_uri(&uri)).await?.is_none(),
+        "A skipped event must not be queued for retry"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// HOSTED_BY guard: a failed homeserver lookup counts as no published homeserver
+// Any DHT node can answer with another key's packet, so stopping the batch on a
+// failed lookup would let one node stall the homeserver; the event is processed.
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_failed_homeserver_lookup_processes_event() -> Result<()> {
+    setup().await?;
+
+    let uri = post_uri_builder(random_user_id(), "lookupfails".to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = build_processor_at_cursor_with_client(
+        10,
+        MockHomeserverClient::default().with_failing_homeserver_lookup(),
+        store.clone(),
+        handler.clone(),
+        shutdown_rx,
+    )
+    .await?;
+
+    processor
+        .process_event_lines(vec![format!("DEL {uri}"), "cursor: 11".to_string()])
         .await?;
 
     assert_eq!(
         handler.get_handle_count(),
         1,
-        "Event from a user without a HOSTED_BY edge must be processed"
+        "An event whose user's homeserver lookup fails must be processed"
     );
+    assert_eq!(
+        stored_cursor(&processor.homeserver.id).await?,
+        11,
+        "The cursor must advance past the event"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_answer_signed_by_another_key_processes_event() -> Result<()> {
+    setup().await?;
+
+    // The lookup for the event's author is answered with another user's record, which
+    // names another homeserver. `resolve_own_record` refuses it, so it must not skip the event.
+    let uri = post_uri_builder(random_user_id(), "foreignanswer".to_string());
+
+    let store = new_in_memory_store();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = build_processor_at_cursor_with_client(
+        10,
+        MockHomeserverClient::default().with_homeserver_of(Keypair::random(), random_pubky_id()),
+        store.clone(),
+        handler.clone(),
+        shutdown_rx,
+    )
+    .await?;
+
+    processor
+        .process_event_lines(vec![format!("DEL {uri}"), "cursor: 11".to_string()])
+        .await?;
+
+    assert_eq!(
+        handler.get_handle_count(),
+        1,
+        "An answer signed by another key must not make the event skipped"
+    );
+    assert_eq!(stored_cursor(&processor.homeserver.id).await?, 11);
 
     let _ = shutdown_tx.send(true);
     Ok(())
@@ -421,8 +641,8 @@ async fn test_processes_event_when_user_has_no_homeserver_edge() -> Result<()> {
 async fn test_user_homeserver_mapping_is_cached_across_events() -> Result<()> {
     setup().await?;
 
-    // User starts with no HOSTED_BY edge, so the first event is processed and the
-    // resulting "unbound" mapping is cached.
+    // User starts with no HOSTED_BY edge and resolves to no homeserver, so the first
+    // event is processed and the resulting "unresolved" mapping is cached.
     let user_id = random_user_id();
     let first_uri = post_uri_builder(user_id.clone(), "cacheone".to_string());
     let second_uri = post_uri_builder(user_id.clone(), "cachetwo".to_string());
@@ -437,7 +657,7 @@ async fn test_user_homeserver_mapping_is_cached_across_events() -> Result<()> {
         .await?;
 
     // Map the user to a *different* homeserver. A fresh lookup would now skip,
-    // but the cached "unbound" mapping must keep this user's events flowing.
+    // but the cached "unresolved" mapping must keep this user's events flowing.
     let other_hs_id = random_pubky_id().to_string();
     create_user_hosted_on(&user_id, Some(&other_hs_id)).await;
 

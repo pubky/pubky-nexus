@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 
 use tokio::sync::Mutex;
 
-use nexus_common::db::PubkyClientResult;
+use nexus_common::db::{PubkyClientError, PubkyClientResult};
 use nexus_common::models::user::{PkdnsHomeserverResolver, PkdnsRecord};
 use nexus_common::utils::test_utils::signed_packet_naming;
 use nexus_watcher::homeserver::{HomeserverClient, HsError, HsErrorKind, HsOp, HsStreamEvent};
@@ -39,8 +39,11 @@ pub struct MockHomeserverClient {
     resources: HashMap<String, Vec<u8>>,
 
     /// The user whose record every lookup is answered with, and the homeserver
-    /// it names. None by default.
-    homeserver_of: Option<(Keypair, PubkyId)>,
+    /// it names, if any. None by default.
+    homeserver_of: Option<(Keypair, Option<PubkyId>)>,
+
+    /// Whether every homeserver lookup fails instead.
+    homeserver_lookup_fails: bool,
 }
 
 impl MockHomeserverClient {
@@ -78,7 +81,18 @@ impl MockHomeserverClient {
     }
 
     pub fn with_homeserver_of(mut self, user: Keypair, hs: PubkyId) -> Self {
-        self.homeserver_of = Some((user, hs));
+        self.homeserver_of = Some((user, Some(hs)));
+        self
+    }
+
+    /// Answers every lookup with `user`'s record, which names no homeserver.
+    pub fn with_record_naming_no_homeserver(mut self, user: Keypair) -> Self {
+        self.homeserver_of = Some((user, None));
+        self
+    }
+
+    pub fn with_failing_homeserver_lookup(mut self) -> Self {
+        self.homeserver_lookup_fails = true;
         self
     }
 
@@ -115,9 +129,14 @@ fn not_found(resource: &PubkyResource, op: HsOp) -> HsError {
 #[async_trait::async_trait]
 impl PkdnsHomeserverResolver for MockHomeserverClient {
     async fn resolve_record(&self, _user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+        if self.homeserver_lookup_fails {
+            return Err(PubkyClientError::RequestFailed {
+                message: "homeserver lookup failed".into(),
+            });
+        }
         Ok(match &self.homeserver_of {
             Some((user, homeserver)) => {
-                PkdnsRecord::Published(signed_packet_naming(user, Some(homeserver), 1))
+                PkdnsRecord::Published(signed_packet_naming(user, homeserver.as_ref(), 1))
             }
             None => PkdnsRecord::Missing,
         })
