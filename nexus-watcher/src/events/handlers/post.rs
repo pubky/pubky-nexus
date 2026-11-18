@@ -152,20 +152,35 @@ fn reject_unsupported_parent(post: &PostInput) -> Result<(), EventProcessorError
 }
 
 /// Rejects an edit whose reply parent or repost embed names a different post than the post's
-/// edges, as [`EventProcessorError::PostParentChanged`], never retried. Both are set when the
-/// post is created, so delete can read them back from the graph. Compares keys: a parent written
-/// differently but naming the same post, or any parent that isn't a post, is no change.
+/// edges, or whose reply parent names a different external target (another scheme's URL,
+/// another app's object) than its Resource reply edge, as
+/// [`EventProcessorError::PostParentChanged`], never retried: an edit may not add, drop or move
+/// either parent. Both are set when the post is created, so delete can read them back from the
+/// graph. Compares keys, and an external parent by its Resource id: a parent written differently
+/// but naming the same post or the same normalized URL is no change, and so is a parent Nexus
+/// never references. The external parent is compared only once the post's references were
+/// reconciled: a post indexed before posts referenced Resources has no Resource reply edge, and
+/// its PUT gains the one it names. A `tombstone` write never changes the Resource edges, so its
+/// external parent is not compared either.
 fn reject_parent_change(
     named: &PostParents,
     stored: &PostParents,
+    tombstone: bool,
 ) -> Result<(), EventProcessorError> {
-    let (named, stored) = (parent_keys(named), parent_keys(stored));
+    let external = stored.references_reconciled && !tombstone;
+    let keys = |parents| (parent_keys(parents), external_parent(parents, external));
+    let (named, stored) = (keys(named), keys(stored));
     if named == stored {
         return Ok(());
     }
     Err(EventProcessorError::PostParentChanged(bounded(&format!(
-        "The edit names (parent, embed) {named:?}, but the post was created with {stored:?}"
+        "The edit names ((parent, embed), external parent) {named:?}, but the post was created with {stored:?}"
     ))))
+}
+
+/// The Resource id of the external reply parent, when `compared`.
+fn external_parent(parents: &PostParents, compared: bool) -> Option<Option<&str>> {
+    compared.then_some(parents.replied_resource.as_deref())
 }
 
 /// The keys of the reply parent and the repost embed.
@@ -217,7 +232,7 @@ async fn sync_put_details(
     // `None` for a new post. An existing one keeps the parents it was created with.
     let stored = PostParents::get_from_graph(&author_id, &post_id).await?;
     if let Some(stored) = &stored {
-        reject_parent_change(&named, stored)?;
+        reject_parent_change(&named, stored, post_details.deleted)?;
     }
 
     let (replied_key, reposted_key) = parent_keys(&named);
@@ -292,7 +307,9 @@ async fn sync_put_details(
 
     // Read the parents back from the edges just written, so the relationships and the reply and
     // repost notifications carry each parent's stored address, the one a graph rebuild returns.
-    let PostParents { replied, reposted } = PostParents::get_from_graph(&author_id, &post_id)
+    let PostParents {
+        replied, reposted, ..
+    } = PostParents::get_from_graph(&author_id, &post_id)
         .await?
         .unwrap_or_default();
     let mut post_relationships = PostRelationships {
@@ -504,8 +521,9 @@ async fn recover_post_index_state(
     // Invalidate-only is sufficient and safe on missing keys. Run before the child
     // reindex below so a failure there still leaves the parent caches refreshed.
     // Then re-send the parent author's reply or repost notification, unless deleted.
-    if let Some(PostParents { replied, reposted }) =
-        PostParents::get_from_graph(author_id, post_id).await?
+    if let Some(PostParents {
+        replied, reposted, ..
+    }) = PostParents::get_from_graph(author_id, post_id).await?
     {
         for (parent, is_reply) in [(replied, true), (reposted, false)] {
             let Some(PostParent {
@@ -779,10 +797,11 @@ async fn del_inner(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), Even
     match execute_graph_operation(query).await? {
         OperationOutcome::CreatedOrDeleted => sync_del(key.owner_id, key.resource_id, uri).await?,
         OperationOutcome::Updated => {
-            let PostParents { replied, reposted } =
-                PostParents::get_from_graph(&key.owner_id, &key.resource_id)
-                    .await?
-                    .unwrap_or_default();
+            let PostParents {
+                replied, reposted, ..
+            } = PostParents::get_from_graph(&key.owner_id, &key.resource_id)
+                .await?
+                .unwrap_or_default();
             let reference = |PostParent { uri, key }| Reference {
                 uri,
                 target: ReferenceTarget::Post(key),
@@ -849,7 +868,9 @@ pub async fn sync_del(
     // The parents to clean up come from the graph, which still has the post because
     // the graph delete runs LAST. Read them before removing the gate, for the same
     // reason as the kind above.
-    let PostParents { replied, reposted } = PostParents::get_from_graph(&author_id, &post_id)
+    let PostParents {
+        replied, reposted, ..
+    } = PostParents::get_from_graph(&author_id, &post_id)
         .await?
         .unwrap_or_default();
 
@@ -1086,7 +1107,57 @@ mod tests {
     }
 
     fn parents(replied: Option<PostParent>, reposted: Option<PostParent>) -> PostParents {
-        PostParents { replied, reposted }
+        PostParents {
+            replied,
+            reposted,
+            ..Default::default()
+        }
+    }
+
+    /// Parents with an external reply parent, by its Resource id, as read back from a post
+    /// whose references were reconciled.
+    fn external(resource: Option<&str>) -> PostParents {
+        PostParents {
+            replied_resource: resource.map(str::to_string),
+            references_reconciled: true,
+            ..Default::default()
+        }
+    }
+
+    /// An external parent may not be added, dropped or moved once the post's references were
+    /// reconciled; the same one passes, and so does any before, and any on a tombstone write.
+    #[test]
+    fn an_external_parent_is_fixed_once_reconciled() {
+        let incoming = |resource: Option<&str>| PostParents {
+            references_reconciled: false,
+            ..external(resource)
+        };
+        for (case, named, stored) in [
+            ("external parent moved", Some("b"), Some("a")),
+            ("external parent dropped", None, Some("a")),
+            ("external parent added", Some("a"), None),
+        ] {
+            assert!(
+                matches!(
+                    reject_parent_change(&incoming(named), &external(stored), false),
+                    Err(EventProcessorError::PostParentChanged(_))
+                ),
+                "{case}"
+            );
+            assert!(
+                reject_parent_change(&incoming(named), &external(stored), true).is_ok(),
+                "{case}: a tombstone write"
+            );
+            let unreconciled = PostParents {
+                references_reconciled: false,
+                ..external(stored)
+            };
+            assert!(
+                reject_parent_change(&incoming(named), &unreconciled, false).is_ok(),
+                "{case}: never reconciled"
+            );
+        }
+        assert!(reject_parent_change(&incoming(Some("a")), &external(Some("a")), false).is_ok());
     }
 
     #[test]
@@ -1099,8 +1170,8 @@ mod tests {
             parent("003286NSMY490", "written/extra"),
             parent("003286NSMY491", "w"),
         );
-        assert!(reject_parent_change(&named, &stored).is_ok());
-        assert!(reject_parent_change(&parents(None, None), &parents(None, None)).is_ok());
+        assert!(reject_parent_change(&named, &stored, false).is_ok());
+        assert!(reject_parent_change(&parents(None, None), &parents(None, None), false).is_ok());
     }
 
     #[test]
@@ -1125,7 +1196,7 @@ mod tests {
         for (case, named, stored) in cases {
             assert!(
                 matches!(
-                    reject_parent_change(&named, &stored),
+                    reject_parent_change(&named, &stored, false),
                     Err(EventProcessorError::PostParentChanged(_))
                 ),
                 "{case}"
@@ -1141,7 +1212,7 @@ mod tests {
         let named = parents(parent(&long_id, "p1"), None);
         let stored = parents(None, None);
         let Err(EventProcessorError::PostParentChanged(message)) =
-            reject_parent_change(&named, &stored)
+            reject_parent_change(&named, &stored, false)
         else {
             panic!("a reply added by an edit is rejected");
         };

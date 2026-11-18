@@ -37,6 +37,8 @@ pub fn reference(
 #[derive(Default)]
 struct State {
     revision: String,
+    /// A stage wrote the post's revision: its references were reconciled at least once.
+    reconciled: bool,
     /// The post is a tombstone: it keeps its Resource edges, whose dels were published when it
     /// became one.
     deleted: bool,
@@ -53,6 +55,7 @@ async fn state(author: &str, id: &str) -> ModelResult<State> {
         OPTIONAL MATCH (p)-[e:REPLIED|EMBEDS|COLLECTED]->(r:Resource)
         WITH p, e, r ORDER BY type(e), r.id
         RETURN coalesce(p.resource_ref_revision, '') AS revision,
+               p.resource_ref_revision IS NOT NULL AS reconciled,
                coalesce(p.deleted, false) AS deleted,
                coalesce(p.resource_ref_retracted, false) AS retracted,
                p.resource_ref_outbox AS outbox,
@@ -65,6 +68,7 @@ async fn state(author: &str, id: &str) -> ModelResult<State> {
     match row {
         Some(row) => Ok(State {
             revision: row.get("revision")?,
+            reconciled: row.get("reconciled")?,
             deleted: row.get("deleted")?,
             retracted: row.get("retracted")?,
             outbox: row.get("outbox")?,
@@ -171,10 +175,15 @@ pub async fn stage(post: &PostDetails, mut lines: Vec<ResourceChange>) -> ModelR
             .filter(|line| old.retracted || !old.lines.iter().any(|old| same_reference(old, line)))
             .cloned(),
     );
-    if changes.is_empty() && !old.retracted {
+    // A post's first stage writes its revision even with nothing to publish: from then on its
+    // external reply parent is fixed (the watcher's parent check reads the revision).
+    if changes.is_empty() && !old.retracted && old.reconciled {
         return Ok(());
     }
-    let outbox = serde_json::to_string(&changes).map_err(ModelError::from_generic)?;
+    let outbox = (!changes.is_empty())
+        .then(|| serde_json::to_string(&changes))
+        .transpose()
+        .map_err(ModelError::from_generic)?;
     let revision = pubky::Keypair::random().public_key().to_z32();
     let mut query = String::from(
         r"

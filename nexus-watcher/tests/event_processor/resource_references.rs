@@ -15,6 +15,7 @@ use nexus_common::models::user::UserCounts;
 use nexus_common::types::{Pagination, StreamSorting};
 use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use nexus_common::utils::test_utils::{pause_references, ReferencePause};
+use nexus_watcher::EventProcessorError;
 use pubky::{Keypair, ResourcePath};
 use pubky_social_specs::{
     traits::{HasIdPath, HashId},
@@ -107,62 +108,125 @@ async fn replies_embeds_and_collections_share_resources_and_replay_keys() -> Res
             .collections_count,
         0
     );
-    // External targets remain editable, as before Resource projection existed.
+    // The external reply parent is fixed, as a post parent is: an edit that moves or drops it
+    // is refused, never retried, and changes nothing.
+    let handler = test.event_processor_runner.event_handler.clone();
+    let second_rid = resource_id(&second_target);
+    let (_, _, edit_cursor) = ResourceChange::get_from_index(0, 0).await?;
+    for (case, body) in [
+        (
+            "moved to another URL",
+            json!({"kind":"note","content":"moved", "parent":second_target, "embed":target}),
+        ),
+        (
+            "dropped",
+            json!({"kind":"note","content":"root again", "embed":target}),
+        ),
+    ] {
+        let version: ResourcePath =
+            format!("/pub/social/v1/posts/{id}/{}.json", generate_post_id()).parse()?;
+        test.put(&key, &version, &body).await?;
+        let err = retrieve_and_handle_event_line(
+            &format!("PUT pubky://{author}{version}"),
+            &test.homeserver_id,
+            handler.clone(),
+        )
+        .await
+        .expect_err(case);
+        assert!(
+            matches!(err, EventProcessorError::PostParentChanged(_)),
+            "{case}: {err}"
+        );
+        assert_eq!(
+            PostDetails::get_from_graph(&author, &id)
+                .await?
+                .unwrap()
+                .0
+                .content,
+            "reply and embed",
+            "{case}"
+        );
+        assert_eq!(
+            references::posts(&rid, ResourceChangeKind::Reply, 0, 10).await?,
+            [(author.clone(), id.clone())],
+            "{case}"
+        );
+        assert!(
+            references::posts(&second_rid, ResourceChangeKind::Reply, 0, 10)
+                .await?
+                .is_empty(),
+            "{case}"
+        );
+        assert!(
+            super::posts::utils::check_member_user_replies_timeline(&author, &id)
+                .await?
+                .is_some(),
+            "{case}"
+        );
+        assert!(
+            super::posts::utils::check_member_global_timeline_user_post(&author, &id)
+                .await?
+                .is_none(),
+            "{case}"
+        );
+        assert!(
+            super::posts::utils::check_member_total_engagement_user_posts(&[&author, &id])
+                .await?
+                .is_none(),
+            "{case}"
+        );
+    }
+    assert_eq!(
+        ResourceChange::get_from_index(edit_cursor, 1000)
+            .await?
+            .0
+            .lines
+            .iter()
+            .filter(|line| line.author == author)
+            .count(),
+        0,
+        "a refused edit publishes nothing"
+    );
+    // Another spelling of the same URL is the same parent; the embed stays editable.
     let reply_edit_id = generate_post_id();
     let reply_edit: ResourcePath =
         format!("/pub/social/v1/posts/{id}/{reply_edit_id}.json").parse()?;
     test.put(
         &key,
         &reply_edit,
-        &json!({"kind":"note","content":"moved", "parent":second_target, "embed":second_target}),
+        &json!({"kind":"note","content":"same parent, another spelling", "parent":target.replace("example.com", "EXAMPLE.com"), "embed":second_target}),
     )
     .await?;
-    assert!(ResourceView::get_by_id(&rid, None, None, None, None)
+    let relationships = PostRelationships::get_from_graph(&author, &id)
         .await?
-        .is_none());
+        .unwrap();
+    assert_eq!(relationships.replied.as_deref(), Some(target.as_str()));
     assert_eq!(
-        PostRelationships::get_from_graph(&author, &id)
-            .await?
-            .unwrap()
-            .replied
-            .as_deref(),
+        relationships.embedded.as_deref(),
         Some(second_target.as_str())
     );
-    assert!(
-        super::posts::utils::check_member_user_replies_timeline(&author, &id)
+    assert_eq!(
+        PostDetails::get_from_graph(&author, &id)
             .await?
-            .is_some()
+            .unwrap()
+            .0
+            .content,
+        "same parent, another spelling"
     );
-    assert!(
-        super::posts::utils::check_member_total_engagement_user_posts(&[&author, &id])
-            .await?
-            .is_none()
-    );
-    // Removing the external parent restores root timeline membership.
-    test.put(
-        &key,
-        &reply_edit,
-        &json!({"kind":"note","content":"root again"}),
-    )
-    .await?;
-    assert!(PostRelationships::get_from_graph(&author, &id)
+    assert!(references::posts(&rid, ResourceChangeKind::Embed, 0, 10)
         .await?
-        .unwrap()
-        .replied
-        .is_none());
-    assert!(
-        super::posts::utils::check_member_global_timeline_user_post(&author, &id)
-            .await?
-            .is_some()
-    );
-    // And the global engagement ranking, out of the author's replies
-    assert!(
-        super::posts::utils::check_member_total_engagement_user_posts(&[&author, &id])
-            .await?
-            .is_some()
+        .is_empty());
+    assert_eq!(
+        references::posts(&second_rid, ResourceChangeKind::Embed, 0, 10).await?,
+        [(author.clone(), id.clone())]
     );
     assert!(
         super::posts::utils::check_member_user_replies_timeline(&author, &id)
+            .await?
+            .is_some()
+    );
+    assert!(
+        super::posts::utils::check_member_total_engagement_user_posts(&[&author, &id])
             .await?
             .is_none()
     );
@@ -220,6 +284,185 @@ async fn replies_embeds_and_collections_share_resources_and_replay_keys() -> Res
         "deletes balance every reference, including edited collection versions"
     );
     test.del(&key, &profile).await?;
+    Ok(())
+}
+
+/// Takes `id`'s references back to how a post indexed before posts referenced Resources holds
+/// them: no Resource edge, no reconciled revision, and the Redis lists of a root post.
+async fn as_indexed_before_references(author: &str, id: &str) -> Result<()> {
+    get_neo4j_graph()?
+        .run(
+            nexus_common::db::graph::Query::new(
+                "test_unreconcile_post",
+                "MATCH (:User {id: $author})-[:AUTHORED]->(p:Post {id: $id})
+             OPTIONAL MATCH (p)-[e:REPLIED|EMBEDS|COLLECTED]->(r:Resource)
+             DELETE e
+             WITH p, collect(DISTINCT r) AS targets
+             REMOVE p.resource_ref_revision, p.resource_ref_outbox, p.resource_ref_retracted
+             WITH targets UNWIND targets AS r
+             WITH r WHERE NOT EXISTS { (r)--() } DELETE r",
+            )
+            .param("author", author)
+            .param("id", id),
+        )
+        .await?;
+    PostDetails::reindex(author, id).await?;
+    PostRelationships::reindex(author, id).await?;
+    PostCounts::reindex(author, id).await?;
+    Ok(())
+}
+
+/// Whether the post is in the root lists (global and author timelines, engagement ranking) and
+/// whether it is in the author's replies.
+async fn root_lists_and_replies(author: &str, id: &str) -> Result<(bool, bool, bool, bool)> {
+    use super::posts::utils::*;
+    Ok((
+        check_member_global_timeline_user_post(author, id)
+            .await?
+            .is_some(),
+        check_member_user_post_timeline(author, id).await?.is_some(),
+        check_member_total_engagement_user_posts(&[author, id])
+            .await?
+            .is_some(),
+        check_member_user_replies_timeline(author, id)
+            .await?
+            .is_some(),
+    ))
+}
+
+const ROOT: (bool, bool, bool, bool) = (true, true, true, false);
+const REPLY: (bool, bool, bool, bool) = (false, false, false, true);
+
+/// A post's external reply parent is fixed from its first PUT on, also when it has none: a root
+/// post edited into a reply to a URL is refused and changes nothing. A post indexed before posts
+/// referenced Resources has no Resource reply edge yet, and its replay gains the one it names:
+/// it leaves the root lists for the author's replies. From then on its parent is fixed too.
+#[tokio_shared_rt::test(shared)]
+async fn an_external_reply_parent_is_fixed_once_reconciled() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    test.register_user(&key).await?;
+    let author = key.public_key().to_z32();
+    let profile = test
+        .put_v1_profile(&key, &v1_test_user("Fixed external parent", ""))
+        .await?;
+    super::utils::watcher::rank_user(&author).await?;
+    let handler = test.event_processor_runner.event_handler.clone();
+    let target = format!("https://example.com/fixed-parent/{author}");
+    let rid = resource_id(&target);
+
+    // Root edited into a reply to a URL
+    let root_id = generate_post_id();
+    let root: ResourcePath = format!("/pub/social/v1/posts/{root_id}/{root_id}.json").parse()?;
+    test.put(&key, &root, &json!({"kind":"note","content":"a root post"}))
+        .await?;
+    let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+    let version: ResourcePath =
+        format!("/pub/social/v1/posts/{root_id}/{}.json", generate_post_id()).parse()?;
+    test.put(
+        &key,
+        &version,
+        &json!({"kind":"note","content":"now a reply","parent":target}),
+    )
+    .await?;
+    let err = retrieve_and_handle_event_line(
+        &format!("PUT pubky://{author}{version}"),
+        &test.homeserver_id,
+        handler.clone(),
+    )
+    .await
+    .expect_err("a root post edited into a reply to a URL is refused");
+    assert!(
+        matches!(err, EventProcessorError::PostParentChanged(_)),
+        "{err}"
+    );
+    assert_eq!(
+        PostDetails::get_from_graph(&author, &root_id)
+            .await?
+            .unwrap()
+            .0
+            .content,
+        "a root post"
+    );
+    assert!(!PostDetails::is_reply_in_graph(&author, &root_id).await?);
+    assert!(ResourceView::get_by_id(&rid, None, None, None, None)
+        .await?
+        .is_none());
+    assert_eq!(root_lists_and_replies(&author, &root_id).await?, ROOT);
+    let own_since = |cursor| {
+        let author = author.clone();
+        async move {
+            anyhow::Ok(
+                ResourceChange::get_from_index(cursor, 1000)
+                    .await?
+                    .0
+                    .lines
+                    .into_iter()
+                    .filter(|line| line.author == author)
+                    .map(|line| (line.op, line.resource_id))
+                    .collect::<Vec<_>>(),
+            )
+        }
+    };
+    assert_eq!(
+        own_since(cursor).await?,
+        [],
+        "a refused edit publishes nothing"
+    );
+
+    // A reply to the URL indexed before posts referenced Resources: its replay gains the edge
+    let id = generate_post_id();
+    let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
+    let envelope = json!({"kind":"note","content":"an old reply","parent":target});
+    test.put(&key, &path, &envelope).await?;
+    as_indexed_before_references(&author, &id).await?;
+    assert!(!PostDetails::is_reply_in_graph(&author, &id).await?);
+    assert_eq!(root_lists_and_replies(&author, &id).await?, ROOT);
+    let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+    retrieve_and_handle_event_line(
+        &format!("PUT pubky://{author}{path}"),
+        &test.homeserver_id,
+        handler.clone(),
+    )
+    .await?;
+    assert_eq!(
+        references::posts(&rid, ResourceChangeKind::Reply, 0, 10).await?,
+        [(author.clone(), id.clone())],
+        "the replay gains its Resource reply edge"
+    );
+    assert_eq!(root_lists_and_replies(&author, &id).await?, REPLY);
+    // From now on its parent is fixed
+    let moved: ResourcePath =
+        format!("/pub/social/v1/posts/{id}/{}.json", generate_post_id()).parse()?;
+    test.put(
+        &key,
+        &moved,
+        &json!({"kind":"note","content":"moved","parent":format!("{target}/elsewhere")}),
+    )
+    .await?;
+    let err = retrieve_and_handle_event_line(
+        &format!("PUT pubky://{author}{moved}"),
+        &test.homeserver_id,
+        handler.clone(),
+    )
+    .await
+    .expect_err("a reconciled post's URL parent is fixed");
+    assert!(
+        matches!(err, EventProcessorError::PostParentChanged(_)),
+        "{err}"
+    );
+    assert_eq!(
+        own_since(cursor).await?,
+        [(ResourceChangeOp::Put, rid.clone())],
+        "the replay publishes the reference it gains, the refused edit nothing"
+    );
+
+    test.del(&key, &path).await?;
+    test.del(&key, &root).await?;
+    test.del(&key, &profile).await?;
+    assert!(ResourceView::get_by_id(&rid, None, None, None, None)
+        .await?
+        .is_none());
     Ok(())
 }
 
@@ -389,9 +632,9 @@ fn spawn_event_line(
 /// left and pause before appending it, while a DEL of the post publishes that outbox, deletes the
 /// post and retracts its references: the PUT's append after that would bring the deleted
 /// reference back for feed readers. The post lock orders the two, so the feed ends with the
-/// retraction. The held PUT is a newer version that replies to another target, so the DEL must
+/// retraction. The held PUT is a newer version that also embeds another target, so the DEL must
 /// read the post's references under the lock too: one that read them before taking it would
-/// retract the old target and leave the newer version's reference live.
+/// retract the reply and leave the newer version's embed live.
 #[tokio_shared_rt::test(shared)]
 async fn concurrent_delete_is_not_overtaken_by_an_outbox_append() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -421,13 +664,14 @@ async fn concurrent_delete_is_not_overtaken_by_an_outbox_append() -> Result<()> 
     test.put(
         &key,
         &newer,
-        &json!({"kind":"note","content":"raced again","parent":new_target}),
+        &json!({"kind":"note","content":"raced again","parent":target,"embed":new_target}),
     )
     .await?;
-    // A committed graph write whose feed append was lost leaves its outbox on the post.
+    // A committed graph write whose feed append was lost leaves its outbox on the post: here
+    // the reply moved to the newer version's file.
     let line = references::reference(
         &author,
-        &format!("pubky://{author}{path}"),
+        &format!("pubky://{author}{newer}"),
         &target,
         ResourceChangeKind::Reply,
     )?;
@@ -470,7 +714,10 @@ async fn concurrent_delete_is_not_overtaken_by_an_outbox_append() -> Result<()> 
     del.await??;
 
     let lines = ResourceChange::get_from_index(cursor, 1000).await?.0.lines;
-    for (rid, name) in [(&rid, "the older target"), (&new_rid, "the newer target")] {
+    for (rid, name) in [
+        (&rid, "the reply's target"),
+        (&new_rid, "the newer embed's target"),
+    ] {
         let ops: Vec<_> = lines
             .iter()
             .filter(|line| line.author == author && &line.resource_id == rid)
@@ -501,7 +748,8 @@ async fn concurrent_delete_is_not_overtaken_by_an_outbox_append() -> Result<()> 
 /// An older version's PUT that wrote the post and paused before its references must not, once
 /// a newer version's PUT finished, replace the newer version's references with its own: both
 /// versions have the same content and kind, so the post write tells them apart. The post lock
-/// orders the two handlers, and the post keeps the references of the version handled last.
+/// orders the two handlers, and the post keeps the references of the version handled last. The
+/// versions embed different targets, as an edit may change an embed (not a reply parent).
 #[tokio_shared_rt::test(shared)]
 async fn older_version_does_not_replace_a_newer_versions_references() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -519,7 +767,7 @@ async fn older_version_does_not_replace_a_newer_versions_references() -> Result<
     test.put(
         &key,
         &older,
-        &json!({"kind":"note","content":"same words","parent":old_target}),
+        &json!({"kind":"note","content":"same words","embed":old_target}),
     )
     .await?;
     let edit = generate_post_id();
@@ -527,7 +775,7 @@ async fn older_version_does_not_replace_a_newer_versions_references() -> Result<
     test.put(
         &key,
         &newer,
-        &json!({"kind":"note","content":"same words","parent":new_target}),
+        &json!({"kind":"note","content":"same words","embed":new_target}),
     )
     .await?;
 
@@ -560,13 +808,13 @@ async fn older_version_does_not_replace_a_newer_versions_references() -> Result<
         PostRelationships::get_from_graph(&author, &id)
             .await?
             .unwrap()
-            .replied
+            .embedded
             .as_deref(),
         Some(new_target.as_str()),
         "the version handled last keeps its references"
     );
     assert!(
-        references::posts(&resource_id(&old_target), ResourceChangeKind::Reply, 0, 10)
+        references::posts(&resource_id(&old_target), ResourceChangeKind::Embed, 0, 10)
             .await?
             .is_empty()
     );
@@ -577,11 +825,9 @@ async fn older_version_does_not_replace_a_newer_versions_references() -> Result<
 
 /// A newer version's PUT waits for the post's lock before it reads or writes anything: while an
 /// older version's PUT holds it, paused after its post write and before its references, the
-/// post keeps the older content. Released, the older PUT finishes and the newer one runs last.
-/// The older version replies to a URL and the newer one is a root post: the older PUT's
-/// references make the post a reply again (out of the engagement ranking), and the newer PUT
-/// must read that under the lock to put the post back. One that read the post's reply state
-/// before taking the lock would find a root post and leave it out of the ranking.
+/// post keeps the older content. Released, the older PUT finishes and the newer one runs last:
+/// the post has the newer content and the newer version's (no) embed, and stays a ranked root
+/// post.
 #[tokio_shared_rt::test(shared)]
 async fn newer_version_waits_for_the_post_lock_before_its_post_write() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -598,7 +844,7 @@ async fn newer_version_waits_for_the_post_lock_before_its_post_write() -> Result
     test.put(
         &key,
         &older,
-        &json!({"kind":"note","content":"older words","parent":old_target}),
+        &json!({"kind":"note","content":"older words","embed":old_target}),
     )
     .await?;
     let edit = generate_post_id();
@@ -655,15 +901,12 @@ async fn newer_version_waits_for_the_post_lock_before_its_post_write() -> Result
         PostRelationships::get_from_graph(&author, &id)
             .await?
             .unwrap()
-            .replied,
+            .embedded,
         None
     );
+    assert!(ranked().await?.is_some(), "the root post stays ranked");
     assert!(
-        ranked().await?.is_some(),
-        "the root post the newer version makes is ranked again"
-    );
-    assert!(
-        references::posts(&resource_id(&old_target), ResourceChangeKind::Reply, 0, 10)
+        references::posts(&resource_id(&old_target), ResourceChangeKind::Embed, 0, 10)
             .await?
             .is_empty()
     );

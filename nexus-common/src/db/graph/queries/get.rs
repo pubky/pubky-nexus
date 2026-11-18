@@ -282,11 +282,14 @@ pub fn post_parents(author_id: &str, post_id: &str) -> Query {
         "MATCH (p:Post {id: $post_id})
         WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
         OPTIONAL MATCH (p)-[:REPLIED]->(replied_post:Post)<-[:AUTHORED]-(replied_author:User)
+        OPTIONAL MATCH (p)-[:REPLIED]->(replied_resource:Resource)
         OPTIONAL MATCH (p)-[:REPOSTED]->(reposted_post:Post)<-[:AUTHORED]-(reposted_author:User)
         RETURN
           replied_post.uri AS replied_uri,
           replied_author.id AS replied_author_id,
           replied_post.id AS replied_post_id,
+          replied_resource.id AS replied_resource_id,
+          p.resource_ref_revision IS NOT NULL AS references_reconciled,
           reposted_post.uri AS reposted_uri,
           reposted_author.id AS reposted_author_id,
           reposted_post.id AS reposted_post_id",

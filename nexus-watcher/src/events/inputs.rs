@@ -10,6 +10,7 @@ use chrono::Utc;
 use nexus_common::models::file::{FileDetails, FileUrls};
 use nexus_common::models::post::{PostDetails, PostParent, PostParents};
 use nexus_common::models::user::{Epoch, UserDetails};
+use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use pubky_social_specs::PubkyId;
 
 pub use nexus_common::models::post::PostKind;
@@ -98,7 +99,8 @@ impl PostInput {
         }
     }
 
-    /// The posts the parent and embed name, each with the address as written.
+    /// The posts the parent and embed name, each with the address as written, and the Resource
+    /// an external parent names.
     ///
     /// The address is not the parent's stored one: the post handler writes the edges from the
     /// keys and reads the stored addresses back from the graph. Only a post parent gives a reply
@@ -113,9 +115,19 @@ impl PostInput {
             }),
             _ => None,
         };
+        // An external parent by the Resource id its reply edge names, so that another spelling
+        // of the same URL is the same parent. One that does not normalize makes no Resource.
+        let replied_resource = self
+            .parent
+            .as_ref()
+            .filter(|parent| matches!(parent.target, ReferenceTarget::Foreign))
+            .and_then(|parent| normalize_uri(&parent.uri).ok())
+            .map(|(uri, _)| resource_id(&uri));
         PostParents {
             replied: self.parent.as_ref().and_then(post_parent),
             reposted: self.embed.as_ref().and_then(post_parent),
+            replied_resource,
+            references_reconciled: false,
         }
     }
 
@@ -324,15 +336,24 @@ mod tests {
     #[test]
     fn non_post_parent_and_embed_give_no_edges() {
         // A file, a foreign resource and an unresolved address: none is a reply or repost edge.
+        // A foreign parent names the Resource its reply edge goes to, by its normalized id.
         let file = reference(
             "pubky://x/pub/pubky.app/files/1",
             ReferenceTarget::File(key()),
         );
-        let foreign = reference("https://example.com", ReferenceTarget::Foreign);
+        let foreign = reference("https://EXAMPLE.com", ReferenceTarget::Foreign);
         let other = reference("pubky://x/pub/pubky.app/follows/y", ReferenceTarget::Other);
-        for target in [file, foreign, other] {
+        let foreign_id = resource_id(&normalize_uri("https://example.com").unwrap().0);
+        for (target, replied_resource) in [(file, None), (foreign, Some(foreign_id)), (other, None)]
+        {
             let parents = post(Some(target.clone()), Some(target)).parents();
-            assert_eq!(parents, PostParents::default());
+            assert_eq!(
+                parents,
+                PostParents {
+                    replied_resource,
+                    ..PostParents::default()
+                }
+            );
         }
     }
 }
