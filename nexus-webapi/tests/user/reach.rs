@@ -3,7 +3,6 @@ use anyhow::Result;
 use axum::http::StatusCode;
 use deadpool_redis::redis::AsyncCommands;
 use nexus_common::db::get_redis_conn;
-use serde_json::json;
 
 const NON_EXISTING_USER_ID: &str = "qca6wzjg4okp6g1hwr9g8hmx1po1jpoirjfau9ejsws1qz3t7iiy";
 
@@ -118,37 +117,47 @@ async fn test_get_following_details() -> Result<()> {
     for query in ["", "?skip=3&limit=5"] {
         let ids = get_request(&format!("/v1/user/{user_id}/following{query}")).await?;
         let details = get_request(&format!("/v1/user/{user_id}/following/details{query}")).await?;
+
         let details = details.as_array().expect("Response should be an array");
-        let detail_ids: Vec<_> = details.iter().map(|d| d["id"].clone()).collect();
-        assert!(
-            !detail_ids.is_empty(),
-            "Expected followed users for {query:?}"
-        );
-        assert_eq!(
-            json!(detail_ids),
-            ids,
-            "Details should follow /following{query}"
-        );
-        assert!(
-            details.iter().all(|d| d.get("tags").is_none()),
-            "Expected bare UserDetails"
-        );
+        let detail_ids: Vec<&str> = details.iter().map(|d| d["id"].as_str().unwrap()).collect();
+        let ids: Vec<&str> = ids
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|id| id.as_str().unwrap())
+            .collect();
+        assert!(!ids.is_empty(), "Expected followed users for {query:?}");
+        assert_eq!(detail_ids, ids, "Details should follow /following{query}");
+
+        for user in details {
+            assert!(user["name"].is_string(), "Name should be a string");
+            assert!(user.get("tags").is_none(), "Tags should not be returned");
+            assert!(
+                user.get("counts").is_none(),
+                "Counts should not be returned"
+            );
+        }
     }
 
     // A followed tombstone (recommended.cypher) comes back flagged, not filtered out
     let hop = "wtqrgw3s7w4qgxwhychgho191aqotmoejcdp4enctkrcthn3y37o";
     let details = get_request(&format!("/v1/user/{hop}/following/details")).await?;
-    let deleted = "z48xiqc4mcfiicwi1ewgn7swkhuem86wbkyoudt9yqidcxadt4to";
-    let flagged = details
+    let deleted = details
         .as_array()
         .unwrap()
         .iter()
-        .find(|d| d["id"] == deleted);
-    assert_eq!(flagged.map(|d| &d["deleted"]), Some(&json!(true)));
+        .find(|d| d["id"] == "z48xiqc4mcfiicwi1ewgn7swkhuem86wbkyoudt9yqidcxadt4to")
+        .expect("Expected the followed deleted user");
+    assert_eq!(deleted["deleted"], true, "Expected deleted: true");
 
     invalid_get_request(
         &format!("/v1/user/{NON_EXISTING_USER_ID}/following/details"),
         StatusCode::NOT_FOUND,
+    )
+    .await?;
+    invalid_get_request(
+        &format!("/v1/user/{user_id}/following/details?limit=201"),
+        StatusCode::BAD_REQUEST,
     )
     .await?;
     // /v0 is frozen: the route is /v1 only
