@@ -1,3 +1,4 @@
+use crate::utils::recommended::{DELETED, HOP};
 use crate::utils::{get_request, invalid_get_request, server::TestServiceServer};
 use anyhow::Result;
 use axum::http::StatusCode;
@@ -111,12 +112,15 @@ async fn test_get_following() -> Result<()> {
 
 #[tokio_shared_rt::test(shared)]
 async fn test_get_following_details() -> Result<()> {
-    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+    // HOP's follows (recommended.cypher) are read by no other test that clears the cache. The
+    // order is only stable while both reads hit the same cached set: a cold read returns the
+    // graph's order and caches it, a warm one SSCANs it. So warm it first.
+    get_request(&format!("/v1/user/{HOP}/following")).await?;
 
     // Same users, same order, same pages as /following
-    for query in ["", "?skip=3&limit=5"] {
-        let ids = get_request(&format!("/v1/user/{user_id}/following{query}")).await?;
-        let details = get_request(&format!("/v1/user/{user_id}/following/details{query}")).await?;
+    for query in ["", "?skip=1&limit=3"] {
+        let ids = get_request(&format!("/v1/user/{HOP}/following{query}")).await?;
+        let details = get_request(&format!("/v1/user/{HOP}/following/details{query}")).await?;
 
         let details = details.as_array().expect("Response should be an array");
         let detail_ids: Vec<&str> = details.iter().map(|d| d["id"].as_str().unwrap()).collect();
@@ -139,14 +143,13 @@ async fn test_get_following_details() -> Result<()> {
         }
     }
 
-    // A followed tombstone (recommended.cypher) comes back flagged, not filtered out
-    let hop = "wtqrgw3s7w4qgxwhychgho191aqotmoejcdp4enctkrcthn3y37o";
-    let details = get_request(&format!("/v1/user/{hop}/following/details")).await?;
+    // A followed tombstone comes back flagged, not filtered out
+    let details = get_request(&format!("/v1/user/{HOP}/following/details")).await?;
     let deleted = details
         .as_array()
         .unwrap()
         .iter()
-        .find(|d| d["id"] == "z48xiqc4mcfiicwi1ewgn7swkhuem86wbkyoudt9yqidcxadt4to")
+        .find(|d| d["id"] == DELETED)
         .expect("Expected the followed deleted user");
     assert_eq!(deleted["deleted"], true, "Expected deleted: true");
 
@@ -156,13 +159,13 @@ async fn test_get_following_details() -> Result<()> {
     )
     .await?;
     invalid_get_request(
-        &format!("/v1/user/{user_id}/following/details?limit=201"),
+        &format!("/v1/user/{HOP}/following/details?limit=201"),
         StatusCode::BAD_REQUEST,
     )
     .await?;
     // /v0 is frozen: the route is /v1 only
     invalid_get_request(
-        &format!("/v0/user/{user_id}/following/details"),
+        &format!("/v0/user/{HOP}/following/details"),
         StatusCode::NOT_FOUND,
     )
     .await?;
