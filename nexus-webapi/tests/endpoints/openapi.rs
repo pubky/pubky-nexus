@@ -92,6 +92,7 @@ const V1_ONLY_PATHS: &[&str] = &[
     "/resources/changes",
     "/resource/{resource_id}/replies",
     "/resource/{resource_id}/embeds",
+    "/user/{user_id}/reach-set",
 ];
 
 /// Both documents come from one route declaration, so every v0 path is in the v1 document

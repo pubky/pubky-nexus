@@ -47,7 +47,7 @@ pub enum StreamSourceKind {
 }
 
 /// Validates the requested WoT depth, falling back to the default when absent.
-fn resolve_wot_depth(depth: Option<u8>) -> AppResult<WotDepth> {
+pub(crate) fn resolve_wot_depth(depth: Option<u8>) -> AppResult<WotDepth> {
     match depth {
         Some(depth) => WotDepth::new(depth).map_err(Error::invalid_input),
         None => Ok(WotDepth::default()),
