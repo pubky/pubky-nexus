@@ -5,7 +5,6 @@ use crate::routes::Path;
 use crate::routes::Query;
 use crate::{Error, Result};
 use axum::Json;
-use nexus_common::models::post::PostRelationships;
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::TagDetails;
 use serde::Deserialize;
@@ -87,7 +86,8 @@ versioned_handlers! {
     )
 }
 
-/// The schemas the post view nests in every version; the view itself is each version's.
+/// The schemas the post view nests in every version; the view and its relationships are each
+/// version's.
 #[derive(OpenApi)]
-#[openapi(components(schemas(PostRelationships, TagPost, TagDetails, PubkyId, PostId)))]
+#[openapi(components(schemas(TagPost, TagDetails, PubkyId, PostId)))]
 pub struct PostViewApiDoc;

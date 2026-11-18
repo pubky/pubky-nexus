@@ -16,7 +16,7 @@ pub mod resource_id;
 pub mod tag_label;
 pub mod user_id_prefix;
 pub mod username_prefix;
-pub mod v0_frozen;
+pub mod v0;
 pub mod v1;
 
 use std::borrow::Cow;
@@ -47,7 +47,6 @@ pub use resource_id::ResourceId;
 pub use tag_label::TagLabel;
 pub use user_id_prefix::UserIdPrefix;
 pub use username_prefix::UsernamePrefix;
-pub use v0_frozen::V0Shape;
 
 /// Comma-separated list of tag labels (min=1, max=5). Each label is validated and sanitized.
 ///
