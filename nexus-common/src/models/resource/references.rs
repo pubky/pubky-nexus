@@ -85,9 +85,14 @@ fn same_reference(a: &ResourceChange, b: &ResourceChange) -> bool {
 /// Finish an append whose graph transaction committed but whose acknowledgement
 /// was lost. Clearing the exact outbox value cannot erase a later graph write.
 pub async fn flush(author: &str, id: &str) -> ModelResult<()> {
-    let Some(raw) = state(author, id).await?.outbox else {
-        return Ok(());
-    };
+    match state(author, id).await?.outbox {
+        Some(raw) => publish(author, id, raw).await,
+        None => Ok(()),
+    }
+}
+
+/// Appends the outbox `raw` the post holds to the feed, then clears it if it is still the one.
+async fn publish(author: &str, id: &str, raw: String) -> ModelResult<()> {
     #[cfg(any(test, feature = "test-utils"))]
     crate::utils::test_utils::reference_pause(
         crate::utils::test_utils::ReferencePause::Flush,
@@ -117,10 +122,35 @@ pub async fn flush(author: &str, id: &str) -> ModelResult<()> {
 }
 
 /// Atomically reconcile the external edges and save the append outbox on their
-/// source Post. A stale recovery cannot replace a newer post's references.
-pub async fn sync(post: &PostDetails, lines: Vec<ResourceChange>) -> ModelResult<()> {
-    stage(post, lines).await?;
-    flush(&post.author, &post.id).await
+/// source Post, then publish it. A stale recovery cannot replace a newer post's references.
+///
+/// Returns whether the post has or had any Resource edge: only then can its cached
+/// relationships and lists differ from what its post write left. It reads the post's
+/// references once.
+pub async fn sync(post: &PostDetails, lines: Vec<ResourceChange>) -> ModelResult<bool> {
+    #[cfg(any(test, feature = "test-utils"))]
+    crate::utils::test_utils::reference_fault(
+        crate::utils::test_utils::ReferenceFault::BeforeStage,
+        &post.author,
+    )?;
+    let Staged { touched, outbox } = stage_outbox(post, lines).await?;
+    if let Some(raw) = outbox {
+        publish(&post.author, &post.id, raw).await?;
+    }
+    #[cfg(any(test, feature = "test-utils"))]
+    crate::utils::test_utils::reference_fault(
+        crate::utils::test_utils::ReferenceFault::AfterSync,
+        &post.author,
+    )?;
+    Ok(touched)
+}
+
+/// What [`stage_outbox`] committed.
+struct Staged {
+    /// The post has or had a Resource edge.
+    touched: bool,
+    /// The outbox it saved, to publish.
+    outbox: Option<String>,
 }
 
 /// Commit edges and recovery metadata, without acknowledging the feed append. The outbox holds
@@ -131,15 +161,23 @@ pub async fn sync(post: &PostDetails, lines: Vec<ResourceChange>) -> ModelResult
 /// Like [`flush`] and [`retract`], it reads and then writes the post's
 /// references and outbox: its callers serialize every handler of one post (the watcher's post
 /// lock), so another one's write cannot land between its read and its write.
-pub async fn stage(post: &PostDetails, mut lines: Vec<ResourceChange>) -> ModelResult<()> {
+pub async fn stage(post: &PostDetails, lines: Vec<ResourceChange>) -> ModelResult<()> {
+    stage_outbox(post, lines).await.map(|_| ())
+}
+
+/// [`stage`], returning what it committed. An outbox a lost append left is published first,
+/// from the same read: the edges were written with it.
+async fn stage_outbox(post: &PostDetails, mut lines: Vec<ResourceChange>) -> ModelResult<Staged> {
     #[cfg(any(test, feature = "test-utils"))]
     crate::utils::test_utils::reference_pause(
         crate::utils::test_utils::ReferencePause::Stage,
         &post.author,
     )
     .await;
-    flush(&post.author, &post.id).await?;
-    let old = state(&post.author, &post.id).await?;
+    let mut old = state(&post.author, &post.id).await?;
+    if let Some(raw) = old.outbox.take() {
+        publish(&post.author, &post.id, raw).await?;
+    }
     let at = chrono::Utc::now().timestamp_millis();
     for line in &mut lines {
         line.at = at;
@@ -177,8 +215,12 @@ pub async fn stage(post: &PostDetails, mut lines: Vec<ResourceChange>) -> ModelR
     );
     // A post's first stage writes its revision even with nothing to publish: from then on its
     // external reply parent is fixed (the watcher's parent check reads the revision).
+    let touched = !old.lines.is_empty() || !lines.is_empty();
     if changes.is_empty() && !old.retracted && old.reconciled {
-        return Ok(());
+        return Ok(Staged {
+            touched,
+            outbox: None,
+        });
     }
     let outbox = (!changes.is_empty())
         .then(|| serde_json::to_string(&changes))
@@ -256,7 +298,7 @@ pub async fn stage(post: &PostDetails, mut lines: Vec<ResourceChange>) -> ModelR
         )
         .param("previous", old.revision)
         .param("revision", revision)
-        .param("outbox", outbox)
+        .param("outbox", outbox.clone())
         .param("at", at);
     for (name, values) in groups {
         query = query.param(name, values);
@@ -266,7 +308,7 @@ pub async fn stage(post: &PostDetails, mut lines: Vec<ResourceChange>) -> ModelR
             "Post changed while reconciling external references".into(),
         ));
     }
-    Ok(())
+    Ok(Staged { touched, outbox })
 }
 
 /// Retracts the post's references on the feed before its delete changes the graph, as a tag's

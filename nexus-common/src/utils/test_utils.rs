@@ -13,6 +13,7 @@ use pubky::{Keypair, PublicKey};
 use pubky_social_specs::PubkyId;
 
 use crate::db::kv::{RedisError, RedisResult};
+use crate::models::error::{ModelError, ModelResult};
 use crate::models::user::{PubkyConnectorResolver, UserIngestor};
 
 /// Authors whose resource changes feed del lines fail right after they are appended: see
@@ -70,6 +71,46 @@ pub fn pause_references(
         .unwrap()
         .insert((point, author.to_string()), (reached_tx, release_rx));
     (reached_rx, release_tx)
+}
+
+/// A point in [`references::sync`](crate::models::resource::references::sync) where a test can
+/// make it fail: see [`fail_references`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ReferenceFault {
+    /// Before the stage: nothing of the post's references is written.
+    BeforeStage,
+    /// After the stage and its feed append: the edges, the revision and the feed are written,
+    /// and the handler stops before it reads them back into Redis.
+    AfterSync,
+}
+
+/// Faults armed by [`fail_references`], per point and author.
+static REFERENCE_FAULTS: LazyLock<Mutex<HashSet<(ReferenceFault, String)>>> =
+    LazyLock::new(Default::default);
+
+/// Makes every `references::sync` of `author`'s posts fail at `point`, as a crash or a lost
+/// connection there would, until it is called again with `fail` false.
+pub fn fail_references(point: ReferenceFault, author: &str, fail: bool) {
+    let mut faults = REFERENCE_FAULTS.lock().unwrap();
+    if fail {
+        faults.insert((point, author.to_string()));
+    } else {
+        faults.remove(&(point, author.to_string()));
+    }
+}
+
+/// The error [`fail_references`] injects for `author` at `point`, if any.
+pub(crate) fn reference_fault(point: ReferenceFault, author: &str) -> ModelResult<()> {
+    if REFERENCE_FAULTS
+        .lock()
+        .unwrap()
+        .contains(&(point, author.to_string()))
+    {
+        return Err(ModelError::Generic(format!(
+            "injected reference failure at {point:?}"
+        )));
+    }
+    Ok(())
 }
 
 /// Waits at `point` if [`pause_references`] armed it for `author`.

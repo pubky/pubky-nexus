@@ -70,7 +70,7 @@ async fn seed(seed: &seeded::Seed) -> String {
             .put_to_index(author, &id)
             .await
             .unwrap();
-        post.put_to_index(author, None, false).await.unwrap();
+        post.put_to_index(author, None, false, None).await.unwrap();
         let file = format!("{uri}/{id}.json");
         let line = references::reference(author, &file, &target, kind).unwrap();
         resource.get_or_insert_with(|| line.resource_id.clone());

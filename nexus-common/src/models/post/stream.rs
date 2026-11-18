@@ -1014,6 +1014,24 @@ impl PostStream {
         .await
     }
 
+    /// Whether the post is in the global engagement ranking, which holds every root post.
+    pub async fn is_ranked(author_id: &str, post_id: &str) -> RedisResult<bool> {
+        let post_key = format!("{author_id}:{post_id}");
+        Ok(
+            Self::check_sorted_set_member(None, &POST_TOTAL_ENGAGEMENT_KEY_PARTS, &[&post_key])
+                .await?
+                .is_some(),
+        )
+    }
+
+    /// Whether the post is in its author's replies, which holds every reply.
+    pub async fn is_in_author_replies(author_id: &str, post_id: &str) -> RedisResult<bool> {
+        let key_parts = [&POST_REPLIES_PER_USER_KEY_PARTS[..], &[author_id]].concat();
+        Ok(Self::check_sorted_set_member(None, &key_parts, &[post_id])
+            .await?
+            .is_some())
+    }
+
     pub async fn delete_from_engagement_sorted_set(
         author_id: &str,
         post_id: &str,
