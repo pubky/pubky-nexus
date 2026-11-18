@@ -113,6 +113,11 @@ async fn sync_put_details(
                         existing_details.kind.clone(),
                     )
                     .await?;
+                } else {
+                    // The same post again is a retry or a replay, not an edit. A read
+                    // of the post (`PostDetails::get_by_id`) refills PostDetails from
+                    // the graph, so a retry after a partial failure lands here too.
+                    recover_post_index_state(&author_id, &post_id).await?;
                 }
             }
             None => {

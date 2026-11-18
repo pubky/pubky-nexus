@@ -166,7 +166,49 @@ impl NotificationBody {
             Self::PostEdited { .. } => NotificationType::PostEdited,
         }
     }
+
+    fn post_kind_mut(&mut self) -> Option<&mut PubkyAppPostKind> {
+        match self {
+            Self::TagPost { post_kind, .. }
+            | Self::UntagPost { post_kind, .. }
+            | Self::Reply { post_kind, .. }
+            | Self::Repost { post_kind, .. }
+            | Self::Mention { post_kind, .. }
+            | Self::PostDeleted { post_kind, .. }
+            | Self::PostEdited { post_kind, .. } => Some(post_kind),
+            Self::Follow { .. }
+            | Self::NewFriend { .. }
+            | Self::LostFriend { .. }
+            | Self::TagProfile { .. }
+            | Self::UntagProfile { .. } => None,
+        }
+    }
+
+    /// The body with each post kind in turn; empty for a body without one. A post
+    /// can change kind after its notification was sent, so these are all the
+    /// bodies the same event may already be stored under.
+    fn with_each_post_kind(&self) -> Vec<Self> {
+        ALL_POST_KINDS
+            .iter()
+            .filter_map(|kind| {
+                let mut body = self.clone();
+                *body.post_kind_mut()? = kind.clone();
+                Some(body)
+            })
+            .collect()
+    }
 }
+
+const ALL_POST_KINDS: [PubkyAppPostKind; 8] = [
+    PubkyAppPostKind::Short,
+    PubkyAppPostKind::Long,
+    PubkyAppPostKind::Image,
+    PubkyAppPostKind::Video,
+    PubkyAppPostKind::Link,
+    PubkyAppPostKind::File,
+    PubkyAppPostKind::Collection,
+    PubkyAppPostKind::Unknown,
+];
 
 const NOTIFICATION_FANOUT_PAGE_SIZE: i64 = 1_000;
 
@@ -212,10 +254,29 @@ impl Notification {
         .await
     }
 
-    /// Like [`Self::put_to_index`], but keeps an identical notification already in
-    /// the set, timestamp included. The body carries no timestamp, so the event that
-    /// created it can be replayed (retry, recovery) without re-surfacing it.
+    /// Like [`Self::put_to_index`], but keeps a notification of the same event
+    /// already in the set, timestamp included. The body carries no timestamp, so the
+    /// event that created it can be replayed (retry, recovery) without re-surfacing
+    /// it. The same event is the same body whatever post kind it was stored with.
     async fn put_to_index_once(&self, user_id: &str) -> RedisResult<()> {
+        let key_parts: &[&str] = &["Notification", user_id];
+        let stored_as = self
+            .body
+            .with_each_post_kind()
+            .iter()
+            .map(serde_json::to_string)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| RedisError::SerializationFailed(Box::new(e)))?;
+        let members: Vec<[&str; 1]> = stored_as.iter().map(|body| [body.as_str()]).collect();
+        let pairs: Vec<(&[&str], &[&str])> = members
+            .iter()
+            .map(|member| (key_parts, member.as_slice()))
+            .collect();
+        let scores = Notification::check_sorted_set_members(None, &pairs).await?;
+        if scores.iter().any(Option::is_some) {
+            return Ok(());
+        }
+
         let notification_body_json = serde_json::to_string(&self.body)
             .map_err(|e| RedisError::SerializationFailed(Box::new(e)))?;
         let score = self.timestamp as f64;
@@ -648,6 +709,30 @@ impl Notification {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn with_each_post_kind_covers_every_kind_once() {
+        let reply = NotificationBody::Reply {
+            replied_by: "bob".into(),
+            parent_post_uri: "parent".into(),
+            reply_uri: "reply".into(),
+            post_kind: PubkyAppPostKind::Short,
+        };
+        let kinds: Vec<PubkyAppPostKind> = reply
+            .with_each_post_kind()
+            .into_iter()
+            .map(|body| match body {
+                NotificationBody::Reply { post_kind, .. } => post_kind,
+                other => panic!("expected Reply, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(kinds, ALL_POST_KINDS.to_vec());
+
+        let follow = NotificationBody::Follow {
+            followed_by: "bob".into(),
+        };
+        assert!(follow.with_each_post_kind().is_empty());
+    }
 
     #[test]
     fn old_rows_without_post_kind_default_to_unknown() {
