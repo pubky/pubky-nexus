@@ -1,4 +1,4 @@
-//! The `/v0` post shapes: the stored models as `/v0` has always written them.
+//! The `/v0` post shapes, built from the stored models.
 //!
 //! `/v0` is frozen. A post's stored relationships also hold an external embed and a reply to
 //! an external resource, which `/v1` serves; `/v0` has no `embedded`, and names in `replied`
@@ -7,11 +7,12 @@
 //! models' order, and the conversions destructure the stored post view, post stream,
 //! relationships and bootstrap: a field added to one of them does not compile until it is
 //! given to `/v0` or left out here. The models they embed (`PostDetails`, `PostCounts`,
-//! `TagDetails`, `Bookmark`, `FileDetails`, `UserStream`, `Notification`) are served as stored. The responses that
-//! embed a post view, the post stream and the bootstrap, are `/v0` types too; each is named
-//! as the stored model is, so the `/v0` document keeps its schema names. The document also
-//! keeps its descriptions, which utoipa reads from doc comments: the fields carry the ones
-//! `/v0` has always documented, and the notes on each type are plain comments.
+//! `TagDetails`, `Bookmark`, `FileDetails`, `UserStream`, `Notification`) are served as
+//! stored. The responses that embed a post view, the post stream and the bootstrap, are `/v0`
+//! types too; each is named as the stored model is, so the `/v0` document keeps its schema
+//! names. The document also keeps its descriptions, which utoipa reads from doc comments: the
+//! fields carry the stored models' descriptions, and the notes on each type are plain
+//! comments.
 
 use nexus_common::models::bootstrap::{self, BootstrapIds};
 use nexus_common::models::file::FileDetails;
@@ -56,7 +57,7 @@ impl From<post::PostRelationships> for PostRelationships {
 }
 
 // A post with its counts, tags, relationships and the viewer's bookmark. The schema keeps
-// the description `/v0` has always documented.
+// the stored model's description.
 #[derive(Serialize, ToSchema, Debug)]
 #[schema(
     description = "Represents a Pubky user with relational data including tags, counts, and relationship with a viewer."
