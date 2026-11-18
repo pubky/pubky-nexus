@@ -73,7 +73,8 @@ pub fn delete_bookmark(user_id: &str, bookmark_id: &str) -> Query {
 /// Deletes a tag relationship created by a user and retrieves relevant details about the tag's target.
 ///
 /// A tag is one edge per tagger, target and label, whichever folder wrote it, so the edge is
-/// found by its id alone. A Resource left with no tag is deleted with its last edge.
+/// found by its id alone. A Resource left with no relationship (no other tag, no post that
+/// references it) is deleted with its last tag.
 pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
     Query::new(
         "delete_tag",
