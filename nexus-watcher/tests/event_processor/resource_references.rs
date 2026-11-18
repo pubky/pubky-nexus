@@ -15,7 +15,7 @@ use nexus_common::models::user::UserCounts;
 use nexus_common::types::{Pagination, StreamSorting};
 use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use nexus_common::utils::test_utils::{
-    fail_references, pause_references, ReferenceFault, ReferencePause,
+    fail_feed_dels_after_append, fail_references, pause_references, ReferenceFault, ReferencePause,
 };
 use nexus_watcher::EventProcessorError;
 use pubky::{Keypair, ResourcePath};
@@ -1765,5 +1765,120 @@ async fn a_tombstone_is_off_every_count_and_a_put_brings_its_references_back() -
             .is_none());
     }
     test.del(&key, &profile).await?;
+    Ok(())
+}
+
+/// A DEL marks the post's references retracted before it appends their dels: after one that
+/// stops right after its append, with the post still in the graph, a PUT puts them again.
+#[tokio_shared_rt::test(shared)]
+async fn a_put_after_a_delete_that_stopped_after_its_append_puts_the_references_again() -> Result<()>
+{
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    test.register_user(&key).await?;
+    let author = key.public_key().to_z32();
+    let profile = test
+        .put_v1_profile(&key, &v1_test_user("Stopped after the del append", ""))
+        .await?;
+    super::utils::watcher::rank_user(&author).await?;
+    test = test.remove_event_processing().await;
+    let handler = test.event_processor_runner.event_handler.clone();
+    let target = format!("https://example.com/stopped-after-append/{author}");
+    let rid = resource_id(&target);
+    let id = generate_post_id();
+    let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
+    test.put(
+        &key,
+        &path,
+        &json!({"kind":"note","content":"a reply","parent":target}),
+    )
+    .await?;
+    retrieve_and_handle_event_line(&format!("PUT pubky://{author}{path}"), handler.clone()).await?;
+    let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+
+    fail_feed_dels_after_append(&author, true);
+    let failed =
+        retrieve_and_handle_event_line(&format!("DEL pubky://{author}{path}"), handler.clone())
+            .await;
+    fail_feed_dels_after_append(&author, false);
+    assert!(failed.is_err(), "the injected failure after the append");
+    assert!(PostDetails::get_from_graph(&author, &id).await?.is_some());
+    retrieve_and_handle_event_line(&format!("PUT pubky://{author}{path}"), handler.clone()).await?;
+    assert_eq!(
+        own_ops_since(&author, cursor).await?,
+        [
+            (ResourceChangeOp::Del, rid.clone()),
+            (ResourceChangeOp::Put, rid.clone())
+        ]
+    );
+
+    for line in [
+        format!("DEL pubky://{author}{path}"),
+        format!("DEL pubky://{author}{profile}"),
+    ] {
+        retrieve_and_handle_event_line(&line, handler.clone()).await?;
+    }
+    Ok(())
+}
+
+/// An edit that drops a post's only external embed and stops after its reference write leaves
+/// the cached relationships with the embed; its retry, which finds no edge left, still reads
+/// them back.
+#[tokio_shared_rt::test(shared)]
+async fn a_retried_edit_that_dropped_the_last_embed_reads_the_relationships_back() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    test.register_user(&key).await?;
+    let author = key.public_key().to_z32();
+    let profile = test
+        .put_v1_profile(&key, &v1_test_user("Dropped embed retried", ""))
+        .await?;
+    super::utils::watcher::rank_user(&author).await?;
+    test = test.remove_event_processing().await;
+    let handler = test.event_processor_runner.event_handler.clone();
+    let embedded = format!("https://example.com/dropped-embed/{author}");
+    let id = generate_post_id();
+    let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
+    test.put(
+        &key,
+        &path,
+        &json!({"kind":"note","content":"an embed","embed":embedded}),
+    )
+    .await?;
+    retrieve_and_handle_event_line(&format!("PUT pubky://{author}{path}"), handler.clone()).await?;
+    let cached = || async {
+        anyhow::Ok(
+            PostRelationships::get_from_index(&author, &id)
+                .await?
+                .expect("cached relationships")
+                .embedded,
+        )
+    };
+    assert_eq!(cached().await?.as_deref(), Some(embedded.as_str()));
+
+    let edit: ResourcePath =
+        format!("/pub/social/v1/posts/{id}/{}.json", generate_post_id()).parse()?;
+    test.put(&key, &edit, &json!({"kind":"note","content":"no embed"}))
+        .await?;
+    fail_references(ReferenceFault::AfterSync, &author, true);
+    let failed =
+        retrieve_and_handle_event_line(&format!("PUT pubky://{author}{edit}"), handler.clone())
+            .await;
+    fail_references(ReferenceFault::AfterSync, &author, false);
+    assert!(failed.is_err(), "the injected failure");
+    assert_eq!(cached().await?.as_deref(), Some(embedded.as_str()), "stale");
+    retrieve_and_handle_event_line(&format!("PUT pubky://{author}{edit}"), handler.clone()).await?;
+    assert_eq!(
+        cached().await?,
+        None,
+        "the retry reads the relationships back"
+    );
+
+    for line in [
+        format!("DEL pubky://{author}{edit}"),
+        format!("DEL pubky://{author}{profile}"),
+    ] {
+        retrieve_and_handle_event_line(&line, handler.clone()).await?;
+    }
     Ok(())
 }

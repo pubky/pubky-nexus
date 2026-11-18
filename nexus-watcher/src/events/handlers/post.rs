@@ -107,18 +107,24 @@ pub async fn sync_put_at(
     )
     .await?;
     let touched = references::sync(&projected, lines).await?;
-    // The cached relationships and lists are read back from the graph when the post has or had
-    // a Resource edge, or when its lists disagree with what it is: a retry after a failure past
-    // this point finds the same.
-    if touched || PostStream::is_in_author_replies(&author_id, &post_id).await? != is_reply {
-        PostRelationships::reindex(&author_id, &post_id).await?;
-        PostDetails::reindex(&author_id, &post_id).await?;
-    }
-    // A root post is ranked; one that became a root post is ranked again from its counts.
-    if !is_reply && !PostStream::is_ranked(&author_id, &post_id).await? {
+    // What follows reads only facts a retry after a failure past this point finds the same.
+    let lists_disagree = PostStream::is_in_author_replies(&author_id, &post_id).await? != is_reply;
+    // A post that became a root post is ranked again from its counts, before its lists are read
+    // back: a failure in between leaves the disagreement for the retry to see.
+    if lists_disagree && !is_reply {
         if let Some((counts, false)) = PostCounts::get_from_graph(&author_id, &post_id).await? {
             counts.put_to_index(&author_id, &post_id, false).await?;
         }
+    }
+    // The cached relationships and lists are read back from the graph when the post has or had
+    // a Resource edge, when its lists disagree with what it is, or when its cached relationships
+    // still name an external target (an edit that dropped the last one, retried).
+    let cached_external = PostRelationships::get_from_index(&author_id, &post_id)
+        .await?
+        .is_some_and(|cached| cached.embedded.is_some() || cached.replied_external);
+    if touched || lists_disagree || cached_external {
+        PostRelationships::reindex(&author_id, &post_id).await?;
+        PostDetails::reindex(&author_id, &post_id).await?;
     }
     Ok(())
 }
