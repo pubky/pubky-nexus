@@ -752,6 +752,73 @@ async fn graph_commit_before_append_replays_put_and_a_delete_retry_replays_del()
     Ok(())
 }
 
+/// A `social/v1` post DEL that finds no post (one never indexed, or one another version's DEL
+/// already deleted) is acknowledged and, as for a `pubky.app` post, its line is not stored in
+/// `Events`. A DEL that deletes a post stores its line.
+#[tokio_shared_rt::test(shared)]
+async fn a_social_post_del_that_finds_no_post_is_acknowledged_and_not_stored() -> Result<()> {
+    use nexus_common::models::event::EventLine;
+
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    test.register_user(&key).await?;
+    let author = key.public_key().to_z32();
+    let profile = test
+        .put_v1_profile(&key, &v1_test_user("Unknown post DEL", ""))
+        .await?;
+    test = test.remove_event_processing().await;
+    let handler = test.event_processor_runner.event_handler.clone();
+    // The lines stored since `since`, as the homeserver sent them: without their key
+    let stored_since = |since: u64| async move {
+        let (lines, _) = EventLine::get_from_index(Some(since), usize::MAX).await?;
+        anyhow::Ok(
+            lines
+                .iter()
+                .map(|line| EventLine::split(line).0.to_string())
+                .collect::<Vec<_>>(),
+        )
+    };
+    let id = generate_post_id();
+    let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
+    let edit: ResourcePath =
+        format!("/pub/social/v1/posts/{id}/{}.json", generate_post_id()).parse()?;
+    let del = |path: &ResourcePath| format!("DEL pubky://{author}{path}");
+
+    // Never indexed
+    let (_, since) = EventLine::get_from_index(None, usize::MAX).await?;
+    retrieve_and_handle_event_line(&del(&path), &test.homeserver_id, handler.clone()).await?;
+    assert!(PostDetails::get_from_graph(&author, &id).await?.is_none());
+    assert!(!stored_since(since).await?.contains(&del(&path)));
+
+    // Indexed: the first version DEL deletes the post and is stored, another one finds nothing
+    test.put(&key, &path, &json!({"kind":"note","content":"to delete"}))
+        .await?;
+    retrieve_and_handle_event_line(
+        &format!("PUT pubky://{author}{path}"),
+        &test.homeserver_id,
+        handler.clone(),
+    )
+    .await?;
+    let (_, since) = EventLine::get_from_index(None, usize::MAX).await?;
+    retrieve_and_handle_event_line(&del(&path), &test.homeserver_id, handler.clone()).await?;
+    assert!(PostDetails::get_from_graph(&author, &id).await?.is_none());
+    retrieve_and_handle_event_line(&del(&edit), &test.homeserver_id, handler.clone()).await?;
+    let stored = stored_since(since).await?;
+    assert!(stored.contains(&del(&path)), "the deleting DEL is stored");
+    assert!(
+        !stored.contains(&del(&edit)),
+        "the DEL that found nothing is not"
+    );
+
+    retrieve_and_handle_event_line(
+        &format!("DEL pubky://{author}{profile}"),
+        &test.homeserver_id,
+        handler,
+    )
+    .await?;
+    Ok(())
+}
+
 /// A DEL that appended its references' dels and stopped before the graph delete leaves the
 /// post. A PUT of the post before the DEL's retry publishes its references again, so the
 /// consumer ends with the reference live, as the graph holds it.
