@@ -1996,3 +1996,82 @@ async fn a_retried_edit_that_dropped_the_last_embed_reads_the_relationships_back
     }
     Ok(())
 }
+
+/// A PUT that makes a reply a root post and stops between its root list writes leaves the post
+/// in its author's replies as well as in its timelines: its retry sees the disagreement and
+/// finishes the lists.
+#[tokio_shared_rt::test(shared)]
+async fn a_put_that_stops_between_the_root_list_writes_is_finished_by_its_retry() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    test.register_user(&key).await?;
+    let author = key.public_key().to_z32();
+    let profile = test
+        .put_v1_profile(&key, &v1_test_user("Stopped between list writes", ""))
+        .await?;
+    super::utils::watcher::rank_user(&author).await?;
+    test = test.remove_event_processing().await;
+    let handler = test.event_processor_runner.event_handler.clone();
+    let homeserver_id = test.homeserver_id.clone();
+    let handle = |line: String| {
+        let handler = handler.clone();
+        let homeserver_id = homeserver_id.clone();
+        async move { retrieve_and_handle_event_line(&line, &homeserver_id, handler).await }
+    };
+    let id = generate_post_id();
+    let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
+    test.put(
+        &key,
+        &path,
+        &json!({"kind":"note","content":"a reply","parent":format!("https://example.com/between-lists/{author}")}),
+    )
+    .await?;
+    handle(format!("PUT pubky://{author}{path}")).await?;
+    assert_eq!(root_lists_and_replies(&author, &id).await?, REPLY);
+    // A Resource reply edge without a reconciled revision accepts an edit that drops the parent
+    get_neo4j_graph()?
+        .run(
+            nexus_common::db::graph::Query::new(
+                "test_forget_revision",
+                "MATCH (:User {id: $author})-[:AUTHORED]->(p:Post {id: $id})
+                 REMOVE p.resource_ref_revision",
+            )
+            .param("author", author.as_str())
+            .param("id", id.as_str()),
+        )
+        .await?;
+    let edit: ResourcePath =
+        format!("/pub/social/v1/posts/{id}/{}.json", generate_post_id()).parse()?;
+    test.put(
+        &key,
+        &edit,
+        &json!({"kind":"note","content":"a root post now"}),
+    )
+    .await?;
+
+    fail_references(ReferenceFault::BeforeRepliesRemoval, &author, true);
+    let failed = handle(format!("PUT pubky://{author}{edit}")).await;
+    fail_references(ReferenceFault::BeforeRepliesRemoval, &author, false);
+    let err = failed.expect_err("the injected failure");
+    assert!(err.to_string().contains("BeforeRepliesRemoval"), "{err}");
+    assert!(!PostDetails::is_reply_in_graph(&author, &id).await?);
+    assert_eq!(
+        root_lists_and_replies(&author, &id).await?,
+        (true, true, true, true),
+        "stopped with the post still in its author's replies"
+    );
+    handle(format!("PUT pubky://{author}{edit}")).await?;
+    assert_eq!(
+        root_lists_and_replies(&author, &id).await?,
+        ROOT,
+        "the retry finishes the root post's lists"
+    );
+
+    for line in [
+        format!("DEL pubky://{author}{edit}"),
+        format!("DEL pubky://{author}{profile}"),
+    ] {
+        handle(line).await?;
+    }
+    Ok(())
+}

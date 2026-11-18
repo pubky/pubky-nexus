@@ -73,8 +73,8 @@ pub fn pause_references(
     (reached_rx, release_tx)
 }
 
-/// A point in [`references::sync`](crate::models::resource::references::sync) where a test can
-/// make it fail: see [`fail_references`].
+/// A point in a post's reference work and the list writes after it where a test can make it
+/// fail: see [`fail_references`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ReferenceFault {
     /// Before the stage: nothing of the post's references is written.
@@ -82,14 +82,17 @@ pub enum ReferenceFault {
     /// After the stage and its feed append: the edges, the revision and the feed are written,
     /// and the handler stops before it reads them back into Redis.
     AfterSync,
+    /// In a root post's list writes, after its timelines and before it leaves its author's
+    /// replies.
+    BeforeRepliesRemoval,
 }
 
 /// Faults armed by [`fail_references`], per point and author.
 static REFERENCE_FAULTS: LazyLock<Mutex<HashSet<(ReferenceFault, String)>>> =
     LazyLock::new(Default::default);
 
-/// Makes every `references::sync` of `author`'s posts fail at `point`, as a crash or a lost
-/// connection there would, until it is called again with `fail` false.
+/// Makes every handler of `author`'s posts that reaches `point` fail there, as a crash or a
+/// lost connection would, until it is called again with `fail` false.
 pub fn fail_references(point: ReferenceFault, author: &str, fail: bool) {
     let mut faults = REFERENCE_FAULTS.lock().unwrap();
     if fail {
