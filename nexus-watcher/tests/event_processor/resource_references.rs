@@ -1006,11 +1006,12 @@ async fn older_version_does_not_replace_a_newer_versions_references() -> Result<
     Ok(())
 }
 
-/// A newer version's PUT waits for the post's lock before it reads or writes anything: while an
-/// older version's PUT holds it, paused after its post write and before its references, the
-/// post keeps the older content. Released, the older PUT finishes and the newer one runs last:
-/// the post has the newer content and the newer version's (no) embed, and stays a ranked root
-/// post.
+/// A newer version's PUT waits for the post's lock before its post write: while an older
+/// version's PUT holds it, paused after its post write and before its references, the post
+/// keeps the older content. Released, the older PUT finishes and the newer one runs last: the
+/// post has the newer content, the newer version's (no) embed, so the Resource lists no embed,
+/// and it stays a ranked root post. Both versions are root posts: an edit cannot change an
+/// external reply parent, so no version here changes the post's reply state under the lock.
 #[tokio_shared_rt::test(shared)]
 async fn newer_version_waits_for_the_post_lock_before_its_post_write() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
