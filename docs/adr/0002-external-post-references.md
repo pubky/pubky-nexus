@@ -98,10 +98,14 @@ another's). A PUT looks up the unknown authors of its collection items before it
 the lock. A `social/v1` post DEL that finds no post (one never indexed, or one another
 version file's DEL already deleted) is acknowledged without storing its event line, as
 for a `pubky.app` post.
+
 No new graph index or destructive migration is needed. Existing data is populated
 on replay of source post PUTs; the resource-feed seed job rebuilds the feed from
 already indexed edges. The feature builds on social v1 indexing and the resource
-changes feed.
+changes feed. A post's outbox that no reader can parse (a lost append in a format a
+later release cannot read) is logged at error level and cleared, never retried, so it
+blocks none of the post's handlers. The feed lines it held may then be missing: running
+the `resource-changes-seed` job repairs the feed.
 
 ## Consequences
 

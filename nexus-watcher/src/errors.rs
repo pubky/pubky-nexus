@@ -161,6 +161,7 @@ impl From<ModelError> for EventProcessorError {
             ModelError::HsBlacklisted { hs_id } => EventProcessorError::HsBlacklisted { hs_id },
             ModelError::InvalidInput(message) => EventProcessorError::SpecValidation(message),
             ModelError::StaleWrite(message) => EventProcessorError::StaleWrite(message),
+            ModelError::UnreadableOutbox(message) => EventProcessorError::DataAnomaly(message),
             ModelError::Generic(message) => EventProcessorError::Generic(message),
         }
     }
@@ -520,6 +521,21 @@ mod tests {
         let file_write = EventProcessorError::static_save_failed("No space left on device");
         assert!(!file_write.should_not_retry_now(), "{file_write}");
         assert!(RetryScheduler::should_enqueue_related_event(&file_write));
+    }
+
+    /// A reference outbox nothing can parse reads the same on a retry: should one ever leave
+    /// the reference code, which clears it, it is a data anomaly, dropped and never a batch stop.
+    #[test]
+    fn an_unreadable_outbox_is_never_retried() {
+        let err = EventProcessorError::from(ModelError::UnreadableOutbox("expected value".into()));
+
+        assert!(
+            matches!(err, EventProcessorError::DataAnomaly(ref m) if m == "expected value"),
+            "{err:?}"
+        );
+        assert!(!RetryScheduler::should_enqueue_related_event(&err), "{err}");
+        assert!(!err.should_not_retry_now(), "{err}");
+        assert!(!err.is_flip_failed(), "{err}");
     }
 
     /// A reference write that found its post changed (a newer version, a delete) is retried

@@ -1959,3 +1959,133 @@ async fn a_put_that_stops_between_the_root_list_writes_is_finished_by_its_retry(
     }
     Ok(())
 }
+
+/// The reference outbox `id` holds, raw.
+async fn reference_outbox(author: &str, id: &str) -> Result<Option<String>> {
+    let row = nexus_common::db::fetch_row_from_graph(
+        nexus_common::db::graph::Query::new(
+            "test_reference_outbox",
+            "MATCH (:User {id: $author})-[:AUTHORED]->(p:Post {id: $id})
+             RETURN p.resource_ref_outbox AS outbox",
+        )
+        .param("author", author)
+        .param("id", id),
+    )
+    .await?
+    .expect("the post");
+    Ok(row.get("outbox")?)
+}
+
+/// Gives `id` an outbox no reader can parse, as a lost append in an older format leaves it.
+async fn set_unreadable_outbox(author: &str, id: &str) -> Result<()> {
+    get_neo4j_graph()?
+        .run(
+            nexus_common::db::graph::Query::new(
+                "test_unreadable_outbox",
+                "MATCH (:User {id: $author})-[:AUTHORED]->(p:Post {id: $id})
+                 SET p.resource_ref_outbox = $raw",
+            )
+            .param("author", author)
+            .param("id", id)
+            .param(
+                "raw",
+                r#"[{"op":"put","from":"a format this release cannot read""#,
+            ),
+        )
+        .await?;
+    Ok(())
+}
+
+/// An outbox nothing can parse blocks nothing: a PUT, a DEL and a moderator's takedown of its
+/// post each succeed, clear it and do their own work, as if no outbox was pending.
+#[tokio_shared_rt::test(shared)]
+async fn an_unreadable_outbox_blocks_no_put_delete_or_takedown_of_its_post() -> Result<()> {
+    use super::posts::utils::{find_post_details, test_user};
+    use super::utils::watcher::HomeserverHashIdPath;
+    use pubky_social_specs::legacy_v0::{
+        post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppTag,
+    };
+
+    let mut test = WatcherTest::setup(None).await?;
+    let author_kp = Keypair::random();
+    let author = test
+        .create_user(
+            &author_kp,
+            &test_user("Watcher:UnreadableOutbox:Author", "author"),
+        )
+        .await?;
+    let moderator_recovery_file =
+        tokio::fs::read("./tests/event_processor/utils/moderator_key.pkarr").await?;
+    let moderator_kp =
+        pubky::recovery_file::decrypt_recovery_file(&moderator_recovery_file, "password")?;
+    let moderator = test
+        .create_user(
+            &moderator_kp,
+            &test_user("Watcher:UnreadableOutbox:Moderator", "moderator"),
+        )
+        .await?;
+    let target = format!("https://example.com/unreadable-outbox/{author}");
+    let rid = resource_id(&normalize_uri(&target).map_err(anyhow::Error::msg)?.0);
+    let reply = |content: &str| PubkyAppPost {
+        content: content.to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: Some(target.clone()),
+        embed: None,
+        attachments: None,
+        lock: None,
+    };
+    let (deleted, deleted_path) = test
+        .create_post(&author_kp, &reply("deleted by its author"))
+        .await?;
+    let (taken_down, _) = test.create_post(&author_kp, &reply("taken down")).await?;
+    assert_eq!(reference_counts(&rid).await?, (2, 0, 0));
+    test = test.remove_event_processing().await;
+    let handler = test.event_processor_runner.event_handler.clone();
+    let handle = |line: String| {
+        let handler = handler.clone();
+        async move { retrieve_and_handle_event_line(&line, handler).await }
+    };
+
+    // A PUT (here a replay) clears it and keeps the post's references
+    set_unreadable_outbox(&author, &deleted).await?;
+    handle(format!("PUT pubky://{author}{deleted_path}")).await?;
+    assert_eq!(reference_outbox(&author, &deleted).await?, None);
+    assert_eq!(reference_counts(&rid).await?, (2, 0, 0));
+
+    // A DEL clears it and retracts the post's reference
+    set_unreadable_outbox(&author, &deleted).await?;
+    let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+    handle(format!("DEL pubky://{author}{deleted_path}")).await?;
+    assert!(find_post_details(&author, &deleted).await.is_err());
+    assert_eq!(
+        own_ops_since(&author, cursor).await?,
+        [(ResourceChangeOp::Del, rid.clone())]
+    );
+    assert_eq!(reference_counts(&rid).await?, (1, 0, 0));
+
+    // A takedown clears it and retracts the post's reference
+    set_unreadable_outbox(&author, &taken_down).await?;
+    let tag = PubkyAppTag {
+        uri: post_uri_builder(author.clone(), taken_down.clone()),
+        label: "label_to_moderate".to_string(),
+        created_at: chrono::Utc::now().timestamp_millis(),
+    };
+    let tag_path = tag.hs_path();
+    test.put(&moderator_kp, &tag_path, &tag).await?;
+    handle(format!("PUT pubky://{moderator}{tag_path}")).await?;
+    assert!(find_post_details(&author, &taken_down).await.is_err());
+    assert_eq!(
+        own_ops_since(&author, cursor).await?,
+        [
+            (ResourceChangeOp::Del, rid.clone()),
+            (ResourceChangeOp::Del, rid.clone())
+        ]
+    );
+    assert!(ResourceView::get_by_id(&rid, None, None, None, None)
+        .await?
+        .is_none());
+
+    test.cleanup_user(&author_kp).await?;
+    handle(format!("DEL pubky://{author}/pub/pubky.app/profile.json")).await?;
+    Ok(())
+}

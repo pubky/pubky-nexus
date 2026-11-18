@@ -11,6 +11,7 @@ use crate::models::post::PostDetails;
 use crate::universal_tag::normalize::{normalize_uri, resource_id};
 use futures::TryStreamExt;
 use std::collections::HashMap;
+use tracing::error;
 
 pub fn reference(
     author: &str,
@@ -88,7 +89,24 @@ pub async fn flush(author: &str, id: &str) -> ModelResult<()> {
     }
 }
 
+/// The lines of an outbox `raw`, or [`ModelError::UnreadableOutbox`] when nothing can parse it.
+fn read_outbox(raw: &str) -> ModelResult<Vec<ResourceChange>> {
+    serde_json::from_str(raw).map_err(|e| {
+        // A short prefix at most: the outbox holds the post's references.
+        let start: String = raw.chars().take(OUTBOX_LOG_PREFIX).collect();
+        ModelError::UnreadableOutbox(format!("{e} (starts with {start:?})"))
+    })
+}
+
+/// How many characters of an unreadable outbox its log line shows.
+const OUTBOX_LOG_PREFIX: usize = 48;
+
 /// Appends the outbox `raw` the post holds to the feed, then clears it if it is still the one.
+///
+/// An outbox nothing can parse is logged and cleared the same way, without an append, so its
+/// caller goes on as if none was pending: a retry would read the same value, and holding it
+/// would block every PUT, DEL and takedown of the post. The lines it held may be missing from
+/// the feed until the `resource-changes-seed` job runs.
 async fn publish(author: &str, id: &str, raw: String) -> ModelResult<()> {
     #[cfg(any(test, feature = "test-utils"))]
     crate::utils::test_utils::reference_pause(
@@ -96,9 +114,17 @@ async fn publish(author: &str, id: &str, raw: String) -> ModelResult<()> {
         author,
     )
     .await;
-    let lines: Vec<ResourceChange> =
-        serde_json::from_str(&raw).map_err(ModelError::from_generic)?;
-    ResourceChange::store_batch(&lines).await?;
+    match read_outbox(&raw) {
+        Ok(lines) => ResourceChange::store_batch(&lines).await?,
+        Err(e @ ModelError::UnreadableOutbox(_)) => error!(
+            author_id = author,
+            post_id = id,
+            error = %e,
+            "Dropped a post's unreadable reference outbox: its feed lines may be missing until \
+             the resource-changes-seed job runs"
+        ),
+        Err(e) => return Err(e),
+    }
     get_neo4j_graph()?
         .run(queries::put::resource_references_ack(author, id, &raw))
         .await
@@ -528,6 +554,121 @@ mod tests {
         retract(&author, &id).await?;
         delete_posts_and_author(&author, &[&id]).await?;
         delete_posts_and_author(&fresh.author, &[&fresh.id]).await
+    }
+
+    /// Sets the post's outbox to `raw`, as a lost append in a format no reader parses leaves it.
+    async fn set_outbox(author: &str, id: &str, raw: &str) -> Result<(), crate::types::DynError> {
+        get_neo4j_graph()?
+            .run(
+                Query::new(
+                    "reference_test_set_outbox",
+                    "MATCH (:User {id: $author})-[:AUTHORED]->(p:Post {id: $id})
+                     SET p.resource_ref_outbox = $raw",
+                )
+                .param("author", author.to_string())
+                .param("id", id.to_string())
+                .param("raw", raw.to_string()),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// An outbox nothing can parse is cleared without an append, and the flush, stage or
+    /// retract that read it goes on as if none was pending. Its clear is the append's guarded
+    /// ack: a newer outbox a stage saved meanwhile is kept, and the next flush publishes it.
+    #[tokio_shared_rt::test(shared)]
+    async fn an_unreadable_outbox_is_cleared_and_its_reader_goes_on(
+    ) -> Result<(), crate::types::DynError> {
+        const UNREADABLE: &str = r#"[{"op":"put","from":"a format this release cannot read""#;
+        StackManager::setup(&StackConfig::default()).await?;
+        let post = author_with_post("unreadable outbox fixture").await?;
+        let (author, id) = (post.author.clone(), post.id.clone());
+        let source = format!("{}/{id}.json", post.uri);
+        let target = |name: &str| {
+            reference(
+                &author,
+                &source,
+                &format!("https://example.com/{author}/{name}"),
+                ResourceChangeKind::Reply,
+            )
+        };
+        let (first, second) = (target("first")?, target("second")?);
+        let ops = |lines: Vec<(ResourceChangeOp, String, String, i64)>| {
+            lines
+                .into_iter()
+                .map(|(op, rid, _, _)| (op, rid))
+                .collect::<Vec<_>>()
+        };
+        sync(&post, vec![first.clone()]).await?;
+        assert!(matches!(
+            read_outbox(UNREADABLE),
+            Err(ModelError::UnreadableOutbox(_))
+        ));
+
+        // A flush clears it and appends nothing
+        set_outbox(&author, &id, UNREADABLE).await?;
+        let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+        flush(&author, &id).await?;
+        assert_eq!(state(&author, &id).await?.outbox, None);
+        assert!(own_lines_since(&author, cursor).await?.is_empty());
+
+        // A stage clears it and saves its own changes
+        set_outbox(&author, &id, UNREADABLE).await?;
+        stage(&post, vec![second.clone()]).await?;
+        let staged = state(&author, &id).await?.outbox;
+        assert!(staged.is_some() && staged.as_deref() != Some(UNREADABLE));
+        flush(&author, &id).await?;
+        assert_eq!(
+            ops(own_lines_since(&author, cursor).await?),
+            [
+                (ResourceChangeOp::Del, first.resource_id.clone()),
+                (ResourceChangeOp::Put, second.resource_id.clone())
+            ]
+        );
+
+        // A held append of the unreadable outbox keeps the newer one a stage saved meanwhile
+        set_outbox(&author, &id, UNREADABLE).await?;
+        let (reached, release) = crate::utils::test_utils::pause_references(
+            crate::utils::test_utils::ReferencePause::Flush,
+            &author,
+        );
+        let held = tokio::spawn({
+            let (author, id) = (author.clone(), id.clone());
+            async move { flush(&author, &id).await }
+        });
+        reached.await?;
+        stage(&post, vec![first.clone()]).await?;
+        let newer = state(&author, &id).await?.outbox;
+        assert!(newer.is_some() && newer.as_deref() != Some(UNREADABLE));
+        let _ = release.send(());
+        held.await??;
+        assert_eq!(
+            state(&author, &id).await?.outbox,
+            newer,
+            "the held append cleared only the unreadable outbox"
+        );
+        let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+        flush(&author, &id).await?;
+        assert_eq!(state(&author, &id).await?.outbox, None);
+        assert_eq!(
+            ops(own_lines_since(&author, cursor).await?),
+            [
+                (ResourceChangeOp::Del, second.resource_id.clone()),
+                (ResourceChangeOp::Put, first.resource_id.clone())
+            ]
+        );
+
+        // A retract clears it and appends the dels of the post's edges
+        set_outbox(&author, &id, UNREADABLE).await?;
+        let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+        retract(&author, &id).await?;
+        assert_eq!(state(&author, &id).await?.outbox, None);
+        assert_eq!(
+            ops(own_lines_since(&author, cursor).await?),
+            [(ResourceChangeOp::Del, first.resource_id.clone())]
+        );
+
+        delete_posts_and_author(&author, &[&id]).await
     }
 
     #[tokio_shared_rt::test(shared)]
