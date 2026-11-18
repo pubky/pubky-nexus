@@ -1,7 +1,8 @@
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
-use nexus_common::models::post::{self, PostCounts, PostRelationships};
+use nexus_common::models::post::{self, PostCounts};
+use pubky_social_specs::PubkyId;
 use serde::de::{self, Deserializer, IgnoredAny};
 use serde::{Deserialize, Serialize, Serializer};
 use utoipa::openapi::path::{Parameter, ParameterIn};
@@ -141,6 +142,45 @@ impl From<post::PostDetails> for PostDetails {
     }
 }
 
+/// A post's relationships: what it replies to, a post or an external resource, the post it
+/// reposts, the external resource it embeds and the users it mentions.
+#[derive(Serialize, ToSchema, Debug)]
+pub struct PostRelationships {
+    /// If set, URI of what this post replies to: a post, or an external resource (another
+    /// scheme's URL or another app's public object).
+    pub replied: Option<String>,
+
+    /// If set, URI of the post this post is reposting
+    pub reposted: Option<String>,
+
+    /// External URI embedded by this post. Native post embeds use `reposted`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embedded: Option<String>,
+
+    /// List of user IDs mentioned in this post
+    pub mentioned: Vec<PubkyId>,
+}
+
+/// The stored model's cache-only `replied_external` is left out: the address says what
+/// `replied` names.
+impl From<post::PostRelationships> for PostRelationships {
+    fn from(relationships: post::PostRelationships) -> Self {
+        let post::PostRelationships {
+            replied,
+            replied_external: _,
+            reposted,
+            embedded,
+            mentioned,
+        } = relationships;
+        Self {
+            replied,
+            reposted,
+            embedded,
+            mentioned,
+        }
+    }
+}
+
 /// A post with its counts, tags and relationships, as `/v0`'s [`PostViewDetailed`] with the
 /// kind under its `/v1` name, without the viewer's `bookmark`, without
 /// `attachments_metadata` and with the tags without `relationship`. `social/v1` bookmarks
@@ -174,7 +214,7 @@ impl From<PostViewDetailed> for PostView {
             details: details.into(),
             counts,
             tags: tags.into_iter().map(TagDetails::from).collect(),
-            relationships,
+            relationships: relationships.into(),
         }
     }
 }
@@ -465,6 +505,32 @@ mod tests {
                 "required": false,
                 "schema": { "type": "boolean" }
             })
+        );
+    }
+
+    /// `/v1` serves an external reply and an external embed as stored, without the cache's
+    /// `replied_external`, and writes no `embedded` for a post that embeds nothing.
+    #[test]
+    fn relationships_keep_external_references_without_the_flag() {
+        let external = post::PostRelationships {
+            replied: Some("https://example.com/a".into()),
+            replied_external: true,
+            embedded: Some("https://example.com/b".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(PostRelationships::from(external)).unwrap(),
+            json!({
+                "replied": "https://example.com/a",
+                "reposted": null,
+                "embedded": "https://example.com/b",
+                "mentioned": []
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(PostRelationships::from(post::PostRelationships::default()))
+                .unwrap(),
+            json!({"replied": null, "reposted": null, "mentioned": []})
         );
     }
 

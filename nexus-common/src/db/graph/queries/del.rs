@@ -12,7 +12,9 @@ pub fn delete_user(user_id: &str) -> Query {
     .param("id", user_id.to_string())
 }
 
-/// Deletes a post node authored by a specific user, along with all its relationships
+/// Deletes a post node authored by a specific user, along with all its relationships. A
+/// Resource the post's reply, embed or collection edges named that has no relationship left is
+/// deleted with it, in the same transaction: a tombstone keeps those edges until this delete.
 /// # Arguments
 /// * `author_id` - The unique identifier of the user who authored the post.
 /// * `post_id` - The unique identifier of the post to be deleted.
@@ -20,7 +22,14 @@ pub fn delete_post(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "delete_post",
         "MATCH (u:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-         DETACH DELETE p;",
+         WITH p, COLLECT { MATCH (p)-[:REPLIED|EMBEDS|COLLECTED]->(r:Resource) RETURN DISTINCT r } AS targets
+         DETACH DELETE p
+         WITH targets
+         CALL (targets) {
+             UNWIND targets AS r
+             WITH r WHERE NOT EXISTS { (r)--() }
+             DELETE r
+         }",
     )
     .param("author_id", author_id.to_string())
     .param("post_id", post_id.to_string())
@@ -64,7 +73,8 @@ pub fn delete_bookmark(user_id: &str, bookmark_id: &str) -> Query {
 /// Deletes a tag relationship created by a user and retrieves relevant details about the tag's target.
 ///
 /// A tag is one edge per tagger, target and label, whichever folder wrote it, so the edge is
-/// found by its id alone. A Resource left with no tag is deleted with its last edge.
+/// found by its id alone. A Resource left with no relationship (no other tag, no post that
+/// references it) is deleted with its last tag.
 pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
     Query::new(
         "delete_tag",
@@ -81,7 +91,7 @@ pub fn delete_tag(user_id: &str, tag_id: &str) -> Query {
     CALL {
         WITH target, resource_id
         WITH target, resource_id WHERE resource_id IS NOT NULL
-        AND NOT EXISTS { (target)<-[:TAGGED]-() }
+        AND NOT EXISTS { (target)--() }
         DELETE target
     }
     RETURN user_id, post_id, author_id, resource_id, label",

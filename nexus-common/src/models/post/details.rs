@@ -1,8 +1,8 @@
 use super::{PostKind, PostStream};
 use crate::db::kv::RedisResult;
 use crate::db::{
-    execute_graph_operation, fetch_all_rows_from_graph, fetch_row_from_graph, queries, GraphResult,
-    OperationOutcome, RedisOps,
+    execute_graph_operation, fetch_all_rows_from_graph, fetch_key_from_graph, fetch_row_from_graph,
+    queries, GraphResult, OperationOutcome, RedisOps,
 };
 use crate::models::error::ModelResult;
 use crate::models::ResourceKey;
@@ -48,6 +48,16 @@ where
 }
 
 impl PostDetails {
+    /// Whether the post replies to anything in the graph: a post, or an external target it
+    /// has a Resource reply edge to, which a tombstone keeps.
+    pub async fn is_reply_in_graph(author_id: &str, post_id: &str) -> GraphResult<bool> {
+        Ok(
+            fetch_key_from_graph(queries::get::post_is_reply(author_id, post_id), "is_reply")
+                .await?
+                .unwrap_or(false),
+        )
+    }
+
     /// Retrieves post details from Redis, or from the graph on a miss.
     ///
     /// A miss is not written back to Redis: the watcher owns the index. A read
@@ -121,16 +131,36 @@ impl PostDetails {
         Self::put_multiple_json_indexes(&key_parts, posts.into_iter().map(Some).collect()).await
     }
 
+    /// Caches the details and, unless `is_edit`, puts the post in the lists it belongs in: a
+    /// root post in the timelines, a reply in its parent's replies and the author's. A reply to
+    /// an external target has no `parent_key_wrapper`: `external_reply` says whether the post
+    /// is one, when the caller knows (the handler of a new post, before its Resource reply edge
+    /// is written); `None` reads it from the graph.
     pub async fn put_to_index(
         &self,
         author_id: &str,
         parent_key_wrapper: Option<(String, String)>,
         is_edit: bool,
-    ) -> RedisResult<()> {
+        external_reply: Option<bool>,
+    ) -> ModelResult<()> {
         self.put_index_json(&[author_id, &self.id], None, None)
             .await?;
         // When we delete a post that has ancestor, ignore other index updates
         if is_edit {
+            return Ok(());
+        }
+        // External replies have no native post key. Graph recovery must still
+        // keep them out of root timelines and restore the author's replies set.
+        let external_reply = match (&parent_key_wrapper, external_reply) {
+            (Some(_), _) => false,
+            (None, Some(known)) => known,
+            (None, None) => Self::is_reply_in_graph(author_id, &self.id).await?,
+        };
+        if external_reply {
+            PostStream::remove_from_timeline_sorted_set(author_id, &self.id).await?;
+            PostStream::remove_from_per_user_sorted_set(author_id, &self.id).await?;
+            PostStream::delete_from_engagement_sorted_set(author_id, &self.id).await?;
+            PostStream::add_to_replies_per_user_sorted_set(self).await?;
             return Ok(());
         }
         // Replies are not indexed in the global feeds — they live in the
@@ -139,6 +169,14 @@ impl PostDetails {
             None => {
                 PostStream::add_to_timeline_sorted_set(self).await?;
                 PostStream::add_to_per_user_sorted_set(self).await?;
+                // Last: until it is gone, a write that stopped in between leaves a root post in
+                // its author's replies, which a retry reads as lists to put back.
+                #[cfg(any(test, feature = "test-utils"))]
+                crate::utils::test_utils::reference_fault(
+                    crate::utils::test_utils::ReferenceFault::BeforeRepliesRemoval,
+                    author_id,
+                )?;
+                PostStream::remove_from_replies_per_user_sorted_set(author_id, &self.id).await?;
             }
             Some((parent_author_id, parent_post_id)) => {
                 PostStream::add_to_post_reply_sorted_set(
@@ -156,7 +194,7 @@ impl PostDetails {
 
     pub async fn reindex(author_id: &str, post_id: &str) -> ModelResult<()> {
         match Self::get_from_graph(author_id, post_id).await? {
-            Some((details, reply)) => details.put_to_index(author_id, reply, false).await?,
+            Some((details, reply)) => details.put_to_index(author_id, reply, false, None).await?,
             None => {
                 tracing::error!("{author_id}:{post_id} Could not find post counts in the graph")
             }

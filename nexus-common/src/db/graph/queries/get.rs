@@ -84,6 +84,18 @@ pub fn get_posts_details_by_ids(author_id: &str, post_ids: &[String]) -> Query {
     .param("post_ids", post_ids.to_vec())
 }
 
+/// Whether the post replies to anything, as `is_reply`: a post, or an external target it has a
+/// Resource reply edge to. A tombstone keeps its reply edge, so it stays a reply.
+pub fn post_is_reply(author_id: &str, post_id: &str) -> Query {
+    Query::new(
+        "post_is_reply",
+        "MATCH (:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+         RETURN EXISTS { (p)-[:REPLIED]->() } AS is_reply",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}
+
 pub fn post_counts(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "post_counts",
@@ -103,7 +115,7 @@ pub fn post_counts(author_id: &str, post_id: &str) -> Query {
                 reposts: COUNT { (p)<-[:REPOSTED]-() },
                 collections: COUNT { (p)<-[:COLLECTED]-() }
             } AS counts,
-            EXISTS { (p)-[:REPLIED]->(:Post) } AS is_reply
+            EXISTS { (p)-[:REPLIED]->() } AS is_reply
     ",
     )
     .param("author_id", author_id)
@@ -244,16 +256,22 @@ pub fn get_post_tags(author_id: &str, post_id: &str, cursor: &[String], limit: i
     .param("limit", limit)
 }
 
+/// A post's relationships. `replied_uri` is what the post replies to, a post or a Resource,
+/// and `replied_external` says which: true when the reply edge ends on a node that is not a
+/// post.
 pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "post_relationships",
         "MATCH (p:Post {id: $post_id})
         WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
-        OPTIONAL MATCH (p)-[:REPLIED]->(replied_post:Post)<-[:AUTHORED]-(replied_author:User)
+        OPTIONAL MATCH (p)-[:REPLIED]->(replied_post)
         OPTIONAL MATCH (p)-[:REPOSTED]->(reposted_post:Post)<-[:AUTHORED]-(reposted_author:User)
+        OPTIONAL MATCH (p)-[:EMBEDS]->(embedded:Resource)
         OPTIONAL MATCH (p)-[:MENTIONED]->(mentioned_user:User)
         RETURN
+          embedded.uri AS embedded_uri,
           replied_post.uri AS replied_uri,
+          replied_post IS NOT NULL AND NOT replied_post:Post AS replied_external,
           reposted_post.uri AS reposted_uri,
           COLLECT(mentioned_user.id) AS mentioned_user_ids",
     )
@@ -268,11 +286,14 @@ pub fn post_parents(author_id: &str, post_id: &str) -> Query {
         "MATCH (p:Post {id: $post_id})
         WHERE EXISTS { (:User {id: $author_id})-[:AUTHORED]->(p) }
         OPTIONAL MATCH (p)-[:REPLIED]->(replied_post:Post)<-[:AUTHORED]-(replied_author:User)
+        OPTIONAL MATCH (p)-[:REPLIED]->(replied_resource:Resource)
         OPTIONAL MATCH (p)-[:REPOSTED]->(reposted_post:Post)<-[:AUTHORED]-(reposted_author:User)
         RETURN
           replied_post.uri AS replied_uri,
           replied_author.id AS replied_author_id,
           replied_post.id AS replied_post_id,
+          replied_resource.id AS replied_resource_id,
+          p.resource_ref_revision IS NOT NULL AS references_reconciled,
           reposted_post.uri AS reposted_uri,
           reposted_author.id AS reposted_author_id,
           reposted_post.id AS reposted_post_id",
@@ -454,7 +475,7 @@ pub fn author_post_entries(author_id: &str, after: (i64, &str), limit: usize) ->
         RETURN author.id AS author_id,
             p.id AS post_id,
             p.indexed_at AS indexed_at,
-            EXISTS { (p)-[:REPLIED]->(:Post) } AS is_reply,
+            EXISTS { (p)-[:REPLIED]->() } AS is_reply,
             COLLECT { MATCH (p)<-[tag:TAGGED]-(:User) RETURN DISTINCT tag.label } AS labels,
             COUNT { (p)<-[:TAGGED]-() }
                 + COUNT { (p)<-[:REPLIED]-() }
@@ -662,16 +683,18 @@ pub fn viewer_user_tag_uris(user_id: &str, viewer_id: &str, labels: Vec<String>)
 /// and `tag_uri`, the viewer's tag address, looked up among all of its taggers, not
 /// only the listed ones; null without a viewer. Where old per-app edges left two
 /// for one label, `min` picks the same address as `resource_label_taggers`. A missing Resource returns
-/// `details = null`; an existing one without tags returns `tags = []`.
+/// `details = null`; an existing one without tags returns `tags = []`. With `with_counts`, the
+/// row also counts the live posts replying to, embedding and collecting the Resource; each
+/// count walks every such edge, so a reader that serves no count leaves them out.
 pub fn resource_view(
     resource_id: &str,
     viewer_id: Option<&str>,
     skip_tags: usize,
     limit_tags: usize,
     limit_taggers: usize,
+    with_counts: bool,
 ) -> Query {
-    Query::new(
-        "resource_view",
+    let mut cypher = String::from(
         "
         OPTIONAL MATCH (r:Resource {id: $resource_id})
         OPTIONAL MATCH (viewer:User {id: $viewer_id})
@@ -693,14 +716,22 @@ pub fn resource_view(
                 tag_uri: viewer_uri
             }) AS tags
         }
-        RETURN r {.id, .uri, .scheme, .indexed_at} AS details, tags
-    ",
-    )
-    .param("resource_id", resource_id)
-    .param("viewer_id", viewer_id.map(str::to_string))
-    .param("skip_tags", skip_tags as i64)
-    .param("limit_tags", limit_tags as i64)
-    .param("limit_taggers", limit_taggers as i64)
+        RETURN r {.id, .uri, .scheme, .indexed_at} AS details, tags",
+    );
+    if with_counts {
+        cypher.push_str(
+            ",
+          COUNT { (r)<-[:REPLIED]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS replies_count,
+          COUNT { (r)<-[:EMBEDS]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS embeds_count,
+          COUNT { (r)<-[:COLLECTED]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS collections_count",
+        );
+    }
+    Query::new("resource_view", cypher)
+        .param("resource_id", resource_id)
+        .param("viewer_id", viewer_id.map(str::to_string))
+        .param("skip_tags", skip_tags as i64)
+        .param("limit_tags", limit_tags as i64)
+        .param("limit_taggers", limit_taggers as i64)
 }
 
 /// Taggers of `label` on a Resource node, sorted by user id and paged with
@@ -1057,7 +1088,7 @@ const USER_COUNT_FIELDS: &[(&str, &str)] = &[
     ("posts", POSTS_COUNT),
     (
         "replies",
-        "COUNT { (u)-[:AUTHORED]->(:Post)-[:REPLIED]->(:Post) }",
+        "COUNT { (u)-[:AUTHORED]->(:Post)-[:REPLIED]->() }",
     ),
     (
         "collections",
@@ -1691,7 +1722,7 @@ pub fn post_stream(
     if !matches!(source, StreamSource::Bookmarks { .. }) {
         append_condition(
             &mut cypher,
-            "NOT ( (p)-[:REPLIED]->(:Post) )",
+            "NOT ( (p)-[:REPLIED]->() )",
             &mut where_clause_applied,
         );
     }
@@ -1940,7 +1971,7 @@ pub fn post_is_safe_to_delete(author_id: &str, post_id: &str) -> Query {
                 (type(r) = 'AUTHORED' AND startNode(r).id = $author_id AND endNode(r) = p)
                 OR
                 // 2. Outgoing REPOSTED relationship to another post
-                (type(r) = 'REPOSTED' AND startNode(r) = p)
+                (type(r) IN ['REPOSTED', 'EMBEDS'] AND startNode(r) = p)
                 OR
                 // 3. Outgoing REPLIED relationship to another post
                 (type(r) = 'REPLIED' AND startNode(r) = p)
@@ -2076,6 +2107,81 @@ pub fn is_any_taken_down(uris: &[String]) -> Query {
     .param("uris", uris.to_vec())
 }
 
+/// A post's external references and their recovery metadata: its revision (whether one was
+/// ever written), tombstone and retraction flags, pending outbox, and one put line per
+/// Resource edge in edge type and Resource id order.
+pub fn resource_references_state(author_id: &str, post_id: &str) -> Query {
+    Query::new(
+        "resource_references_state",
+        r"
+        MATCH (p:Post {id: $id}) WHERE EXISTS { (:User {id: $author})-[:AUTHORED]->(p) }
+        OPTIONAL MATCH (p)-[e:REPLIED|EMBEDS|COLLECTED]->(r:Resource)
+        WITH p, e, r ORDER BY type(e), r.id
+        RETURN coalesce(p.resource_ref_revision, '') AS revision,
+               p.resource_ref_revision IS NOT NULL AS reconciled,
+               coalesce(p.deleted, false) AS deleted,
+               coalesce(p.resource_ref_retracted, false) AS retracted,
+               p.resource_ref_outbox AS outbox,
+               collect(CASE WHEN e IS NOT NULL THEN {
+                 op: 'put', resource_id: r.id, uri: r.uri,
+                 kind: CASE type(e) WHEN 'REPLIED' THEN 'reply' WHEN 'EMBEDS' THEN 'embed' ELSE 'collection' END,
+                 author: $author, object_path: e.object_path, at: e.indexed_at
+               } END) AS lines
+    ",
+    )
+    .param("author", author_id)
+    .param("id", post_id)
+}
+
+/// A row when the Resource exists, without hydrating its tags or counts.
+pub fn resource_exists(resource_id: &str) -> Query {
+    Query::new(
+        "resource_reference_exists",
+        "MATCH (:Resource {id: $id}) RETURN 1 AS present",
+    )
+    .param("id", resource_id)
+}
+
+/// The live posts with an `edge` (`REPLIED`, `EMBEDS` or `COLLECTED`) to the Resource, as
+/// `author` and `id`, newest first with author and post id ties.
+pub fn resource_reference_posts(
+    resource_id: &str,
+    edge: &'static str,
+    skip: usize,
+    limit: usize,
+) -> Query {
+    Query::new(
+        "resource_reference_posts",
+        format!(
+            r"
+        MATCH (r:Resource {{id: $id}})<-[:{edge}]-(p:Post)<-[:AUTHORED]-(a:User)
+        WHERE NOT coalesce(p.deleted, false)
+        RETURN a.id AS author, p.id AS id ORDER BY p.indexed_at DESC, a.id, p.id
+        SKIP $skip LIMIT $limit
+    "
+        ),
+    )
+    .param("id", resource_id)
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
+}
+
+/// One put line per live post's Resource edge, for the resource changes seed, in edge time
+/// order with author, post, edge type and Resource id ties.
+pub fn resource_changes_post_seed() -> Query {
+    Query::new(
+        "resource_changes_post_seed",
+        r"
+        MATCH (a:User)-[:AUTHORED]->(p:Post)-[e:REPLIED|EMBEDS|COLLECTED]->(r:Resource)
+        WHERE NOT coalesce(p.deleted, false)
+        RETURN {op: 'put', resource_id: r.id, uri: r.uri,
+          kind: CASE type(e) WHEN 'REPLIED' THEN 'reply' WHEN 'EMBEDS' THEN 'embed' ELSE 'collection' END,
+          author: a.id, object_path: e.object_path, at: e.indexed_at} AS line
+        ORDER BY e.indexed_at, a.id, p.id, type(e), r.id
+    ",
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2146,7 +2252,7 @@ mod tests {
         let clauses = [
             "MATCH (:User)-[tag:TAGGED]->(p)",
             "p.kind = 'short'",
-            "NOT ( (p)-[:REPLIED]->(:Post) )",
+            "NOT ( (p)-[:REPLIED]->() )",
             "WITH DISTINCT p\nORDER BY p.indexed_at DESC, p.id DESC",
             "MATCH (p)<-[:AUTHORED]-(author:User)",
             &rule,
@@ -2556,5 +2662,23 @@ mod tests {
                 "pages need a stable tie-break: {cypher}"
             );
         }
+    }
+
+    /// The reference counts are in the resource view's row only when asked for, so `/v0`,
+    /// which serves none, walks no post edge of the resource.
+    #[test]
+    fn resource_view_counts_the_references_only_when_asked() {
+        const COUNTS: [&str; 3] = [
+            "AS replies_count",
+            "AS embeds_count",
+            "AS collections_count",
+        ];
+        let with = resource_view("rid", None, 0, 5, 5, true).to_cypher_populated();
+        let without = resource_view("rid", None, 0, 5, 5, false).to_cypher_populated();
+        for count in COUNTS {
+            assert!(with.contains(count), "{with}");
+            assert!(!without.contains(count), "{without}");
+        }
+        assert!(!without.contains("COUNT {"), "{without}");
     }
 }

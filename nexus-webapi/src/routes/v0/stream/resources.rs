@@ -6,7 +6,7 @@ use crate::routes::v0::endpoints::{
     STREAM_RESOURCES_BY_IDS_ROUTE, STREAM_RESOURCES_ROUTE, STREAM_RESOURCE_IDS_ROUTE,
 };
 use crate::routes::v0::resource::MAX_URI_LENGTH;
-use crate::routes::v0::version::{versioned_handlers, ApiVersion};
+use crate::routes::v0::version::{versioned_handlers, ApiVersion, V1};
 use crate::routes::Json as RequestJson;
 use crate::routes::Query;
 use crate::{Error, Result};
@@ -131,9 +131,12 @@ pub async fn stream_resources<V: ApiVersion>(
         return Ok(Json(vec![]));
     }
 
-    let stream =
-        ResourceStream::from_listed_resource_ids(query.viewer_id.as_deref(), &keys.resource_ids)
-            .await?;
+    let stream = ResourceStream::from_listed_resource_ids(
+        query.viewer_id.as_deref(),
+        &keys.resource_ids,
+        V::REFERENCE_COUNTS,
+    )
+    .await?;
 
     let views = stream
         .map(|s| s.0)
@@ -303,13 +306,17 @@ pub async fn stream_resources_by_ids_handler(
     RequestJson(request): RequestJson<ResourceStreamByIdsRequest>,
 ) -> Result<Json<Vec<v1::ResourceView>>> {
     let (ids, viewer_id) = request.into_ids()?;
-    let views = ResourceStream::from_listed_resource_ids(viewer_id.as_deref(), &ids)
-        .await?
-        .map(|stream| stream.0)
-        .unwrap_or_default()
-        .into_iter()
-        .map(v1::ResourceView::from)
-        .collect();
+    let views = ResourceStream::from_listed_resource_ids(
+        viewer_id.as_deref(),
+        &ids,
+        <V1 as ApiVersion>::REFERENCE_COUNTS,
+    )
+    .await?
+    .map(|stream| stream.0)
+    .unwrap_or_default()
+    .into_iter()
+    .map(v1::ResourceView::from)
+    .collect();
     Ok(Json(views))
 }
 

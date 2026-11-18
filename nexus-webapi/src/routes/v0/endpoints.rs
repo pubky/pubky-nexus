@@ -90,6 +90,10 @@ pub const RESOURCE_TAGS_ROUTE: &str = concatcp!(RESOURCE_PREFIX, "/{resource_id}
 pub const RESOURCE_TAGGERS_ROUTE: &str =
     concatcp!(RESOURCE_PREFIX, "/{resource_id}/tags/{label}/taggers");
 pub const RESOURCE_BY_URI_ROUTE: &str = concatcp!(RESOURCE_PREFIX, "/by-uri");
+/// Served under `/v1` only (`V1::own_routes`).
+pub const RESOURCE_REPLIES_ROUTE: &str = concatcp!(RESOURCE_PREFIX, "/{resource_id}/replies");
+/// Served under `/v1` only (`V1::own_routes`).
+pub const RESOURCE_EMBEDS_ROUTE: &str = concatcp!(RESOURCE_PREFIX, "/{resource_id}/embeds");
 
 // STREAM of ResourceView objects
 pub const STREAM_RESOURCES_ROUTE: &str = concatcp!(STREAM_PREFIX, "/resources");

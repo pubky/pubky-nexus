@@ -90,6 +90,8 @@ const V1_ONLY_PATHS: &[&str] = &[
     "/static/files/{owner_id}/{file_id}/{variant}",
     "/stream/resources/by_ids",
     "/resources/changes",
+    "/resource/{resource_id}/replies",
+    "/resource/{resource_id}/embeds",
 ];
 
 /// Both documents come from one route declaration, so every v0 path is in the v1 document
@@ -1090,4 +1092,38 @@ fn test_resource_batch_body_requires_exactly_one_list() {
         "#/components/schemas/ResourceId"
     );
     assert_eq!(shapes[1]["properties"]["uris"]["items"]["type"], "string");
+}
+
+/// v0 is frozen: its `PostRelationships` has no `embedded`, the external embed external post
+/// references added; v1's has it. Both keep `replied`, neither documents the cache's
+/// `replied_external`, and every reference resolves.
+#[test]
+fn test_embedded_relationship_is_documented_on_v1_only() {
+    for (spec, documented) in [(ApiDoc::v0_docs(), false), (ApiDoc::v1_docs(), true)] {
+        let spec = serde_json::to_value(spec).expect("serializable spec");
+        let properties = spec
+            .pointer("/components/schemas/PostRelationships/properties")
+            .expect("PostRelationships properties");
+        assert_eq!(
+            properties.get("embedded").is_some(),
+            documented,
+            "{properties}"
+        );
+        assert!(properties.get("replied").is_some(), "{properties}");
+        assert!(properties.get("replied_external").is_none(), "{properties}");
+        validate_openapi_refs(&spec);
+    }
+}
+
+/// The resource reference routes are rate limited, so each documents the 429 with the
+/// `Retry-After` header, as the other resource routes do.
+#[test]
+fn test_resource_reference_routes_document_429() {
+    let spec = serde_json::to_value(ApiDoc::v1_docs()).expect("serializable spec");
+    for route in ["replies", "embeds"] {
+        let path = format!("/v1/resource/{{resource_id}}/{route}");
+        let responses = &spec["paths"][path.as_str()]["get"]["responses"];
+        let headers = &responses["429"]["headers"];
+        assert!(headers.get("Retry-After").is_some(), "{path}: {responses}");
+    }
 }

@@ -2,8 +2,10 @@
 //!
 //! Shared helpers for unit and integration tests.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock, Mutex};
+
+use tokio::sync::oneshot;
 
 use pubky::pkarr::dns::{rdata::SVCB, Name};
 use pubky::pkarr::{SignedPacket, Timestamp};
@@ -11,6 +13,7 @@ use pubky::{Keypair, PublicKey};
 use pubky_social_specs::PubkyId;
 
 use crate::db::kv::{RedisError, RedisResult};
+use crate::models::error::{ModelError, ModelResult};
 use crate::models::user::{PubkyConnectorResolver, UserIngestor};
 
 /// Authors whose resource changes feed del lines fail right after they are appended: see
@@ -37,6 +40,92 @@ pub(crate) fn feed_del_fault(author: &str) -> RedisResult<()> {
         ));
     }
     Ok(())
+}
+
+/// A point in the external reference work of a post where a test can hold its handler: see
+/// [`pause_references`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ReferencePause {
+    /// The start of `references::stage`, right after the post write it reconciles.
+    Stage,
+    /// In `references::flush`, after it read the outbox and before it appends it.
+    Flush,
+}
+
+type PauseSignals = (oneshot::Sender<()>, oneshot::Receiver<()>);
+
+/// Pauses armed by [`pause_references`], per point and author.
+static REFERENCE_PAUSES: LazyLock<Mutex<HashMap<(ReferencePause, String), PauseSignals>>> =
+    LazyLock::new(Default::default);
+
+/// Holds the next handler of `author`'s posts that reaches `point`, once. Returns a receiver
+/// that resolves when one reached it, and the sender that lets it go on.
+pub fn pause_references(
+    point: ReferencePause,
+    author: &str,
+) -> (oneshot::Receiver<()>, oneshot::Sender<()>) {
+    let (reached_tx, reached_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    REFERENCE_PAUSES
+        .lock()
+        .unwrap()
+        .insert((point, author.to_string()), (reached_tx, release_rx));
+    (reached_rx, release_tx)
+}
+
+/// A point in a post's reference work and the list writes after it where a test can make it
+/// fail: see [`fail_references`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ReferenceFault {
+    /// Before the stage: nothing of the post's references is written.
+    BeforeStage,
+    /// After the stage and its feed append: the edges, the revision and the feed are written,
+    /// and the handler stops before it reads them back into Redis.
+    AfterSync,
+    /// In a root post's list writes, after its timelines and before it leaves its author's
+    /// replies.
+    BeforeRepliesRemoval,
+}
+
+/// Faults armed by [`fail_references`], per point and author.
+static REFERENCE_FAULTS: LazyLock<Mutex<HashSet<(ReferenceFault, String)>>> =
+    LazyLock::new(Default::default);
+
+/// Makes every handler of `author`'s posts that reaches `point` fail there, as a crash or a
+/// lost connection would, until it is called again with `fail` false.
+pub fn fail_references(point: ReferenceFault, author: &str, fail: bool) {
+    let mut faults = REFERENCE_FAULTS.lock().unwrap();
+    if fail {
+        faults.insert((point, author.to_string()));
+    } else {
+        faults.remove(&(point, author.to_string()));
+    }
+}
+
+/// The error [`fail_references`] injects for `author` at `point`, if any.
+pub(crate) fn reference_fault(point: ReferenceFault, author: &str) -> ModelResult<()> {
+    if REFERENCE_FAULTS
+        .lock()
+        .unwrap()
+        .contains(&(point, author.to_string()))
+    {
+        return Err(ModelError::Generic(format!(
+            "injected reference failure at {point:?}"
+        )));
+    }
+    Ok(())
+}
+
+/// Waits at `point` if [`pause_references`] armed it for `author`.
+pub(crate) async fn reference_pause(point: ReferencePause, author: &str) {
+    let armed = REFERENCE_PAUSES
+        .lock()
+        .unwrap()
+        .remove(&(point, author.to_string()));
+    if let Some((reached, release)) = armed {
+        let _ = reached.send(());
+        let _ = release.await;
+    }
 }
 
 /// Generates a random public key.

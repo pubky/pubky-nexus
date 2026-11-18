@@ -8,11 +8,23 @@ use utoipa::ToSchema;
 
 #[derive(Serialize, Deserialize, ToSchema, Default, Debug)]
 pub struct PostRelationships {
-    /// If set, URI of the post this is a reply to
+    /// If set, URI of what this post replies to: a post, or an external resource (another
+    /// scheme's URL or another app's public object).
     pub replied: Option<String>,
+
+    /// Whether `replied` names an external resource rather than a post, as the graph read it:
+    /// the post's `REPLIED` edge ends on a Resource node. `/v0` names posts only and reads
+    /// `null` for any other reply. A cached value written before the flag existed reads
+    /// `false`, which is right for it: `replied` then only ever named a post.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub replied_external: bool,
 
     /// If set, URI of the post this post is reposting
     pub reposted: Option<String>,
+
+    /// External URI embedded by this post. Native post embeds use `reposted`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedded: Option<String>,
 
     /// List of user IDs mentioned in this post
     pub mentioned: Vec<PubkyId>,
@@ -53,12 +65,15 @@ impl PostRelationships {
         };
 
         let replied = row.get::<Option<String>>("replied_uri").unwrap_or(None);
+        let replied_external = row.get::<bool>("replied_external").unwrap_or(false);
         let reposted = row.get::<Option<String>>("reposted_uri").unwrap_or(None);
         let mentioned: Vec<PubkyId> = row.get("mentioned_user_ids").unwrap_or(Vec::new());
 
         Ok(Some(Self {
             replied,
+            replied_external,
             reposted,
+            embedded: row.get("embedded_uri").unwrap_or(None),
             mentioned,
         }))
     }
@@ -96,10 +111,21 @@ pub struct PostParent {
 /// The graph holds the parents' keys whatever epoch their addresses are written in, so delete,
 /// tombstone and recovery read them here instead of parsing a stored address. A post holds at
 /// most one of each, set when it is created: the watcher rejects an edit that changes either.
+/// A reply to an external target (another scheme's URL, another app's object) has no post
+/// parent but a Resource reply edge, fixed the same way once the post's references were first
+/// reconciled.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PostParents {
     pub replied: Option<PostParent>,
     pub reposted: Option<PostParent>,
+    /// The id of the Resource the post replies to: the graph's Resource reply edge, or for an
+    /// incoming post the normalized id of the external target its parent names.
+    pub replied_resource: Option<String>,
+    /// Whether the post's external references were ever reconciled
+    /// (`references::stage` writes its `resource_ref_revision` with its edges). A post indexed
+    /// before posts referenced Resources was not: it has no Resource reply edge yet, and its
+    /// next PUT writes the one it names.
+    pub references_reconciled: bool,
 }
 
 impl PostParents {
@@ -129,6 +155,8 @@ impl PostParents {
         Ok(Some(Self {
             replied: parent("replied")?,
             reposted: parent("reposted")?,
+            replied_resource: row.get("replied_resource_id")?,
+            references_reconciled: row.get("references_reconciled")?,
         }))
     }
 }
