@@ -537,7 +537,8 @@ mod tests {
         let (seeded, new_epoch, length) = ResourceChange::get_from_index(0, 1000).await?;
         assert_ne!(new_epoch, epoch);
         assert_eq!(length as usize, seeded.lines.len());
-        assert!(seeded.lines.windows(2).all(|pair| pair[0].at <= pair[1].at));
+        // The seed writes the tag lines in edge time order, then the post reference lines in
+        // theirs: only this test's own lines, all tags, are compared, order included.
         let own: Vec<_> = seeded
             .lines
             .into_iter()
