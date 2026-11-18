@@ -83,10 +83,13 @@ const V0_ONLY_PATHS: &[&str] = &[
 ];
 
 /// The paths only v1 documents, relative to the prefix: the two `/v1/static` routes, served
-/// by the static router and documented with v1 so a v1 client reads one document.
+/// by the static router and documented with v1 so a v1 client reads one document, and the
+/// routes added after `/v0` froze.
 const V1_ONLY_PATHS: &[&str] = &[
     "/static/avatar/{user_id}",
     "/static/files/{owner_id}/{file_id}/{variant}",
+    "/stream/users/details/by_ids",
+    "/user/{user_id}/following/details",
 ];
 
 /// Both documents come from one route declaration, so every v0 path is in the v1 document

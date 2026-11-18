@@ -86,7 +86,7 @@ pub async fn user_following_handler(
 #[utoipa::path(
     get,
     path = USER_FOLLOWING_DETAILS_ROUTE,
-    description = "List the details of the users a user follows, in the same order and pages as `/following`. Followed users Nexus has no details for are left out; deleted users come back with `deleted: true`.",
+    description = "List the details of the users a user follows, in the same order and pages as `/following`. Followed users Nexus has no details for are left out, so a page can be shorter than `limit` without being the last one: advance `skip` by `limit`. Deleted users come back with `deleted: true`.",
     tag = "User",
     params(
         ("user_id" = PubkyId, Path, description = "User Pubky ID"),
@@ -101,6 +101,7 @@ pub async fn user_following_handler(
         (status = 500, description = "Internal server error")
     )
 )]
+/// `/v1` only (`V1::own_routes`): `/v0` takes no new routes.
 pub async fn user_following_details_handler(
     Path(user_id): Path<PubkyId>,
     Query(query): Query<FollowsQuery>,
@@ -152,12 +153,7 @@ pub async fn user_friends_handler(
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(
-        user_followers_handler,
-        user_following_handler,
-        user_following_details_handler,
-        user_friends_handler
-    ),
-    components(schemas(Followers, Following, Friends, PubkyId, UserDetails))
+    paths(user_followers_handler, user_following_handler, user_friends_handler),
+    components(schemas(Followers, Following, Friends, PubkyId))
 )]
 pub struct UserFollowsApiDoc;

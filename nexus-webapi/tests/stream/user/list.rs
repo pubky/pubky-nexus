@@ -134,7 +134,7 @@ async fn test_stream_users_details_by_ids_returns_details_only() -> Result<()> {
     let unknown = "qca6wzjg4okp6g1hwr9g8hmx1po1jpoirjfau9ejsws1qz3t7iiy";
 
     let request_body = json!({ "user_ids": [known[0], unknown, known[1], known[2]] });
-    let res = post_request("/v0/stream/users/details/by_ids", request_body).await?;
+    let res = post_request("/v1/stream/users/details/by_ids", request_body).await?;
 
     let users = res.as_array().expect("Response should be an array");
     // The unknown id is left out; the rest keep request order
@@ -143,6 +143,7 @@ async fn test_stream_users_details_by_ids_returns_details_only() -> Result<()> {
 
     for user in users {
         assert!(user["name"].is_string(), "Name should be a string");
+        assert_eq!(user["deleted"], false, "Expected live users");
         assert!(user.get("details").is_none(), "Expected bare UserDetails");
         assert!(user.get("tags").is_none(), "Tags should not be returned");
         assert!(
@@ -155,10 +156,41 @@ async fn test_stream_users_details_by_ids_returns_details_only() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
+async fn test_stream_users_details_by_ids_returns_deleted_users() -> Result<()> {
+    // A tombstoned user (recommended.cypher): returned, flagged, not filtered out
+    let deleted = "z48xiqc4mcfiicwi1ewgn7swkhuem86wbkyoudt9yqidcxadt4to";
+    let res = post_request(
+        "/v1/stream/users/details/by_ids",
+        json!({ "user_ids": [deleted] }),
+    )
+    .await?;
+
+    let users = res.as_array().expect("Response should be an array");
+    assert_eq!(users.len(), 1, "Expected the deleted user");
+    assert_eq!(users[0]["id"], deleted);
+    assert_eq!(users[0]["deleted"], true, "Expected deleted: true");
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_users_details_by_ids_not_on_v0() -> Result<()> {
+    // /v0 is frozen: the route is /v1 only
+    invalid_post_request(
+        "/v0/stream/users/details/by_ids",
+        json!({ "user_ids": ["4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"] }),
+        StatusCode::NOT_FOUND,
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
 async fn test_stream_users_details_by_ids_unknown_only_is_empty() -> Result<()> {
     let request_body =
         json!({ "user_ids": ["qca6wzjg4okp6g1hwr9g8hmx1po1jpoirjfau9ejsws1qz3t7iiy"] });
-    let res = post_request("/v0/stream/users/details/by_ids", request_body).await?;
+    let res = post_request("/v1/stream/users/details/by_ids", request_body).await?;
 
     assert_eq!(res, json!([]), "Expected an empty array");
 
@@ -170,7 +202,7 @@ async fn test_stream_users_details_by_ids_limit_exceeded() -> Result<()> {
     let user_ids: Vec<String> = (0..101).map(|i| format!("user_id_{i}")).collect();
 
     let res = invalid_post_request(
-        "/v0/stream/users/details/by_ids",
+        "/v1/stream/users/details/by_ids",
         json!({ "user_ids": user_ids }),
         StatusCode::BAD_REQUEST,
     )
@@ -191,7 +223,7 @@ async fn test_stream_users_details_by_ids_limit_exceeded() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_users_details_by_ids_empty_list() -> Result<()> {
     invalid_post_request(
-        "/v0/stream/users/details/by_ids",
+        "/v1/stream/users/details/by_ids",
         json!({ "user_ids": [] }),
         StatusCode::BAD_REQUEST,
     )

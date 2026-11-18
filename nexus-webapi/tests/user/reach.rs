@@ -115,8 +115,8 @@ async fn test_get_following_details() -> Result<()> {
 
     // Same users, same order, same pages as /following
     for query in ["", "?skip=3&limit=5"] {
-        let ids = get_request(&format!("/v0/user/{user_id}/following{query}")).await?;
-        let details = get_request(&format!("/v0/user/{user_id}/following/details{query}")).await?;
+        let ids = get_request(&format!("/v1/user/{user_id}/following{query}")).await?;
+        let details = get_request(&format!("/v1/user/{user_id}/following/details{query}")).await?;
 
         let details = details.as_array().expect("Response should be an array");
         let detail_ids: Vec<&str> = details.iter().map(|d| d["id"].as_str().unwrap()).collect();
@@ -139,14 +139,31 @@ async fn test_get_following_details() -> Result<()> {
         }
     }
 
+    // A followed tombstone (recommended.cypher) comes back flagged, not filtered out
+    let hop = "wtqrgw3s7w4qgxwhychgho191aqotmoejcdp4enctkrcthn3y37o";
+    let details = get_request(&format!("/v1/user/{hop}/following/details")).await?;
+    let deleted = details
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["id"] == "z48xiqc4mcfiicwi1ewgn7swkhuem86wbkyoudt9yqidcxadt4to")
+        .expect("Expected the followed deleted user");
+    assert_eq!(deleted["deleted"], true, "Expected deleted: true");
+
     invalid_get_request(
-        &format!("/v0/user/{NON_EXISTING_USER_ID}/following/details"),
+        &format!("/v1/user/{NON_EXISTING_USER_ID}/following/details"),
         StatusCode::NOT_FOUND,
     )
     .await?;
     invalid_get_request(
-        &format!("/v0/user/{user_id}/following/details?limit=201"),
+        &format!("/v1/user/{user_id}/following/details?limit=201"),
         StatusCode::BAD_REQUEST,
+    )
+    .await?;
+    // /v0 is frozen: the route is /v1 only
+    invalid_get_request(
+        &format!("/v0/user/{user_id}/following/details"),
+        StatusCode::NOT_FOUND,
     )
     .await?;
 

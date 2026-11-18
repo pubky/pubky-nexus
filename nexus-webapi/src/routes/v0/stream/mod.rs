@@ -1,12 +1,11 @@
 use crate::routes::v0::endpoints::{
     STREAM_POSTS_BY_IDS_ROUTE, STREAM_POSTS_ROUTE, STREAM_POST_KEYS_ROUTE, STREAM_RESOURCES_ROUTE,
-    STREAM_RESOURCE_IDS_ROUTE, STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_DETAILS_BY_IDS_ROUTE,
-    STREAM_USERS_ROUTE, STREAM_USERS_USERNAME_SEARCH_ROUTE, STREAM_USER_IDS_ROUTE,
+    STREAM_RESOURCE_IDS_ROUTE, STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE,
+    STREAM_USERS_USERNAME_SEARCH_ROUTE, STREAM_USER_IDS_ROUTE,
 };
 use crate::routes::v0::version::ApiVersion;
 use crate::routes::AppState;
 
-use axum::routing::post;
 use axum::Router;
 use utoipa::OpenApi;
 
@@ -20,10 +19,6 @@ pub fn expensive_routes<V: ApiVersion>() -> Router<AppState> {
     Router::new()
         .route(STREAM_USERS_ROUTE, V::stream_users())
         .route(STREAM_USERS_BY_IDS_ROUTE, V::stream_users_by_ids())
-        .route(
-            STREAM_USERS_DETAILS_BY_IDS_ROUTE,
-            post(users::stream_users_details_by_ids_handler),
-        )
         .route(STREAM_POSTS_BY_IDS_ROUTE, V::stream_posts_by_ids())
 }
 

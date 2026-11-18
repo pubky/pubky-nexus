@@ -265,12 +265,12 @@ pub struct UserDetailsByIdsRequest {
     pub user_ids: UserIds,
 }
 
-/// Shared by both versions: `UserDetails` has one shape on `/v0` and `/v1`.
+/// `/v1` only (`V1::own_routes`): `/v0` takes no new routes.
 #[utoipa::path(
     post,
     path = STREAM_USERS_DETAILS_BY_IDS_ROUTE,
     tag = "Stream",
-    description = "User details by ID, without tags, counts or relationship. Ids Nexus does not know are left out of the response; deleted users come back with `deleted: true`.",
+    description = "User details by ID, without tags, counts or relationship. Ids Nexus has no details for are left out of the response, so it can be shorter than the request; deleted users come back with `deleted: true`.",
     request_body = UserDetailsByIdsRequest,
     responses(
         (status = 200, description = "User details, in request order", body = Vec<UserDetails>),
@@ -444,22 +444,19 @@ fn source_name(source: &UserStreamSource) -> &'static str {
 /// The schemas the user streams share; the streams of user views and the id stream, whose
 /// label list is the version's, come with the version's document.
 #[derive(OpenApi)]
-#[openapi(
-    paths(stream_users_details_by_ids_handler),
-    components(schemas(
-        UserIdStream,
-        UserStreamSource,
-        UserStreamByIdsRequest,
-        UserDetailsByIdsRequest,
-        UserDetails,
-        UserIds,
-        UsernamePrefix,
-        StreamReach,
-        Timeframe,
-        PubkyId,
-        PostId,
-    ))
-)]
+#[openapi(components(schemas(
+    UserIdStream,
+    UserStreamSource,
+    UserStreamByIdsRequest,
+    UserDetailsByIdsRequest,
+    UserDetails,
+    UserIds,
+    UsernamePrefix,
+    StreamReach,
+    Timeframe,
+    PubkyId,
+    PostId,
+)))]
 pub struct StreamUsersApiDocs;
 
 #[cfg(test)]
