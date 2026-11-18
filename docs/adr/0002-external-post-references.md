@@ -33,10 +33,9 @@ A post's reply parent is fixed, whatever it names: an edit may not add, drop or 
 it. A post parent is compared by its key, an external parent by its normalized Resource
 id, so another spelling of the same URL is no change; an edit that changes either is
 refused and never retried. Embeds and collection items stay editable. The rule holds
-once the post's references were first reconciled (its first PUT after this change
-writes its reference revision, also with no reference): a post indexed before posts
-referenced Resources has no Resource reply edge yet, and its next PUT gains the one it
-names.
+once the post's references were reconciled: a post's first reconcile writes its
+reference revision, also with no reference. A post without a reference revision has no
+Resource reply edge yet, and its next PUT gains the one it names.
 
 Each PUT diffs the post's references against its edges and publishes the change: the
 dels of the references it loses and the puts of the ones it gains (a new target, or a
@@ -64,11 +63,11 @@ typed post shapes built from the stored models: a post's relationships there hav
 `embedded`, and `replied` names only a post (`null` for an external reply). Whether the
 reply parent is a post comes from the graph and is cached with the relationships, never
 read from the address. For posts without external references, `/v0` answers are
-byte-identical to before.
+the stored models' bytes: the same fields in the same order.
 
 Two `/v0` changes are part of the feature. A URL that only posts reference is a
 Resource, so `GET /v0/resource/{id}/tags` and `GET /v0/resource/by-uri` answer 200 with
-`tags: []` for it (404 before). A reply to a URL is a reply on `/v0` too: it stays out of
+`tags: []` for it. A reply to a URL is a reply on `/v0` too: it stays out of
 the root timelines and counts in the author's replies.
 
 Resource replies stay in the author's replies rather than root timelines, including

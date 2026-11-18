@@ -3,9 +3,11 @@
 //! `/v0` is frozen. A post's stored relationships also hold an external embed and a reply to
 //! an external resource, which `/v1` serves; `/v0` has no `embedded`, and names in `replied`
 //! only a post, `null` for a reply to anything else. Each shape is a plain struct converted
-//! from the stored one, so serde writes the fields in their declared order, the order `/v0`
-//! has always written, and the conversions name every stored field: a field added to a stored
-//! model does not compile until it is given to `/v0` or left out here. The responses that
+//! from the stored one, so serde writes the fields in their declared order, the stored
+//! models' order, and the conversions destructure the stored post view, post stream,
+//! relationships and bootstrap: a field added to one of them does not compile until it is
+//! given to `/v0` or left out here. The models they embed (`PostDetails`, `PostCounts`,
+//! `TagDetails`, `Bookmark`, `FileDetails`, `UserStream`, `Notification`) are served as stored. The responses that
 //! embed a post view, the post stream and the bootstrap, are `/v0` types too; each is named
 //! as the stored model is, so the `/v0` document keeps its schema names. The document also
 //! keeps its descriptions, which utoipa reads from doc comments: the fields carry the ones
@@ -220,9 +222,8 @@ mod tests {
     }
 
     /// For a post with no external reference, the `/v0` view, stream and bootstrap are written
-    /// byte for byte as the stored models write them, which is how `/v0` wrote them before
-    /// the stored relationships gained the external ones: the same field names in the same
-    /// order. The relationships list `replied`, `reposted` and `mentioned`, in that order.
+    /// byte for byte as the stored models write them: the same field names in the same order.
+    /// The relationships list `replied`, `reposted` and `mentioned`, in that order.
     #[test]
     fn v0_shapes_write_the_stored_bytes_for_a_post_without_external_references() {
         let detailed =
