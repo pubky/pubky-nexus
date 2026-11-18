@@ -3,6 +3,8 @@ use nexus_common::models::{
     error::{ModelError, ModelResult},
     post::{PostDetails, PostKind, PostRelationships},
 };
+use std::hash::{BuildHasher, Hash, RandomState};
+use std::sync::LazyLock;
 
 /// Classifies the outcome of a best-effort user ingestion attempted while
 /// handling an [`OperationOutcome::MissingDependency`](nexus_common::db::OperationOutcome::MissingDependency).
@@ -32,6 +34,17 @@ pub(crate) fn bounded(text: &str) -> String {
         Some((end, _)) => format!("{}…", &text[..end]),
         None => text.to_string(),
     }
+}
+
+/// The hasher of [`lock_stripe`]: random keys, drawn once per process.
+static LOCK_STRIPE_HASHER: LazyLock<RandomState> = LazyLock::new(RandomState::new);
+
+/// The stripe, out of `stripes`, of a lock keyed by `key`. Its hasher's keys are random and
+/// drawn once per process, so a key keeps its stripe for the process's life and nobody can
+/// compute it from outside: a writer cannot pick an id that shares another's stripe to delay
+/// that other's events.
+pub(crate) fn lock_stripe(key: impl Hash, stripes: usize) -> usize {
+    (LOCK_STRIPE_HASHER.hash_one(key) % stripes as u64) as usize
 }
 
 /// Checks if a post is a reply based on its relationships.
@@ -82,6 +95,17 @@ mod tests {
     fn other_ingest_outcomes_are_swallowed() {
         assert!(fail_on_permanent_ingest_error(Ok(())).is_ok());
         assert!(fail_on_permanent_ingest_error(Err(ModelError::Generic("dht".into()))).is_ok());
+    }
+
+    #[test]
+    fn lock_stripe_is_in_range_and_stable_within_the_process() {
+        for stripes in [1, 7, 1024] {
+            for key in ["", "alice", "bob"] {
+                let stripe = lock_stripe(key, stripes);
+                assert!(stripe < stripes, "{key:?}: {stripe} of {stripes}");
+                assert_eq!(lock_stripe(key, stripes), stripe, "{key:?}");
+            }
+        }
     }
 
     #[test]

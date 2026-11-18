@@ -15,13 +15,12 @@ use nexus_common::models::user::{UserIngestor, UsersByTagSearch};
 use nexus_common::types::Pagination;
 use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use pubky_social_specs::PubkyId;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::LazyLock;
 use tokio::sync::{Mutex, MutexGuard};
 use tracing::{debug, Instrument};
 
 use super::utils::{
-    bounded, fail_on_permanent_ingest_error, post_kind, post_relationships_is_reply,
+    bounded, fail_on_permanent_ingest_error, lock_stripe, post_kind, post_relationships_is_reply,
 };
 use crate::events::inputs::{Reference, ReferenceTarget, ResourceKey, TagInput};
 
@@ -39,9 +38,7 @@ static TAGGER_LOCKS: LazyLock<Vec<Mutex<()>>> =
 /// taggers that share one only wait for each other, and nothing is kept per tagger. A crash
 /// releases it. It orders the handlers of one watcher process.
 pub async fn lock_tagger(tagger_id: &str) -> MutexGuard<'static, ()> {
-    let mut hasher = DefaultHasher::new();
-    tagger_id.hash(&mut hasher);
-    TAGGER_LOCKS[hasher.finish() as usize % TAGGER_LOCK_STRIPES]
+    TAGGER_LOCKS[lock_stripe(tagger_id, TAGGER_LOCK_STRIPES)]
         .lock()
         .await
 }
