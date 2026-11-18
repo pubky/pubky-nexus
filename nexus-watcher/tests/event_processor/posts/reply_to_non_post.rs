@@ -117,8 +117,9 @@ async fn test_reply_to_another_apps_object_is_indexed_with_a_resource_reply_edge
             "another app's object",
             format!("pubky://{user_id}/pub/mapky/reviews/0033SSE3B1FQ0"),
         ),
-        ("URL", "https://example.com/article".to_string()),
+        ("URL", format!("https://example.com/{user_id}/article")),
     ];
+    let mut replies = Vec::new();
     for (kind, parent) in parents {
         let reply = PubkyAppPost {
             content: format!("Watcher:ReplyToNonPost:Other:Reply:{kind}"),
@@ -131,7 +132,8 @@ async fn test_reply_to_another_apps_object_is_indexed_with_a_resource_reply_edge
             attachments: None,
             lock: None,
         };
-        let (reply_id, _reply_path) = test.create_post(&user_kp, &reply).await?;
+        let (reply_id, reply_path) = test.create_post(&user_kp, &reply).await?;
+        replies.push((reply_id.clone(), reply_path));
 
         let reply_event = format!(
             "PUT {}",
@@ -175,7 +177,8 @@ async fn test_reply_to_another_apps_object_is_indexed_with_a_resource_reply_edge
         attachments: None,
         lock: None,
     };
-    let (reply_id, _reply_path) = test.create_post(&user_kp, &reply).await?;
+    let (reply_id, reply_path) = test.create_post(&user_kp, &reply).await?;
+    replies.push((reply_id.clone(), reply_path));
     let reply_event = format!(
         "PUT {}",
         post_uri_builder(user_id.clone(), reply_id.clone())
@@ -196,5 +199,15 @@ async fn test_reply_to_another_apps_object_is_indexed_with_a_resource_reply_edge
     assert_eq!(relationships.reposted, None);
     assert_eq!(relationships.embedded, None);
 
+    // Event processing is off: handle each reply's DEL here, so no reference stays behind
+    for (reply_id, reply_path) in replies {
+        test.cleanup_post(&user_kp, &reply_path).await?;
+        retrieve_and_handle_event_line(
+            &format!("DEL {}", post_uri_builder(user_id.clone(), reply_id)),
+            &test.homeserver_id,
+            test.event_processor_runner.event_handler.clone(),
+        )
+        .await?;
+    }
     Ok(())
 }
