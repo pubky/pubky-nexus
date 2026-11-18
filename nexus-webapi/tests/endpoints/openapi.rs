@@ -1114,3 +1114,16 @@ fn test_embedded_relationship_is_documented_on_v1_only() {
         validate_openapi_refs(&spec);
     }
 }
+
+/// The resource reference routes are rate limited, so each documents the 429 with the
+/// `Retry-After` header, as the other resource routes do.
+#[test]
+fn test_resource_reference_routes_document_429() {
+    let spec = serde_json::to_value(ApiDoc::v1_docs()).expect("serializable spec");
+    for route in ["replies", "embeds"] {
+        let path = format!("/v1/resource/{{resource_id}}/{route}");
+        let responses = &spec["paths"][path.as_str()]["get"]["responses"];
+        let headers = &responses["429"]["headers"];
+        assert!(headers.get("Retry-After").is_some(), "{path}: {responses}");
+    }
+}
