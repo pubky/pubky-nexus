@@ -14,9 +14,10 @@ pub struct ResourceView {
     pub details: ResourceDetails,
     pub tags: Vec<TagDetails>,
     pub taggers_count: usize,
-    /// Live posts replying to, embedding and collecting the resource. Not serialized: `/v0`
-    /// is frozen and serves this view as it is, so the counts reach a client only through the
-    /// `/v1` view and envelope, which copy them.
+    /// Live posts replying to, embedding and collecting the resource, read only with
+    /// [`ReferenceCounts::Read`] and `0` otherwise. Not serialized: `/v0` is frozen and serves
+    /// this view as it is, so the counts reach a client only through the `/v1` view and
+    /// envelope, which copy them.
     #[serde(skip)]
     pub replies_count: usize,
     #[serde(skip)]
@@ -25,16 +26,47 @@ pub struct ResourceView {
     pub collections_count: usize,
 }
 
+/// Whether a resource view reads the counts of the live posts that reference the resource.
+/// Each count walks every post edge of the resource, so a reader that serves no count, as
+/// `/v0`, skips them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReferenceCounts {
+    /// Read the counts into the view.
+    Read,
+    /// Leave them `0`, and read nothing for them.
+    Skip,
+}
+
 impl ResourceView {
-    /// A resource's details and a page of its tags, in one graph read. The tags
-    /// are paged by `tag_page`, as for user and post tags. Returns `None` only
-    /// when the resource does not exist.
+    /// A resource's details, a page of its tags and the reference counts, in one graph read.
+    /// The tags are paged by `tag_page`, as for user and post tags. Returns `None` only when
+    /// the resource does not exist.
     pub async fn get_by_id(
         resource_id: &str,
         skip_tags: Option<usize>,
         limit_tags: Option<usize>,
         limit_taggers: Option<usize>,
         viewer_id: Option<&str>,
+    ) -> ModelResult<Option<Self>> {
+        Self::get_by_id_with_counts(
+            resource_id,
+            skip_tags,
+            limit_tags,
+            limit_taggers,
+            viewer_id,
+            ReferenceCounts::Read,
+        )
+        .await
+    }
+
+    /// [`Self::get_by_id`], with the reference counts read only as `counts` asks.
+    pub async fn get_by_id_with_counts(
+        resource_id: &str,
+        skip_tags: Option<usize>,
+        limit_tags: Option<usize>,
+        limit_taggers: Option<usize>,
+        viewer_id: Option<&str>,
+        counts: ReferenceCounts,
     ) -> ModelResult<Option<Self>> {
         let (skip_tags, limit_tags, limit_taggers) = tag_page(skip_tags, limit_tags, limit_taggers);
         let query = queries::get::resource_view(
@@ -43,6 +75,7 @@ impl ResourceView {
             skip_tags,
             limit_tags,
             limit_taggers,
+            counts == ReferenceCounts::Read,
         );
         match fetch_row_from_graph(query).await? {
             Some(row) => Self::from_row(&row),

@@ -3,6 +3,7 @@ use crate::streams_benches::LIMIT_20;
 use criterion::Criterion;
 use nexus_common::db::kv::SortOrder;
 use nexus_common::models::resource::stream::{ResourceSorting, ResourceStream};
+use nexus_common::models::resource::view::ReferenceCounts;
 use tokio::runtime::Runtime;
 
 // Fixture data (docker/test-graph/mocks/resources.cypher) uses this; a
@@ -76,10 +77,11 @@ pub fn bench_stream_resources_by_ids(c: &mut Criterion) {
     .collect();
     c.bench_function("stream_resources_by_ids_100", |b| {
         b.to_async(&rt).iter(|| async {
-            let stream = ResourceStream::from_listed_resource_ids(None, &ids)
-                .await
-                .unwrap()
-                .expect("seed resource fixtures before benchmarking");
+            let stream =
+                ResourceStream::from_listed_resource_ids(None, &ids, ReferenceCounts::Read)
+                    .await
+                    .unwrap()
+                    .expect("seed resource fixtures before benchmarking");
             assert_eq!(stream.0.len(), 100);
             std::hint::black_box(stream);
         });
