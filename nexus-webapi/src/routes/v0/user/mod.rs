@@ -1,6 +1,7 @@
 use crate::routes::v0::endpoints::{
     RELATIONSHIP_ROUTE, USER_COUNTS_ROUTE, USER_DETAILS_ROUTE, USER_FOLLOWERS_ROUTE,
-    USER_FOLLOWING_ROUTE, USER_FRIENDS_ROUTE, USER_ROUTE, USER_TAGGERS_ROUTE, USER_TAGS_ROUTE,
+    USER_FOLLOWING_DETAILS_ROUTE, USER_FOLLOWING_ROUTE, USER_FRIENDS_ROUTE, USER_ROUTE,
+    USER_TAGGERS_ROUTE, USER_TAGS_ROUTE,
 };
 use crate::routes::AppState;
 
@@ -28,6 +29,10 @@ pub fn routes() -> Router<AppState> {
         .route(USER_COUNTS_ROUTE, get(counts::user_counts_handler))
         .route(USER_FOLLOWERS_ROUTE, get(follows::user_followers_handler))
         .route(USER_FOLLOWING_ROUTE, get(follows::user_following_handler))
+        .route(
+            USER_FOLLOWING_DETAILS_ROUTE,
+            get(follows::user_following_details_handler),
+        )
         .route(USER_FRIENDS_ROUTE, get(follows::user_friends_handler))
 }
 

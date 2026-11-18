@@ -110,6 +110,50 @@ async fn test_get_following() -> Result<()> {
 }
 
 #[tokio_shared_rt::test(shared)]
+async fn test_get_following_details() -> Result<()> {
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+
+    // Same users, same order, same pages as /following
+    for query in ["", "?skip=3&limit=5"] {
+        let ids = get_request(&format!("/v0/user/{user_id}/following{query}")).await?;
+        let details = get_request(&format!("/v0/user/{user_id}/following/details{query}")).await?;
+
+        let details = details.as_array().expect("Response should be an array");
+        let detail_ids: Vec<&str> = details.iter().map(|d| d["id"].as_str().unwrap()).collect();
+        let ids: Vec<&str> = ids
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|id| id.as_str().unwrap())
+            .collect();
+        assert!(!ids.is_empty(), "Expected followed users for {query:?}");
+        assert_eq!(detail_ids, ids, "Details should follow /following{query}");
+
+        for user in details {
+            assert!(user["name"].is_string(), "Name should be a string");
+            assert!(user.get("tags").is_none(), "Tags should not be returned");
+            assert!(
+                user.get("counts").is_none(),
+                "Counts should not be returned"
+            );
+        }
+    }
+
+    invalid_get_request(
+        &format!("/v0/user/{NON_EXISTING_USER_ID}/following/details"),
+        StatusCode::NOT_FOUND,
+    )
+    .await?;
+    invalid_get_request(
+        &format!("/v0/user/{user_id}/following/details?limit=201"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
 async fn test_get_friends() -> Result<()> {
     let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
     let res = get_request(&format!("/v0/user/{user_id}/friends")).await?;

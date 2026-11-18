@@ -1,12 +1,14 @@
 use crate::models::{BoundedLimit, BoundedPagination, BoundedSkip, PubkyId};
 use crate::routes::v0::endpoints::{
-    USER_FOLLOWERS_ROUTE, USER_FOLLOWING_ROUTE, USER_FRIENDS_ROUTE,
+    USER_FOLLOWERS_ROUTE, USER_FOLLOWING_DETAILS_ROUTE, USER_FOLLOWING_ROUTE, USER_FRIENDS_ROUTE,
 };
 use crate::routes::Path;
 use crate::routes::Query;
 use crate::{Error, Result};
 use axum::Json;
+use nexus_common::db::RedisOps;
 use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
+use nexus_common::models::user::UserDetails;
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;
@@ -83,6 +85,41 @@ pub async fn user_following_handler(
 
 #[utoipa::path(
     get,
+    path = USER_FOLLOWING_DETAILS_ROUTE,
+    description = "List the details of the users a user follows, in the same order and pages as `/following`. Followed users Nexus has no details for are left out; deleted users come back with `deleted: true`.",
+    tag = "User",
+    params(
+        ("user_id" = PubkyId, Path, description = "User Pubky ID"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N following (max 10000)"),
+        ("limit" = Option<BoundedLimit<50, 200>>, Query, description = "Retrieve N following (1–200, default 50)")
+    ),
+    responses(
+        (status = 200, description = "Details of the followed users", body = Vec<UserDetails>),
+        (status = 400, description = "Invalid parameters"),
+        (status = 404, description = "User not found"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn user_following_details_handler(
+    Path(user_id): Path<PubkyId>,
+    Query(query): Query<FollowsQuery>,
+) -> Result<Json<Vec<UserDetails>>> {
+    debug!("GET {USER_FOLLOWING_DETAILS_ROUTE} user_id:{}", user_id);
+
+    let pagination = query.pagination.to_pagination(None, None);
+
+    let Some(following) = Following::get_by_id(&user_id, pagination.skip, pagination.limit).await?
+    else {
+        return Err(Error::user_not_found(user_id));
+    };
+    let details = UserDetails::mget(&following.0).await?;
+
+    Ok(Json(details.into_iter().flatten().collect()))
+}
+
+#[utoipa::path(
+    get,
     path = USER_FRIENDS_ROUTE,
     description = "List user's friend IDs",
     tag = "User",
@@ -115,7 +152,12 @@ pub async fn user_friends_handler(
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(user_followers_handler, user_following_handler, user_friends_handler),
-    components(schemas(Followers, Following, Friends, PubkyId))
+    paths(
+        user_followers_handler,
+        user_following_handler,
+        user_following_details_handler,
+        user_friends_handler
+    ),
+    components(schemas(Followers, Following, Friends, PubkyId, UserDetails))
 )]
 pub struct UserFollowsApiDoc;
