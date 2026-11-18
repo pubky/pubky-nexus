@@ -305,14 +305,10 @@ async fn seed_inner(token: &str, temp: &str, allow_empty: bool) -> ModelResult<u
 }
 
 async fn seed_post_references(temp: &str) -> ModelResult<()> {
-    let mut rows = get_neo4j_graph()?.execute(Query::new("resource_changes_post_seed", r"
-        MATCH (a:User)-[:AUTHORED]->(p:Post)-[e:REPLIED|EMBEDS|COLLECTED]->(r:Resource)
-        WHERE NOT coalesce(p.deleted, false)
-        RETURN {op: 'put', resource_id: r.id, uri: r.uri,
-          kind: CASE type(e) WHEN 'REPLIED' THEN 'reply' WHEN 'EMBEDS' THEN 'embed' ELSE 'collection' END,
-          author: a.id, object_path: e.object_path, at: e.indexed_at} AS line
-        ORDER BY e.indexed_at, a.id, p.id, type(e), r.id
-    ")).await.map_err(GraphError::from)?;
+    let mut rows = get_neo4j_graph()?
+        .execute(crate::db::graph::queries::get::resource_changes_post_seed())
+        .await
+        .map_err(GraphError::from)?;
     let mut batch = Vec::with_capacity(BATCH_SIZE);
     while let Some(row) = rows.try_next().await.map_err(GraphError::from)? {
         // As for tags: one reference that cannot be a line must not stop the seed

@@ -2142,6 +2142,81 @@ pub fn is_any_taken_down(uris: &[String]) -> Query {
     .param("uris", uris.to_vec())
 }
 
+/// A post's external references and their recovery metadata: its revision (whether one was
+/// ever written), tombstone and retraction flags, pending outbox, and one put line per
+/// Resource edge in edge type and Resource id order.
+pub fn resource_references_state(author_id: &str, post_id: &str) -> Query {
+    Query::new(
+        "resource_references_state",
+        r"
+        MATCH (p:Post {id: $id}) WHERE EXISTS { (:User {id: $author})-[:AUTHORED]->(p) }
+        OPTIONAL MATCH (p)-[e:REPLIED|EMBEDS|COLLECTED]->(r:Resource)
+        WITH p, e, r ORDER BY type(e), r.id
+        RETURN coalesce(p.resource_ref_revision, '') AS revision,
+               p.resource_ref_revision IS NOT NULL AS reconciled,
+               coalesce(p.deleted, false) AS deleted,
+               coalesce(p.resource_ref_retracted, false) AS retracted,
+               p.resource_ref_outbox AS outbox,
+               collect(CASE WHEN e IS NOT NULL THEN {
+                 op: 'put', resource_id: r.id, uri: r.uri,
+                 kind: CASE type(e) WHEN 'REPLIED' THEN 'reply' WHEN 'EMBEDS' THEN 'embed' ELSE 'collection' END,
+                 author: $author, object_path: e.object_path, at: e.indexed_at
+               } END) AS lines
+    ",
+    )
+    .param("author", author_id)
+    .param("id", post_id)
+}
+
+/// A row when the Resource exists, without hydrating its tags or counts.
+pub fn resource_exists(resource_id: &str) -> Query {
+    Query::new(
+        "resource_reference_exists",
+        "MATCH (:Resource {id: $id}) RETURN 1 AS present",
+    )
+    .param("id", resource_id)
+}
+
+/// The live posts with an `edge` (`REPLIED`, `EMBEDS` or `COLLECTED`) to the Resource, as
+/// `author` and `id`, newest first with author and post id ties.
+pub fn resource_reference_posts(
+    resource_id: &str,
+    edge: &'static str,
+    skip: usize,
+    limit: usize,
+) -> Query {
+    Query::new(
+        "resource_reference_posts",
+        format!(
+            r"
+        MATCH (r:Resource {{id: $id}})<-[:{edge}]-(p:Post)<-[:AUTHORED]-(a:User)
+        WHERE NOT coalesce(p.deleted, false)
+        RETURN a.id AS author, p.id AS id ORDER BY p.indexed_at DESC, a.id, p.id
+        SKIP $skip LIMIT $limit
+    "
+        ),
+    )
+    .param("id", resource_id)
+    .param("skip", skip as i64)
+    .param("limit", limit as i64)
+}
+
+/// One put line per live post's Resource edge, for the resource changes seed, in edge time
+/// order with author, post, edge type and Resource id ties.
+pub fn resource_changes_post_seed() -> Query {
+    Query::new(
+        "resource_changes_post_seed",
+        r"
+        MATCH (a:User)-[:AUTHORED]->(p:Post)-[e:REPLIED|EMBEDS|COLLECTED]->(r:Resource)
+        WHERE NOT coalesce(p.deleted, false)
+        RETURN {op: 'put', resource_id: r.id, uri: r.uri,
+          kind: CASE type(e) WHEN 'REPLIED' THEN 'reply' WHEN 'EMBEDS' THEN 'embed' ELSE 'collection' END,
+          author: a.id, object_path: e.object_path, at: e.indexed_at} AS line
+        ORDER BY e.indexed_at, a.id, p.id, type(e), r.id
+    ",
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
