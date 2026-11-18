@@ -448,8 +448,6 @@ fn source_name(source: &UserStreamSource) -> &'static str {
     UserIdStream,
     UserStreamSource,
     UserStreamByIdsRequest,
-    UserDetailsByIdsRequest,
-    UserDetails,
     UserIds,
     UsernamePrefix,
     StreamReach,

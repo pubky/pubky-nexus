@@ -83,6 +83,7 @@ pub async fn user_following_handler(
     }
 }
 
+/// `/v1` only (`V1::own_routes`): `/v0` takes no new routes.
 #[utoipa::path(
     get,
     path = USER_FOLLOWING_DETAILS_ROUTE,
@@ -101,7 +102,6 @@ pub async fn user_following_handler(
         (status = 500, description = "Internal server error")
     )
 )]
-/// `/v1` only (`V1::own_routes`): `/v0` takes no new routes.
 pub async fn user_following_details_handler(
     Path(user_id): Path<PubkyId>,
     Query(query): Query<FollowsQuery>,
