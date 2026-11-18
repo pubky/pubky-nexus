@@ -47,8 +47,8 @@ use super::{
     bootstrap, file, notification, post, resource, resource_changes, search, stream, tag, user,
 };
 use crate::models::{
-    v1, IncludeAttachmentMetadata, KindToken, PostStreamDetailed, PostViewDetailed,
-    StoredKindToken, StoredPostKinds, TagLabel, TagLabels, Tags, V0Shape,
+    v0, v1, IncludeAttachmentMetadata, KindToken, PostStreamDetailed, PostViewDetailed,
+    StoredKindToken, StoredPostKinds, TagLabel, TagLabels, Tags,
 };
 use crate::routes::AppState;
 
@@ -66,7 +66,8 @@ pub trait ApiVersion: Send + Sync + 'static {
     const STANDING: &'static str;
 
     /// A post with its counts, tags and relationships, `GET /post/{author_id}/{post_id}`.
-    /// `/v1` has no `bookmark` and no `attachments_metadata`.
+    /// `/v1` has no `bookmark` and no `attachments_metadata`; `/v0`'s relationships have no
+    /// `embedded` and name only a post in `replied`.
     type PostView: Serialize + ToSchema + From<PostViewDetailed> + Send;
     /// A post's own fields, `GET /post/{author_id}/{post_id}/details`.
     type PostDetails: Serialize + ToSchema + From<PostDetails> + Send;
@@ -229,11 +230,6 @@ pub trait ApiVersion: Send + Sync + 'static {
     /// client reads one document; `/v0` documents none, the `/static` routes go with the
     /// static document.
     fn absolute_docs() -> utoipa::openapi::OpenApi;
-
-    /// The version's whole document as served, once nested and merged. `/v0` is frozen, so
-    /// the shared schemas lose what the stored models gained since
-    /// ([`freeze_docs`](crate::models::v0_frozen::freeze_docs)); `/v1` serves its own as built.
-    fn finish_docs(docs: utoipa::openapi::OpenApi) -> utoipa::openapi::OpenApi;
 }
 
 /// The frozen API: fixes only, every new feature lands in v1.
@@ -249,14 +245,14 @@ impl ApiVersion for V0 {
     const STANDING: &'static str =
         "`/v0` is frozen: fixes only, no new routes or fields. Every new feature lands in `/v1`.";
 
-    type PostView = V0Shape<PostViewDetailed>;
+    type PostView = v0::PostViewDetailed;
     type PostDetails = PostDetails;
-    type PostStream = V0Shape<PostStreamDetailed>;
+    type PostStream = v0::PostStreamDetailed;
     type Notification = Notification;
     type UserCounts = UserCounts;
     type UserView = UserView;
     type UserStream = UserStream;
-    type Bootstrap = V0Shape<Bootstrap>;
+    type Bootstrap = v0::Bootstrap;
     type TagDetails = TagDetails;
     type TaggersInfoResponse = TaggersInfoResponse;
     type ResourceView = ResourceView;
@@ -382,10 +378,6 @@ impl ApiVersion for V0 {
     /// None: the `/static` routes are the static document's.
     fn absolute_docs() -> utoipa::openapi::OpenApi {
         utoipa::openapi::OpenApi::default()
-    }
-
-    fn finish_docs(docs: utoipa::openapi::OpenApi) -> utoipa::openapi::OpenApi {
-        crate::models::v0_frozen::freeze_docs(docs)
     }
 }
 
@@ -548,10 +540,6 @@ impl ApiVersion for V1 {
     /// The two `/v1/static` routes, served by the static router.
     fn absolute_docs() -> utoipa::openapi::OpenApi {
         crate::routes::r#static::V1StaticApiDoc::openapi()
-    }
-
-    fn finish_docs(docs: utoipa::openapi::OpenApi) -> utoipa::openapi::OpenApi {
-        docs
     }
 }
 
@@ -719,9 +707,9 @@ pub(crate) use versioned_handlers;
         stream::resources::stream_resource_ids_handler_v0,
     ),
     components(schemas(
-        PostViewDetailed,
+        v0::PostViewDetailed,
         PostDetails,
-        PostStreamDetailed,
+        v0::PostStreamDetailed,
         PostStreamByIdsRequest,
         Bookmark,
         FileDetails,
@@ -732,7 +720,7 @@ pub(crate) use versioned_handlers;
         UserCounts,
         UserView,
         UserStream,
-        Bootstrap,
+        v0::Bootstrap,
         StreamSourceKind,
         PostKind,
         shapes::v0::PostKinds,

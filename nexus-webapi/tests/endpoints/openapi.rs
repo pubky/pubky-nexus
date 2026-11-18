@@ -1108,7 +1108,8 @@ fn test_resource_batch_body_requires_exactly_one_list() {
 }
 
 /// v0 is frozen: its `PostRelationships` has no `embedded`, the external embed external post
-/// references added; v1's has it. Both keep `replied`, and every reference resolves.
+/// references added; v1's has it. Both keep `replied`, neither documents the cache's
+/// `replied_external`, and every reference resolves.
 #[test]
 fn test_embedded_relationship_is_documented_on_v1_only() {
     for (spec, documented) in [(ApiDoc::v0_docs(), false), (ApiDoc::v1_docs(), true)] {
@@ -1122,6 +1123,7 @@ fn test_embedded_relationship_is_documented_on_v1_only() {
             "{properties}"
         );
         assert!(properties.get("replied").is_some(), "{properties}");
+        assert!(properties.get("replied_external").is_none(), "{properties}");
         validate_openapi_refs(&spec);
     }
 }

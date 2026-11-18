@@ -320,6 +320,7 @@ async fn sync_put_details(
         .unwrap_or_default();
     let mut post_relationships = PostRelationships {
         replied: replied.as_ref().map(|parent| parent.uri.clone()),
+        replied_external: false,
         reposted: reposted.as_ref().map(|parent| parent.uri.clone()),
         embedded: None,
         mentioned: Vec::new(),

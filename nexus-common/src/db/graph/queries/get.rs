@@ -256,6 +256,9 @@ pub fn get_post_tags(author_id: &str, post_id: &str, cursor: &[String], limit: i
     .param("limit", limit)
 }
 
+/// A post's relationships. `replied_uri` is what the post replies to, a post or a Resource,
+/// and `replied_external` says which: true when the reply edge ends on a node that is not a
+/// post.
 pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
     Query::new(
         "post_relationships",
@@ -268,6 +271,7 @@ pub fn post_relationships(author_id: &str, post_id: &str) -> Query {
         RETURN
           embedded.uri AS embedded_uri,
           replied_post.uri AS replied_uri,
+          replied_post IS NOT NULL AND NOT replied_post:Post AS replied_external,
           reposted_post.uri AS reposted_uri,
           COLLECT(mentioned_user.id) AS mentioned_user_ids",
     )
