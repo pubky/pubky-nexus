@@ -3,7 +3,7 @@ use anyhow::Result;
 use axum::http::StatusCode;
 use nexus_common::db::{get_neo4j_graph, graph::Query};
 use nexus_common::models::event::resource_changes::ResourceChangeKind;
-use nexus_common::models::post::PostDetails;
+use nexus_common::models::post::{PostDetails, PostStream};
 use nexus_common::models::resource::references;
 use nexus_common::universal_tag::normalize::resource_id;
 use serde_json::{json, Value};
@@ -319,6 +319,112 @@ async fn resource_reference_routes_counts_pagination_and_validation() -> Result<
         .run(
             Query::new(
                 "reference_api_resource_cleanup",
+                "MATCH (r:Resource {id: $rid}) DETACH DELETE r",
+            )
+            .param("rid", rid),
+        )
+        .await?;
+    Ok(())
+}
+
+/// `/v0` serves a Resource that only posts reference, with no tag, as an existing Resource:
+/// the tag route and the lookup by URI answer 200 with no tags. A reply to a URL is a reply on
+/// `/v0` too: the author's own root timeline leaves it out and their replies list it.
+#[tokio_shared_rt::test(shared)]
+async fn v0_serves_an_untagged_referenced_resource_and_a_url_reply_as_a_reply() -> Result<()> {
+    crate::utils::server::TestServiceServer::get_test_server().await;
+    let author = pubky::Keypair::random().public_key().to_z32();
+    let target = format!("https://example.com/api-v0-untagged/{author}");
+    let rid = resource_id(&target);
+    let graph = get_neo4j_graph()?;
+    graph
+        .run(
+            Query::new("v0_untagged_user", "CREATE (:User {id: $author})")
+                .param("author", author.clone()),
+        )
+        .await?;
+    let at = chrono::Utc::now().timestamp_millis();
+    let stamp = chrono::Utc::now().timestamp_micros();
+    // A root post, then a newer reply to the URL.
+    let posts: Vec<PostDetails> = (0..2)
+        .map(|n| {
+            let id = format!("{:013X}", stamp + n);
+            PostDetails {
+                author: author.clone(),
+                uri: format!("pubky://{author}/pub/social/v1/posts/{id}"),
+                id,
+                content: "v0 untagged".into(),
+                indexed_at: at + n,
+                kind: nexus_common::models::post::PostKind::Short,
+                attachments: vec![],
+                lock: None,
+                deleted: false,
+            }
+        })
+        .collect();
+    let [root, reply] = [&posts[0], &posts[1]];
+    for post in &posts {
+        post.put_to_graph(None, None).await?;
+    }
+    references::sync(
+        reply,
+        vec![references::reference(
+            &author,
+            &format!("{}/{}.json", reply.uri, reply.id),
+            &target,
+            ResourceChangeKind::Reply,
+        )?],
+    )
+    .await?;
+    // As the watcher indexes a new post: the graph says which one is a reply.
+    for post in &posts {
+        post.put_to_index(&author, None, false, None).await?;
+    }
+
+    let view = get_request(&format!("/v0/resource/{rid}/tags")).await?;
+    assert_eq!(view["resource"]["id"], rid.as_str(), "{view}");
+    assert_eq!(view["tags"], json!([]), "{view}");
+    let by_uri = get_request(&format!("/v0/resource/by-uri?uri={target}")).await?;
+    assert_eq!(by_uri, view);
+
+    let keys = |stream: &Value| -> Vec<String> {
+        stream
+            .as_array()
+            .unwrap_or_else(|| panic!("not a stream: {stream}"))
+            .iter()
+            .map(|post| post["details"]["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    // The author's own ALL timeline, which the trust filter does not hide from them.
+    let window = format!("start={}&end={}", at + 1000, at - 1000);
+    let timeline = get_request(&format!(
+        "/v0/stream/posts?source=all&sorting=timeline&viewer_id={author}&{window}&limit=50"
+    ))
+    .await?;
+    assert!(keys(&timeline).contains(&root.id), "{timeline}");
+    assert!(!keys(&timeline).contains(&reply.id), "{timeline}");
+    let own = get_request(&format!(
+        "/v0/stream/posts?source=author&author_id={author}"
+    ))
+    .await?;
+    assert_eq!(keys(&own), std::slice::from_ref(&root.id), "{own}");
+    let replies = get_request(&format!(
+        "/v0/stream/posts?source=author_replies&author_id={author}"
+    ))
+    .await?;
+    assert_eq!(keys(&replies), std::slice::from_ref(&reply.id), "{replies}");
+    assert_eq!(replies[0]["relationships"]["replied"], Value::Null);
+
+    references::retract(&author, &reply.id).await?;
+    for post in &posts {
+        PostDetails::delete_from_index(&author, &post.id, None).await?;
+        PostStream::remove_from_replies_per_user_sorted_set(&author, &post.id).await?;
+    }
+    graph.run(Query::new("v0_untagged_cleanup", "MATCH (u:User {id:$author}) OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post) DETACH DELETE p, u").param("author", author)).await?;
+    graph
+        .run(
+            Query::new(
+                "v0_untagged_resource_cleanup",
                 "MATCH (r:Resource {id: $rid}) DETACH DELETE r",
             )
             .param("rid", rid),
