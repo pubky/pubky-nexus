@@ -711,16 +711,18 @@ pub fn viewer_user_tag_uris(user_id: &str, viewer_id: &str, labels: Vec<String>)
 /// and `tag_uri`, the viewer's tag address, looked up among all of its taggers, not
 /// only the listed ones; null without a viewer. Where old per-app edges left two
 /// for one label, `min` picks the same address as `resource_label_taggers`. A missing Resource returns
-/// `details = null`; an existing one without tags returns `tags = []`.
+/// `details = null`; an existing one without tags returns `tags = []`. With `with_counts`, the
+/// row also counts the live posts replying to, embedding and collecting the Resource; each
+/// count walks every such edge, so a reader that serves no count leaves them out.
 pub fn resource_view(
     resource_id: &str,
     viewer_id: Option<&str>,
     skip_tags: usize,
     limit_tags: usize,
     limit_taggers: usize,
+    with_counts: bool,
 ) -> Query {
-    Query::new(
-        "resource_view",
+    let mut cypher = String::from(
         "
         OPTIONAL MATCH (r:Resource {id: $resource_id})
         OPTIONAL MATCH (viewer:User {id: $viewer_id})
@@ -742,17 +744,22 @@ pub fn resource_view(
                 tag_uri: viewer_uri
             }) AS tags
         }
-        RETURN r {.id, .uri, .scheme, .indexed_at} AS details, tags,
+        RETURN r {.id, .uri, .scheme, .indexed_at} AS details, tags",
+    );
+    if with_counts {
+        cypher.push_str(
+            ",
           COUNT { (r)<-[:REPLIED]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS replies_count,
           COUNT { (r)<-[:EMBEDS]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS embeds_count,
-          COUNT { (r)<-[:COLLECTED]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS collections_count
-    ",
-    )
-    .param("resource_id", resource_id)
-    .param("viewer_id", viewer_id.map(str::to_string))
-    .param("skip_tags", skip_tags as i64)
-    .param("limit_tags", limit_tags as i64)
-    .param("limit_taggers", limit_taggers as i64)
+          COUNT { (r)<-[:COLLECTED]-(p:Post) WHERE NOT coalesce(p.deleted, false) } AS collections_count",
+        );
+    }
+    Query::new("resource_view", cypher)
+        .param("resource_id", resource_id)
+        .param("viewer_id", viewer_id.map(str::to_string))
+        .param("skip_tags", skip_tags as i64)
+        .param("limit_tags", limit_tags as i64)
+        .param("limit_taggers", limit_taggers as i64)
 }
 
 /// Taggers of `label` on a Resource node, sorted by user id and paged with
@@ -2701,5 +2708,23 @@ mod tests {
                 "pages need a stable tie-break: {cypher}"
             );
         }
+    }
+
+    /// The reference counts are in the resource view's row only when asked for, so `/v0`,
+    /// which serves none, walks no post edge of the resource.
+    #[test]
+    fn resource_view_counts_the_references_only_when_asked() {
+        const COUNTS: [&str; 3] = [
+            "AS replies_count",
+            "AS embeds_count",
+            "AS collections_count",
+        ];
+        let with = resource_view("rid", None, 0, 5, 5, true).to_cypher_populated();
+        let without = resource_view("rid", None, 0, 5, 5, false).to_cypher_populated();
+        for count in COUNTS {
+            assert!(with.contains(count), "{with}");
+            assert!(!without.contains(count), "{without}");
+        }
+        assert!(!without.contains("COUNT {"), "{without}");
     }
 }

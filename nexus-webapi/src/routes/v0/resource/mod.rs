@@ -80,12 +80,13 @@ pub async fn resource_tags<V: ApiVersion>(
     debug!("GET {RESOURCE_TAGS_ROUTE} resource_id:{}", res_id);
 
     reject_resource_depth(query.depth)?;
-    let view = ResourceView::get_by_id(
+    let view = ResourceView::get_by_id_with_counts(
         &res_id,
         query.skip_tags_as_usize(),
         query.limit_tags_as_usize(),
         query.limit_taggers_as_usize(),
         query.viewer_id.as_deref(),
+        V::REFERENCE_COUNTS,
     )
     .await?
     .ok_or_else(|| Error::resource_not_found(res_id.to_string()))?;
@@ -135,12 +136,13 @@ pub async fn resource_by_uri<V: ApiVersion>(
     let res_id = resource_id(&normalized);
 
     reject_resource_depth(query.tags_query.depth)?;
-    let view = ResourceView::get_by_id(
+    let view = ResourceView::get_by_id_with_counts(
         &res_id,
         query.tags_query.skip_tags_as_usize(),
         query.tags_query.limit_tags_as_usize(),
         query.tags_query.limit_taggers_as_usize(),
         query.tags_query.viewer_id.as_deref(),
+        V::REFERENCE_COUNTS,
     )
     .await?
     .ok_or_else(|| Error::resource_not_found(res_id.clone()))?;

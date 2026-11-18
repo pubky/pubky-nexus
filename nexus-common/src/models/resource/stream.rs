@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use tokio::time::{timeout, Duration};
 use utoipa::ToSchema;
 
-use super::view::ResourceView;
+use super::view::{ReferenceCounts, ResourceView};
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -97,11 +97,12 @@ impl ResourceStream {
     // -----------------------------------------------------------------------
 
     /// Loads full ResourceView objects from a list of resource IDs, one graph
-    /// read per resource.
+    /// read per resource, with the reference counts read as `counts` asks.
     // TODO Batch the page into one query
     pub async fn from_listed_resource_ids(
         viewer_id: Option<&str>,
         resource_ids: &[String],
+        counts: ReferenceCounts,
     ) -> ModelResult<Option<Self>> {
         if resource_ids.is_empty() {
             return Ok(None);
@@ -114,12 +115,13 @@ impl ResourceStream {
             stream::iter(resource_ids.iter().cloned().map(|resource_id| {
                 let viewer_id = viewer_id.clone();
                 async move {
-                    ResourceView::get_by_id(
+                    ResourceView::get_by_id_with_counts(
                         &resource_id,
                         None,
                         Some(5),
                         Some(3),
                         viewer_id.as_deref(),
+                        counts,
                     )
                     .await
                 }
