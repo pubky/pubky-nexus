@@ -41,10 +41,11 @@ pub struct UserDetails {
     pub epoch: Epoch,
 }
 
-// Only for the shipped migrations that clean up the documents this type was
-// once cached in (`UserDeletedFlag1780617600`, `UserEpochBackfill1791812997`):
-// migrations are never edited, so the trait they call stays. Nothing else
-// reads or writes those documents.
+// Only for the migrations that read or clean up the documents this type was
+// once cached in: the shipped `UserDeletedFlag1780617600` and
+// `UserEpochBackfill1791812997`, which are never edited, and
+// `OverwrittenProfileRestore1795036051`, which restores profiles from them.
+// Nothing else reads or writes those documents.
 impl RedisOps for UserDetails {}
 
 /// Reads every stored form of the links, and every form without any as an empty list: the
