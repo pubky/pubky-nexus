@@ -135,3 +135,30 @@ impl Migration for UserSearchStateBackfill1792157548 {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::name_member_owner;
+
+    /// A name index member is `name:id`. A user id holds no `:`, so the last one splits it,
+    /// whatever the name holds.
+    #[test]
+    fn name_member_owner_splits_at_the_last_colon() {
+        assert_eq!(name_member_owner("alice:user_id"), ("user_id", "alice"));
+        assert_eq!(
+            name_member_owner("a:b::c:user_id"),
+            ("user_id", "a:b::c"),
+            "the colons of a name stay in the name"
+        );
+        assert_eq!(name_member_owner(":user_id"), ("user_id", ""), "empty name");
+        assert_eq!(name_member_owner("alice:"), ("", "alice"), "empty id");
+    }
+
+    /// A member without a `:` has no owner: the empty id is recorded under no name, so the
+    /// scan drops the member.
+    #[test]
+    fn name_member_owner_gives_a_member_without_a_colon_to_nobody() {
+        assert_eq!(name_member_owner("alice"), ("", "alice"));
+        assert_eq!(name_member_owner(""), ("", ""));
+    }
+}
