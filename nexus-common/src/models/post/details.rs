@@ -131,11 +131,17 @@ impl PostDetails {
         Self::put_multiple_json_indexes(&key_parts, posts.into_iter().map(Some).collect()).await
     }
 
+    /// Caches the details and, unless `is_edit`, puts the post in the lists it belongs in: a
+    /// root post in the timelines, a reply in its parent's replies and the author's. A reply to
+    /// an external target has no `parent_key_wrapper`: `external_reply` says whether the post
+    /// is one, when the caller knows (the handler of a new post, before its Resource reply edge
+    /// is written); `None` reads it from the graph.
     pub async fn put_to_index(
         &self,
         author_id: &str,
         parent_key_wrapper: Option<(String, String)>,
         is_edit: bool,
+        external_reply: Option<bool>,
     ) -> ModelResult<()> {
         self.put_index_json(&[author_id, &self.id], None, None)
             .await?;
@@ -145,7 +151,12 @@ impl PostDetails {
         }
         // External replies have no native post key. Graph recovery must still
         // keep them out of root timelines and restore the author's replies set.
-        if parent_key_wrapper.is_none() && Self::is_reply_in_graph(author_id, &self.id).await? {
+        let external_reply = match (&parent_key_wrapper, external_reply) {
+            (Some(_), _) => false,
+            (None, Some(known)) => known,
+            (None, None) => Self::is_reply_in_graph(author_id, &self.id).await?,
+        };
+        if external_reply {
             PostStream::remove_from_timeline_sorted_set(author_id, &self.id).await?;
             PostStream::remove_from_per_user_sorted_set(author_id, &self.id).await?;
             PostStream::delete_from_engagement_sorted_set(author_id, &self.id).await?;
@@ -176,7 +187,7 @@ impl PostDetails {
 
     pub async fn reindex(author_id: &str, post_id: &str) -> ModelResult<()> {
         match Self::get_from_graph(author_id, post_id).await? {
-            Some((details, reply)) => details.put_to_index(author_id, reply, false).await?,
+            Some((details, reply)) => details.put_to_index(author_id, reply, false, None).await?,
             None => {
                 tracing::error!("{author_id}:{post_id} Could not find post counts in the graph")
             }
