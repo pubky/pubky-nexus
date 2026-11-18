@@ -16,11 +16,13 @@ pub struct ResourceView {
     pub details: ResourceDetails,
     pub tags: Vec<TagDetails>,
     pub taggers_count: usize,
-    /// Live posts replying to the resource.
+    /// Live posts replying to the resource. Counts posts, not authors: one author's many
+    /// replies count many times, so the number says nothing about how many people reply.
     pub replies_count: usize,
-    /// Live posts embedding the resource.
+    /// Live posts embedding the resource. Counts posts, not authors, as `replies_count` does.
     pub embeds_count: usize,
-    /// Live collections listing the resource.
+    /// Live collections listing the resource. Counts collections, not authors, as
+    /// `replies_count` does.
     pub collections_count: usize,
 }
 
@@ -54,11 +56,13 @@ impl From<StoredResourceView> for ResourceView {
 pub struct ResourceTagsResponse {
     pub resource: ResourceDetails,
     pub tags: Vec<TagDetails>,
-    /// Live posts replying to the resource.
+    /// Live posts replying to the resource. Counts posts, not authors: one author's many
+    /// replies count many times, so the number says nothing about how many people reply.
     pub replies_count: usize,
-    /// Live posts embedding the resource.
+    /// Live posts embedding the resource. Counts posts, not authors, as `replies_count` does.
     pub embeds_count: usize,
-    /// Live collections listing the resource.
+    /// Live collections listing the resource. Counts collections, not authors, as
+    /// `replies_count` does.
     pub collections_count: usize,
 }
 
