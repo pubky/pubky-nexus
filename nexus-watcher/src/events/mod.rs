@@ -148,7 +148,18 @@ impl EventHandler for DefaultEventHandler {
                 .await
             }
             EventType::Del => {
-                handle_del_event(event, self.files_path.as_path(), self.ingestor.clone()).await
+                match handle_del_event(event, self.files_path.as_path(), self.ingestor.clone())
+                    .await
+                {
+                    // Any version DEL removes the logical v1 post. A DEL of a post already gone
+                    // (another version's DEL, or a retry after the graph delete) or never
+                    // indexed has nothing to retract or delete: acknowledged, and, as for a
+                    // pubky.app post, its line is not stored.
+                    Err(EventProcessorError::SkipIndexing) if is_social_post(&event.target) => {
+                        return Ok(())
+                    }
+                    result => result,
+                }
             }
         }?;
 
@@ -284,6 +295,12 @@ pub async fn remove_if_taken_down(
     }
 }
 
+/// Whether `target` is a `social/v1` post version file.
+fn is_social_post(target: &target::EventTarget) -> bool {
+    matches!(target, target::EventTarget::Social(_))
+        && matches!(translate_del(target), Ok(TranslatedDel::Post(_)))
+}
+
 /// Handles a DEL event: translate, dispatch to the matching handler. A file DEL of either epoch
 /// reaches the one file handler, which picks the folder by the id.
 pub async fn handle_del_event(
@@ -293,17 +310,7 @@ pub async fn handle_del_event(
 ) -> Result<(), EventProcessorError> {
     match translate_del(&event.target)? {
         TranslatedDel::User { user_id } => handlers::user::del(user_id).await,
-        TranslatedDel::Post(key) => match handlers::post::del(key, &ingestor).await {
-            // Any version DEL removes the logical v1 post. A DEL of a post already gone
-            // (another version's DEL, or a retry after the graph delete) has nothing left to
-            // retract or delete: acknowledge it.
-            Err(EventProcessorError::SkipIndexing)
-                if matches!(event.target, target::EventTarget::Social(_)) =>
-            {
-                Ok(())
-            }
-            result => result,
-        },
+        TranslatedDel::Post(key) => handlers::post::del(key, &ingestor).await,
         TranslatedDel::Follow {
             user_id,
             followee_id,
