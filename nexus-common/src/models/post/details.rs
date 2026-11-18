@@ -167,9 +167,16 @@ impl PostDetails {
         // per-parent reply set instead.
         match parent_key_wrapper {
             None => {
-                PostStream::remove_from_replies_per_user_sorted_set(author_id, &self.id).await?;
                 PostStream::add_to_timeline_sorted_set(self).await?;
                 PostStream::add_to_per_user_sorted_set(self).await?;
+                // Last: until it is gone, a write that stopped in between leaves a root post in
+                // its author's replies, which a retry reads as lists to put back.
+                #[cfg(any(test, feature = "test-utils"))]
+                crate::utils::test_utils::reference_fault(
+                    crate::utils::test_utils::ReferenceFault::BeforeRepliesRemoval,
+                    author_id,
+                )?;
+                PostStream::remove_from_replies_per_user_sorted_set(author_id, &self.id).await?;
             }
             Some((parent_author_id, parent_post_id)) => {
                 PostStream::add_to_post_reply_sorted_set(
