@@ -4,6 +4,7 @@ use super::manager::{Migration, MigrationManager};
 
 use collected_edges_backfill_1789344000::CollectedEdgesBackfill1789344000;
 use file_details_keys_retire_1792145757::FileDetailsKeysRetire1792145757;
+use overwritten_profile_restore_1795036051::OverwrittenProfileRestore1795036051;
 use post_content_index_author_setup_1780531200::PostContentIndexAuthorSetup1780531200;
 use post_content_index_setup_1780444800::PostContentIndexSetup1780444800;
 use post_deleted_flag_1790899200::PostDeletedFlag1790899200;
@@ -43,6 +44,9 @@ pub fn import_migrations(migration_manager: &mut MigrationManager) {
         Box::new(ResourceTagKeysRetire1792076035),
         Box::new(FileDetailsKeysRetire1792145757),
         Box::new(UserCountsKeysRetire1792418266),
+        // OverwrittenProfileRestore must precede both: the search backfill indexes the
+        // names it restores, from the documents the retire migration deletes.
+        Box::new(OverwrittenProfileRestore1795036051),
         Box::new(UserSearchStateBackfill1792157548),
         Box::new(UserDetailsCacheRetire1792160000),
     ];
@@ -55,6 +59,7 @@ pub fn import_migrations(migration_manager: &mut MigrationManager) {
 // pub mod tag_counts_reset_1739459180;
 pub mod collected_edges_backfill_1789344000;
 pub mod file_details_keys_retire_1792145757;
+pub mod overwritten_profile_restore_1795036051;
 pub mod post_content_index_author_setup_1780531200;
 pub mod post_content_index_setup_1780444800;
 pub mod post_deleted_flag_1790899200;
