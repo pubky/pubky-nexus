@@ -17,7 +17,11 @@ use nexus_common::models::resource::stream::{ResourceKeyStream, ResourceSorting,
 use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use serde::Deserialize;
 use tracing::debug;
-use utoipa::{OpenApi, ToSchema};
+use utoipa::openapi::schema::{
+    AdditionalProperties, ArrayBuilder, ObjectBuilder, OneOfBuilder, Schema, Type,
+};
+use utoipa::openapi::{Ref, RefOr};
+use utoipa::{OpenApi, PartialSchema, ToSchema};
 
 /// The `app` filter Nexus no longer stores. A request that still sends it gets 400 rather
 /// than a silently unfiltered stream, so a client notices the break. It leaves the query in a
@@ -175,17 +179,67 @@ versioned_handlers! {
 pub struct StreamResourcesApiDocs;
 
 /// Supply exactly one list of 1–100 entries. URIs are normalized as `/v1/resource/by-uri` normalizes them.
-#[derive(Debug, Deserialize, ToSchema)]
+///
+/// Its schema is written by hand ([`PartialSchema`] below): a derived one would mark both
+/// lists optional and nullable, which documents bodies the handler rejects.
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResourceStreamByIdsRequest {
     #[serde(default, deserialize_with = "resource_id_list")]
-    #[schema(min_items = 1, max_items = 100)]
     resource_ids: Option<Vec<ResourceId>>,
-    /// Each URI must be at most 2048 bytes and have a valid scheme.
     #[serde(default, deserialize_with = "uri_list")]
-    #[schema(min_items = 1, max_items = 100)]
     uris: Option<Vec<String>>,
     viewer_id: Option<PubkyId>,
+}
+
+/// The body is one of two shapes: `resource_ids` alone or `uris` alone, each a required,
+/// non-null list of 1–100 entries, with an optional (or null) `viewer_id` and no other field.
+impl PartialSchema for ResourceStreamByIdsRequest {
+    fn schema() -> RefOr<Schema> {
+        let shape = |list: &str, items: RefOr<Schema>, description: &str| {
+            ObjectBuilder::new()
+                .property(
+                    list,
+                    ArrayBuilder::new()
+                        .items(items)
+                        .min_items(Some(1))
+                        .max_items(Some(100))
+                        .description(Some(description)),
+                )
+                .required(list)
+                .property(
+                    "viewer_id",
+                    OneOfBuilder::new()
+                        .item(ObjectBuilder::new().schema_type(Type::Null))
+                        .item(Ref::from_schema_name(PubkyId::name())),
+                )
+                .additional_properties(Some(AdditionalProperties::FreeForm(false)))
+        };
+        OneOfBuilder::new()
+            .item(shape(
+                "resource_ids",
+                Ref::from_schema_name(ResourceId::name()).into(),
+                "Resource ids, each 32-char lowercase hex",
+            ))
+            .item(shape(
+                "uris",
+                ObjectBuilder::new().schema_type(Type::String).into(),
+                "Each URI must be at most 2048 bytes and have a valid scheme",
+            ))
+            .description(Some(
+                "Supply exactly one list of 1–100 entries: `resource_ids` or `uris`. URIs are normalized as `/v1/resource/by-uri` normalizes them.",
+            ))
+            .into()
+    }
+}
+
+impl ToSchema for ResourceStreamByIdsRequest {
+    fn schemas(schemas: &mut Vec<(String, RefOr<Schema>)>) {
+        schemas.push((ResourceId::name().into(), ResourceId::schema()));
+        <ResourceId as ToSchema>::schemas(schemas);
+        schemas.push((PubkyId::name().into(), PubkyId::schema()));
+        <PubkyId as ToSchema>::schemas(schemas);
+    }
 }
 
 /// A present `resource_ids`: 1–100 valid ids. Absent, the field is `None`; `null` is rejected.
@@ -323,6 +377,16 @@ mod batch_tests {
             let error = validate(body.clone()).expect_err("rejected").to_string();
             assert!(error.contains(reason), "{body}: {error}");
         }
+    }
+
+    /// A bad id's rejection echoes a bounded prefix, not the whole entry.
+    #[test]
+    fn a_long_bad_id_gets_a_short_rejection() {
+        let error = validate(json!({"resource_ids": ["a".repeat(10_000)]}))
+            .expect_err("rejected")
+            .to_string();
+        assert!(error.contains("32-char lowercase hex"), "{error}");
+        assert!(error.len() < 300, "{} bytes: {error}", error.len());
     }
 
     #[test]

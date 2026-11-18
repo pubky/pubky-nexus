@@ -5,6 +5,7 @@ use nexus_common::models::event::resource_changes::{
     ResourceChange, ResourceChangeOp, RESOURCE_CHANGES_KEY,
 };
 use setup::run_setup;
+use std::sync::LazyLock;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
@@ -31,17 +32,17 @@ async fn read_feed(limit: usize) -> usize {
     }
 }
 
-/// What the cleanup must give back: the number of Redis keys, and the feed's length and
-/// its first and last lines.
+/// The feed's length and its first and last lines: what the cleanup gives back when nothing
+/// else touched the feed meanwhile. The number of Redis keys is logged, not compared: other
+/// keys may come or expire during a run, and the bench owns only its feed lines.
 #[derive(Debug, PartialEq, Eq)]
 struct FeedState {
-    keys: usize,
     length: usize,
     ends: Vec<String>,
 }
 
-async fn feed_state() -> FeedState {
-    let mut conn = get_redis_conn().await.unwrap();
+async fn feed_state() -> Result<(FeedState, usize), String> {
+    let mut conn = get_redis_conn().await.map_err(|e| e.to_string())?;
     let (keys, length, first, last): (usize, usize, Vec<String>, Vec<String>) = redis::pipe()
         .cmd("DBSIZE")
         .cmd("LLEN")
@@ -56,31 +57,38 @@ async fn feed_state() -> FeedState {
         .arg(-1)
         .query_async(&mut conn)
         .await
-        .unwrap();
-    FeedState {
-        keys,
+        .map_err(|e| e.to_string())?;
+    let state = FeedState {
         length,
         ends: [first, last].concat(),
-    }
+    };
+    Ok((state, keys))
 }
 
 /// The bench's own feed lines, appended once and taken out again when it is dropped (also when
 /// a bench panics), by a run-scoped author: a fresh mock holds no feed, and the bench must not
-/// depend on one. Nothing else may write to the feed meanwhile, as for every bench on the mock.
+/// depend on one. When nothing else appended meanwhile, the feed is cut back to what it was;
+/// otherwise each bench line is removed and the others stay. Either way no bench line is left.
 struct SeededFeed<'a> {
     rt: &'a Runtime,
     before: FeedState,
+    keys_before: usize,
     lines: Vec<String>,
 }
 
 impl<'a> SeededFeed<'a> {
     fn seed(rt: &'a Runtime) -> Self {
-        let (before, lines) = rt.block_on(Self::append());
-        Self { rt, before, lines }
+        let (before, keys_before, lines) = rt.block_on(Self::append());
+        Self {
+            rt,
+            before,
+            keys_before,
+            lines,
+        }
     }
 
-    async fn append() -> (FeedState, Vec<String>) {
-        let before = feed_state().await;
+    async fn append() -> (FeedState, usize, Vec<String>) {
+        let (before, keys_before) = feed_state().await.unwrap();
         let author = pubky::Keypair::random().public_key().to_z32();
         let lines: Vec<String> = (0..SEEDED_LINES)
             .map(|i| {
@@ -111,37 +119,49 @@ impl<'a> SeededFeed<'a> {
             .query_async::<()>(&mut conn)
             .await
             .unwrap();
-        (before, lines)
+        (before, keys_before, lines)
     }
 
-    async fn remove(&self) {
-        let mut conn = get_redis_conn().await.unwrap();
-        let start = self.before.length;
-        let tail: Vec<String> = redis::cmd("LRANGE")
-            .arg(RESOURCE_CHANGES_KEY)
-            .arg(start)
-            .arg(-1)
-            .query_async(&mut conn)
+    /// Takes the bench's lines out and checks what the bench owns: none of its lines is left
+    /// in the feed, and, when nothing else appended meanwhile, the feed is what it was.
+    async fn remove(&self) -> Result<(), String> {
+        // The feed's tail after the length it had is exactly the bench's lines: cut it back to
+        // that length (or delete it, if it had none), and return the feed's state right after
+        // the cut. Compared, cut and read in one script, so a line appended meanwhile is never
+        // cut with them and cannot fail the check of the cut.
+        static CUT: LazyLock<redis::Script> = LazyLock::new(|| {
+            redis::Script::new(
+                r"
+            local start = tonumber(ARGV[1])
+            local tail = redis.call('LRANGE', KEYS[1], start, -1)
+            if #tail ~= #ARGV - 1 then return {0, 0, {}, {}} end
+            for i = 1, #tail do
+                if tail[i] ~= ARGV[i + 1] then return {0, 0, {}, {}} end
+            end
+            if start == 0 then
+                redis.call('DEL', KEYS[1])
+            else
+                redis.call('LTRIM', KEYS[1], 0, start - 1)
+            end
+            return {1, redis.call('LLEN', KEYS[1]), redis.call('LRANGE', KEYS[1], 0, 0),
+                redis.call('LRANGE', KEYS[1], -1, -1)}
+        ",
+            )
+        });
+        let mut conn = get_redis_conn().await.map_err(|e| e.to_string())?;
+        let (cut, length, first, last): (bool, usize, Vec<String>, Vec<String>) = CUT
+            .key(RESOURCE_CHANGES_KEY)
+            .arg(self.before.length)
+            .arg(&self.lines)
+            .invoke_async(&mut conn)
             .await
-            .unwrap();
-        if tail == self.lines {
-            if start == 0 {
-                redis::cmd("DEL")
-                    .arg(RESOURCE_CHANGES_KEY)
-                    .query_async::<()>(&mut conn)
-                    .await
-                    .unwrap();
-            } else {
-                redis::cmd("LTRIM")
-                    .arg(RESOURCE_CHANGES_KEY)
-                    .arg(0)
-                    .arg(start - 1)
-                    .query_async::<()>(&mut conn)
-                    .await
-                    .unwrap();
-            }
-        } else {
-            // Something else appended meanwhile: take out the bench's lines one by one
+            .map_err(|e| e.to_string())?;
+        let after_cut = FeedState {
+            length,
+            ends: [first, last].concat(),
+        };
+        if !cut {
+            // Something else wrote to the feed meanwhile: take out the bench's lines one by one
             for line in &self.lines {
                 redis::cmd("LREM")
                     .arg(RESOURCE_CHANGES_KEY)
@@ -149,24 +169,46 @@ impl<'a> SeededFeed<'a> {
                     .arg(line)
                     .query_async::<()>(&mut conn)
                     .await
-                    .unwrap();
+                    .map_err(|e| e.to_string())?;
             }
         }
-        let after = feed_state().await;
+        let feed: Vec<String> = redis::cmd("LRANGE")
+            .arg(RESOURCE_CHANGES_KEY)
+            .arg(0)
+            .arg(-1)
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| e.to_string())?;
+        let own: std::collections::HashSet<&String> = self.lines.iter().collect();
+        let left = feed.iter().filter(|line| own.contains(line)).count();
+        let (after, keys_after) = feed_state().await?;
         println!(
-            "Feed before seeding {:?}, after cleanup {after:?}",
-            self.before
+            "Feed before seeding {:?} ({} Redis keys), after cleanup {after:?} ({keys_after} keys)",
+            self.before, self.keys_before
         );
-        assert_eq!(
-            after, self.before,
-            "the bench must leave the feed as it found it"
-        );
+        if left > 0 {
+            return Err(format!("{left} bench lines left in the feed"));
+        }
+        if cut && after_cut != self.before {
+            return Err(format!(
+                "the feed is not what it was before seeding: {after_cut:?} != {:?}",
+                self.before
+            ));
+        }
+        Ok(())
     }
 }
 
 impl Drop for SeededFeed<'_> {
     fn drop(&mut self) {
-        self.rt.block_on(self.remove());
+        if let Err(e) = self.rt.block_on(self.remove()) {
+            // A panic while already unwinding would abort the bench: report instead.
+            if std::thread::panicking() {
+                eprintln!("The bench's feed cleanup failed while unwinding: {e}");
+            } else {
+                panic!("The bench must take its lines out of the feed: {e}");
+            }
+        }
     }
 }
 

@@ -27,6 +27,11 @@ pub enum JobError {
     #[error("unknown job {name:?}; available jobs: {available}")]
     UnknownJobName { name: String, available: String },
 
+    #[error(
+        "[jobs.{job}]: this job runs only on demand (`nexusd jobs run {job}`); remove its cron"
+    )]
+    UnschedulableJob { job: &'static str },
+
     #[error("[jobs.{job}]: {source}")]
     InvalidCron {
         job: String,

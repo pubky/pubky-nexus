@@ -1042,3 +1042,52 @@ fn test_avatar_mounts_are_documented_with_their_version() {
         "the v1 avatar mount is in the static document"
     );
 }
+
+/// The batch resource body takes exactly one list, so its schema is a `oneOf` of two closed
+/// shapes, one requiring `resource_ids` and one requiring `uris`, each a non-null list of
+/// 1–100 entries next to an optional `viewer_id`. A body with neither list, both, or a null
+/// list matches no shape, as the handler rejects it.
+#[test]
+fn test_resource_batch_body_requires_exactly_one_list() {
+    let spec = serde_json::to_value(ApiDoc::v1_docs()).expect("serializable spec");
+    let body = referenced(
+        &spec,
+        "/paths/~1v1~1stream~1resources~1by_ids/post/requestBody/content/application~1json/schema/$ref",
+    );
+    let shapes = body["oneOf"].as_array().unwrap_or_else(|| panic!("{body}"));
+    assert_eq!(shapes.len(), 2, "{body}");
+    for (shape, list, other) in [
+        (&shapes[0], "resource_ids", "uris"),
+        (&shapes[1], "uris", "resource_ids"),
+    ] {
+        assert_eq!(shape["type"], "object", "{shape}");
+        assert_eq!(shape["required"], serde_json::json!([list]), "{shape}");
+        assert_eq!(shape["additionalProperties"], false, "{shape}");
+        let properties = shape["properties"].as_object().expect("properties");
+        let mut names: Vec<_> = properties.keys().map(String::as_str).collect();
+        names.sort_unstable();
+        let mut expected = vec![list, "viewer_id"];
+        expected.sort_unstable();
+        assert_eq!(names, expected, "{shape}: no {other}");
+        let array = &properties[list];
+        assert_eq!(
+            array["type"], "array",
+            "{list} is a non-null array: {array}"
+        );
+        assert_eq!(array["minItems"], 1, "{array}");
+        assert_eq!(array["maxItems"], 100, "{array}");
+        assert!(array.get("oneOf").is_none(), "{list} is nullable: {array}");
+        assert!(array["items"].is_object(), "{array}");
+        // `viewer_id` may be null or absent, as the handler takes it
+        assert_eq!(
+            properties["viewer_id"]["oneOf"],
+            serde_json::json!([{"type": "null"}, {"$ref": "#/components/schemas/PubkyId"}]),
+            "{shape}"
+        );
+    }
+    assert_eq!(
+        shapes[0]["properties"]["resource_ids"]["items"]["$ref"],
+        "#/components/schemas/ResourceId"
+    );
+    assert_eq!(shapes[1]["properties"]["uris"]["items"]["type"], "string");
+}

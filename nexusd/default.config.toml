@@ -235,11 +235,11 @@ slow_query_logging_threshold_ms = 100
 # The resource changes feed (`Event:ResourceChanges`, `/v1/resources/changes`). The
 # watcher appends to it as it indexes; this job rebuilds it from the graph's resource tags,
 # keeps the lines appended meanwhile, and publishes it under a new epoch, so every consumer
-# starts again from zero. Unscheduled: run it on demand (`nexusd jobs run
-# resource-changes-seed`) after the feed was lost or a writer missed lines. Do not give it a
-# cron: every run resets every consumer. It refuses to replace a feed that holds lines with an
-# empty one, as a wrong graph would give; `resource-changes-seed-empty` is the same job allowed
-# to do that.
+# starts again from zero. On demand only (`nexusd jobs run resource-changes-seed`), after the
+# feed was lost or a writer missed lines: every run resets every consumer, so a cron here makes
+# `nexusd run` and `nexusd jobs run` refuse the config. It refuses to replace a feed that holds
+# lines with an empty one, as a wrong graph would give; `resource-changes-seed-empty` is the same
+# job allowed to do that, likewise on demand only.
 #[jobs.resource-changes-seed]
 
 # Trust-rank parameters (what the recompute does; when it runs is set under
