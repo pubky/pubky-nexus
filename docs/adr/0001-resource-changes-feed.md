@@ -98,8 +98,9 @@ user's later `social/v1` delete retracts the same `(author, uri, label)` their
 
 `at` is the edge's indexed timestamp in Unix milliseconds for puts, and the
 deletion's timestamp for dels. Apply lines in list order, not timestamp order.
-`reply`, `embed` and `collection` identify references made by posts. Post replay may
-refresh the reference timestamp; consumers still upsert the same key. The flip does not
+`reply`, `embed` and `collection` identify references made by posts. A post
+reference's `at` is the time its edge was first indexed, whichever version file names it
+now. The flip does not
 move a post's references: each keeps the path of the post file that made it, and the
 post's later edits and deletes retract that path.
 
@@ -191,7 +192,7 @@ per resource.
 
 ### Post references
 
-Social posts emit `reply`, `embed`, and `collection` for external targets. The target
+Posts of either folder emit `reply`, `embed`, and `collection` for external targets. The target
 URI uses the same normalization and ID as a tag. `object_path` is the actual stored
 version file. One collection can emit multiple lines for that path.
 
@@ -199,7 +200,10 @@ Consumers of these kinds apply each line as an upsert or deletion keyed by
 `(author, object_path, kind, resource_id)`. Lines remain at least once and in append
 order; retries can duplicate a PUT. Keep distinct targets and kinds within one file.
 An edit emits DEL for removed references or an older source-version key, then PUT
-for each current reference. Deleting any social version follows the social-post
+for each reference it gains (a new target, or a new source-version key). A PUT that
+changes no reference emits nothing, and the first PUT after a delete retracted the
+post's references (a delete that stopped half-way, or one that made a tombstone) puts
+every current one again. Deleting any social version follows the social-post
 delete contract and retracts the indexed logical post's current references.
 
 The edge update and a pending append batch commit in the same graph transaction.
@@ -208,8 +212,9 @@ a tag's: the feed writes before the graph. It publishes any pending batch, appen
 del of each of the post's current references, then deletes the post or makes it a
 tombstone; a retry reads the references again and appends their dels again. A tombstone
 keeps its Resource edges, which every Resource-side reader skips, and its later hard
-delete appends nothing. Reseeding includes the Resource edges of live posts and retains
-concurrent appends under the existing epoch/cursor rules. No external target is fetched.
+delete appends nothing. Reseeding includes the Resource edges of live posts, after all
+tag lines, each group in edge time order, and retains concurrent appends under the
+existing epoch/cursor rules. No external target is fetched.
 
 ## Consequences
 
