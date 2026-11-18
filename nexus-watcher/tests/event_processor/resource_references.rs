@@ -388,7 +388,9 @@ fn spawn_event_line(
 /// left and pause before appending it, while a DEL of the post publishes that outbox, deletes the
 /// post and retracts its references: the PUT's append after that would bring the deleted
 /// reference back for feed readers. The post lock orders the two, so the feed ends with the
-/// retraction.
+/// retraction. The held PUT is a newer version that replies to another target, so the DEL must
+/// read the post's references under the lock too: one that read them before taking it would
+/// retract the old target and leave the newer version's reference live.
 #[tokio_shared_rt::test(shared)]
 async fn concurrent_delete_is_not_overtaken_by_an_outbox_append() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -401,12 +403,24 @@ async fn concurrent_delete_is_not_overtaken_by_an_outbox_append() -> Result<()> 
     super::utils::watcher::rank_user(&author).await?;
     let target = format!("https://example.com/delete-race/{author}");
     let rid = resource_id(&normalize_uri(&target).map_err(anyhow::Error::msg)?.0);
+    let new_target = format!("https://example.com/delete-race-newer/{author}");
+    let new_rid = resource_id(&normalize_uri(&new_target).map_err(anyhow::Error::msg)?.0);
     let id = generate_post_id();
     let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
     test.put(
         &key,
         &path,
         &json!({"kind":"note","content":"raced","parent":target}),
+    )
+    .await?;
+    // A newer version, on the homeserver but not handled yet
+    test = test.remove_event_processing().await;
+    let edit = generate_post_id();
+    let newer: ResourcePath = format!("/pub/social/v1/posts/{id}/{edit}.json").parse()?;
+    test.put(
+        &key,
+        &newer,
+        &json!({"kind":"note","content":"raced again","parent":new_target}),
     )
     .await?;
     // A committed graph write whose feed append was lost leaves its outbox on the post.
@@ -423,16 +437,16 @@ async fn concurrent_delete_is_not_overtaken_by_an_outbox_append() -> Result<()> 
     let handler = test.event_processor_runner.event_handler.clone();
     let (reached, release) = pause_references(ReferencePause::Flush, &author);
     let put = spawn_event_line(
-        format!("PUT pubky://{author}{path}"),
+        format!("PUT pubky://{author}{newer}"),
         test.homeserver_id.clone(),
         handler.clone(),
     );
-    // The PUT read the outbox, and has not appended it.
+    // The PUT read the outbox, and has not appended it nor staged its own references.
     tokio::time::timeout(Duration::from_secs(30), reached)
         .await
         .map_err(|_| anyhow::anyhow!("the PUT never reached the outbox append"))??;
     let mut del = spawn_event_line(
-        format!("DEL pubky://{author}{path}"),
+        format!("DEL pubky://{author}{newer}"),
         test.homeserver_id.clone(),
         handler,
     );
@@ -451,28 +465,35 @@ async fn concurrent_delete_is_not_overtaken_by_an_outbox_append() -> Result<()> 
         "the DEL must wait while the PUT holds the lock"
     );
     assert!(!appended_early, "the waiting DEL appended its dels");
-    let put_result = put.await?;
-    let del_result = del.await?;
+    put.await??;
+    del.await??;
 
-    let ops: Vec<_> = ResourceChange::get_from_index(cursor, 1000)
-        .await?
-        .0
-        .lines
-        .iter()
-        .filter(|line| line.author == author && line.resource_id == rid)
-        .map(|line| line.op == ResourceChangeOp::Put)
-        .collect();
-    assert_eq!(
-        ops.last(),
-        Some(&false),
-        "the delete's retraction is the reference's last change (true = put): {ops:?}"
-    );
-    put_result?;
-    del_result?;
-    assert!(ResourceView::get_by_id(&rid, None, None, None, None)
-        .await?
-        .is_none());
+    let lines = ResourceChange::get_from_index(cursor, 1000).await?.0.lines;
+    for (rid, name) in [(&rid, "the older target"), (&new_rid, "the newer target")] {
+        let ops: Vec<_> = lines
+            .iter()
+            .filter(|line| line.author == author && &line.resource_id == rid)
+            .map(|line| line.op == ResourceChangeOp::Put)
+            .collect();
+        assert_eq!(
+            ops.last(),
+            Some(&false),
+            "a retraction is {name}'s last change (true = put): {ops:?}"
+        );
+    }
+    for rid in [&rid, &new_rid] {
+        assert!(ResourceView::get_by_id(rid, None, None, None, None)
+            .await?
+            .is_none());
+    }
+    // Event processing is off: handle the profile's DEL here, so the user does not stay behind
     test.del(&key, &profile).await?;
+    retrieve_and_handle_event_line(
+        &format!("DEL pubky://{author}{profile}"),
+        &test.homeserver_id,
+        test.event_processor_runner.event_handler.clone(),
+    )
+    .await?;
     Ok(())
 }
 
@@ -553,9 +574,13 @@ async fn older_version_does_not_replace_a_newer_versions_references() -> Result<
     Ok(())
 }
 
-/// A newer version's PUT waits for the post's lock before it writes anything: while an older
-/// version's PUT holds it, paused after its post write and before its references, the post
-/// keeps the older content. Released, the older PUT finishes and the newer one runs last.
+/// A newer version's PUT waits for the post's lock before it reads or writes anything: while an
+/// older version's PUT holds it, paused after its post write and before its references, the
+/// post keeps the older content. Released, the older PUT finishes and the newer one runs last.
+/// The older version replies to a URL and the newer one is a root post: the older PUT's
+/// references make the post a reply again (out of the engagement ranking), and the newer PUT
+/// must read that under the lock to put the post back. One that read the post's reply state
+/// before taking the lock would find a root post and leave it out of the ranking.
 #[tokio_shared_rt::test(shared)]
 async fn newer_version_waits_for_the_post_lock_before_its_post_write() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -567,7 +592,6 @@ async fn newer_version_waits_for_the_post_lock_before_its_post_write() -> Result
         .await?;
     super::utils::watcher::rank_user(&author).await?;
     let old_target = format!("https://example.com/older-write/{author}");
-    let new_target = format!("https://example.com/newer-write/{author}");
     let id = generate_post_id();
     let older: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
     test.put(
@@ -581,9 +605,13 @@ async fn newer_version_waits_for_the_post_lock_before_its_post_write() -> Result
     test.put(
         &key,
         &newer,
-        &json!({"kind":"note","content":"newer words","parent":new_target}),
+        &json!({"kind":"note","content":"newer words"}),
     )
     .await?;
+    let ranked = || async {
+        super::posts::utils::check_member_total_engagement_user_posts(&[&author, &id]).await
+    };
+    assert!(ranked().await?.is_some(), "a root post is ranked");
     let content = || async {
         anyhow::Ok(
             PostDetails::get_from_graph(&author, &id)
@@ -626,9 +654,12 @@ async fn newer_version_waits_for_the_post_lock_before_its_post_write() -> Result
         PostRelationships::get_from_graph(&author, &id)
             .await?
             .unwrap()
-            .replied
-            .as_deref(),
-        Some(new_target.as_str())
+            .replied,
+        None
+    );
+    assert!(
+        ranked().await?.is_some(),
+        "the root post the newer version makes is ranked again"
     );
     assert!(
         references::posts(&resource_id(&old_target), ResourceChangeKind::Reply, 0, 10)
