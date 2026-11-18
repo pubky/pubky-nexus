@@ -88,10 +88,9 @@ pub async fn sync_put_at(
             )?);
         }
     }
-    let was_reply = PostRelationships::get_from_graph(&key.owner_id, &key.resource_id)
-        .await?
-        .is_some_and(|relationships| relationships.replied.is_some());
-    let now_reply = is_reply_input(&post);
+    // Whether the post replies to anything: once its write and its references are in, the graph
+    // says the same, so the first run and a retry decide from the same fact.
+    let is_reply = is_reply_input(&post);
     let post_details = post.clone().into_details(&key);
     let projected = post.clone().into_details(&key);
     let ResourceKey {
@@ -106,12 +105,18 @@ pub async fn sync_put_at(
         ingestor,
     )
     .await?;
-    references::sync(&projected, lines).await?;
-    PostRelationships::reindex(&author_id, &post_id).await?;
-    PostDetails::reindex(&author_id, &post_id).await?;
-    if was_reply && !now_reply {
-        if let Some((counts, is_reply)) = PostCounts::get_from_graph(&author_id, &post_id).await? {
-            counts.put_to_index(&author_id, &post_id, is_reply).await?;
+    let touched = references::sync(&projected, lines).await?;
+    // The cached relationships and lists are read back from the graph when the post has or had
+    // a Resource edge, or when its lists disagree with what it is: a retry after a failure past
+    // this point finds the same.
+    if touched || PostStream::is_in_author_replies(&author_id, &post_id).await? != is_reply {
+        PostRelationships::reindex(&author_id, &post_id).await?;
+        PostDetails::reindex(&author_id, &post_id).await?;
+    }
+    // A root post is ranked; one that became a root post is ranked again from its counts.
+    if !is_reply && !PostStream::is_ranked(&author_id, &post_id).await? {
+        if let Some((counts, false)) = PostCounts::get_from_graph(&author_id, &post_id).await? {
+            counts.put_to_index(&author_id, &post_id, false).await?;
         }
     }
     Ok(())
@@ -299,7 +304,9 @@ async fn sync_put_details(
                 // missing dependency for a write that committed. Re-run idempotent
                 // index writes and notifications; scores are intentionally skipped
                 // (prefer drift over duplicates).
-                recover_post_index_state(&author_id, &post_id).await?;
+                // A tombstone's parents leave its external reply out: the graph tells.
+                let external_reply = (!post_details.deleted).then_some(is_reply);
+                recover_post_index_state(&author_id, &post_id, external_reply).await?;
             }
         }
         return Ok(());
@@ -475,7 +482,14 @@ async fn sync_put_details(
     let indexing_results = nexus_common::traced_join!(
         tracing::info_span!("index.write", phase = "post_details");
         post_relationships.put_to_index(&author_id, &post_id),
-        post_details.put_to_index(&author_id, reply_parent_post_key_wrapper, false)
+        // The handler knows whether the post replies to an external target before its
+        // Resource reply edge is written: such a reply never enters the root timelines.
+        post_details.put_to_index(
+            &author_id,
+            reply_parent_post_key_wrapper,
+            false,
+            Some(is_reply)
+        )
     );
 
     indexing_results.0?;
@@ -499,9 +513,13 @@ async fn sync_put_details(
 /// attempt may have stopped before sending them. They are written only if
 /// absent, so one already delivered is neither duplicated nor re-surfaced, and
 /// before `PostDetails`: once it is indexed, a retry takes the edit path.
+///
+/// `external_reply` is whether the post replies to an external target, when the PUT knows it:
+/// its Resource reply edge is written after this, so the graph cannot tell yet.
 async fn recover_post_index_state(
     author_id: &PubkyId,
     post_id: &str,
+    external_reply: Option<bool>,
 ) -> Result<(), EventProcessorError> {
     debug!("Recovering post index state from graph");
 
@@ -580,7 +598,7 @@ async fn recover_post_index_state(
     // Reindex all Redis state from graph truth.
     let (details_result, relationships_result, counts_result) = nexus_common::traced_join!(
         tracing::info_span!("index.write", phase = "post_recovery");
-        post_details.put_to_index(author_id, reply, false),
+        post_details.put_to_index(author_id, reply, false, external_reply),
         PostRelationships::reindex(author_id, post_id),
         PostCounts::reindex(author_id, post_id)
     );
@@ -605,7 +623,9 @@ async fn sync_edit(
     was_kind: PostKind,
 ) -> Result<(), EventProcessorError> {
     // Refresh the cached details (always, even for a lock-only toggle).
-    post_details.put_to_index(&author_id, None, true).await?;
+    post_details
+        .put_to_index(&author_id, None, true, None)
+        .await?;
 
     // Re-run on edits; `maybe_ingest_user` is a no-op for already-known users.
     ingest_collection_item_authors(post, ingestor).await;
@@ -881,15 +901,11 @@ pub async fn sync_del(
         PostRelationships::delete(&author_id, &post_id).await?;
     }
 
-    // If the post is a reply, cannot delete from the main feeds
-    // In the main feed, we just include the root posts and reposts
-    // It could be a situation that relationship would not exist and we will treat the post as a not reply
-    // An external reply, a tombstoned one too, keeps its Resource reply edge.
-    let is_reply = PostDetails::is_reply_in_graph(&author_id, &post_id).await?;
-
     // DELETE TO INDEX - PHASE 1, remove the post counts
-    // Idempotent: JSON DEL + ZREM from engagement sorted set.
-    PostCounts::delete(&author_id, &post_id, !is_reply)
+    // Idempotent: JSON DEL + ZREM from engagement sorted set. Always, whatever the graph says
+    // the post is: a PUT that stopped after its reference write can leave a post the graph calls
+    // a reply still ranked, or a root post still in its author's replies.
+    PostCounts::delete(&author_id, &post_id, true)
         .instrument(tracing::info_span!("index.delete", phase = "post_counts"))
         .await?;
 
@@ -1002,10 +1018,9 @@ pub async fn sync_del(
         indexing_results.1?;
     }
 
-    // External replies have no native parent wrapper, but still own this membership.
-    if is_reply {
-        PostStream::remove_from_replies_per_user_sorted_set(&author_id, &post_id).await?;
-    }
+    // External replies have no native parent wrapper, but still own this membership: removed
+    // always, as the ranking above.
+    PostStream::remove_from_replies_per_user_sorted_set(&author_id, &post_id).await?;
     // PHASE 4: Final Redis cleanup of PostDetails (idempotent JSON DEL + ZREM).
     PostDetails::delete_from_index(&author_id, &post_id, reply_parent_post_key_wrapper)
         .instrument(tracing::info_span!("index.delete", phase = "post_details"))

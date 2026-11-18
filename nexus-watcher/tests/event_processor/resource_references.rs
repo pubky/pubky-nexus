@@ -14,7 +14,9 @@ use nexus_common::models::resource::{references, view::ResourceView};
 use nexus_common::models::user::UserCounts;
 use nexus_common::types::{Pagination, StreamSorting};
 use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
-use nexus_common::utils::test_utils::{pause_references, ReferencePause};
+use nexus_common::utils::test_utils::{
+    fail_references, pause_references, ReferenceFault, ReferencePause,
+};
 use nexus_watcher::EventProcessorError;
 use pubky::{Keypair, ResourcePath};
 use pubky_social_specs::{
@@ -463,6 +465,191 @@ async fn an_external_reply_parent_is_fixed_once_reconciled() -> Result<()> {
     assert!(ResourceView::get_by_id(&rid, None, None, None, None)
         .await?
         .is_none());
+    Ok(())
+}
+
+/// A new reply to a URL is a reply from its first write on: it never enters the root
+/// timelines or the ranking, also when its reference write fails, and its retry finishes it.
+#[tokio_shared_rt::test(shared)]
+async fn a_new_reply_to_a_url_stays_out_of_the_root_lists_when_its_references_fail() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    test.register_user(&key).await?;
+    let author = key.public_key().to_z32();
+    let profile = test
+        .put_v1_profile(&key, &v1_test_user("Reply before its references", ""))
+        .await?;
+    super::utils::watcher::rank_user(&author).await?;
+    test = test.remove_event_processing().await;
+    let handler = test.event_processor_runner.event_handler.clone();
+    let target = format!("https://example.com/reply-before-references/{author}");
+    let rid = resource_id(&target);
+    let id = generate_post_id();
+    let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
+    test.put(
+        &key,
+        &path,
+        &json!({"kind":"note","content":"a reply","parent":target}),
+    )
+    .await?;
+
+    fail_references(ReferenceFault::BeforeStage, &author, true);
+    let failed = retrieve_and_handle_event_line(
+        &format!("PUT pubky://{author}{path}"),
+        &test.homeserver_id,
+        handler.clone(),
+    )
+    .await;
+    fail_references(ReferenceFault::BeforeStage, &author, false);
+    assert!(failed.is_err(), "the injected failure");
+    assert!(PostDetails::get_from_graph(&author, &id).await?.is_some());
+    assert!(
+        !PostDetails::is_reply_in_graph(&author, &id).await?,
+        "no edge yet"
+    );
+    assert_eq!(root_lists_and_replies(&author, &id).await?, REPLY);
+
+    retrieve_and_handle_event_line(
+        &format!("PUT pubky://{author}{path}"),
+        &test.homeserver_id,
+        handler.clone(),
+    )
+    .await?;
+    assert_eq!(
+        references::posts(&rid, ResourceChangeKind::Reply, 0, 10).await?,
+        [(author.clone(), id.clone())]
+    );
+    assert_eq!(root_lists_and_replies(&author, &id).await?, REPLY);
+
+    for line in [
+        format!("DEL pubky://{author}{path}"),
+        format!("DEL pubky://{author}{profile}"),
+    ] {
+        retrieve_and_handle_event_line(&line, &test.homeserver_id, handler.clone()).await?;
+    }
+    Ok(())
+}
+
+/// A PUT that stops after its reference write leaves Redis as the post was before it. Its
+/// retry reads back what the graph says now, and a DEL that comes first cleans up whatever the
+/// lists hold, whichever way the post's reply status went: a post indexed before posts
+/// referenced Resources gains its Resource reply edge (a root post becomes a reply), and one
+/// that had such an edge without a reconciled revision may drop it (a reply becomes a root
+/// post).
+#[tokio_shared_rt::test(shared)]
+async fn a_put_that_stops_after_its_references_is_finished_by_its_retry_or_its_delete() -> Result<()>
+{
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    test.register_user(&key).await?;
+    let author = key.public_key().to_z32();
+    let profile = test
+        .put_v1_profile(&key, &v1_test_user("Stopped after references", ""))
+        .await?;
+    super::utils::watcher::rank_user(&author).await?;
+    test = test.remove_event_processing().await;
+    let handler = test.event_processor_runner.event_handler.clone();
+    let homeserver_id = test.homeserver_id.clone();
+    let handle = |line: String| {
+        let handler = handler.clone();
+        let homeserver_id = homeserver_id.clone();
+        async move { retrieve_and_handle_event_line(&line, &homeserver_id, handler).await }
+    };
+    let target = format!("https://example.com/stopped-after-references/{author}");
+    let mut posts = Vec::new();
+    let mut new_reply = async |content: &str| -> Result<(String, ResourcePath)> {
+        let id = generate_post_id();
+        let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
+        test.put(
+            &key,
+            &path,
+            &json!({"kind":"note","content":content,"parent":target}),
+        )
+        .await?;
+        retrieve_and_handle_event_line(
+            &format!("PUT pubky://{author}{path}"),
+            &test.homeserver_id,
+            test.event_processor_runner.event_handler.clone(),
+        )
+        .await?;
+        Ok((id, path))
+    };
+    let (retried, retried_path) = new_reply("root to reply, retried").await?;
+    let (deleted, deleted_path) = new_reply("root to reply, deleted").await?;
+    let (to_root, to_root_path) = new_reply("reply to root").await?;
+    posts.push(retried_path.clone());
+    posts.push(to_root_path.clone());
+
+    // Root to reply: each replay stops after the edge write, with Redis still a root post's
+    for id in [&retried, &deleted] {
+        as_indexed_before_references(&author, id).await?;
+    }
+    fail_references(ReferenceFault::AfterSync, &author, true);
+    for path in [&retried_path, &deleted_path] {
+        assert!(handle(format!("PUT pubky://{author}{path}")).await.is_err());
+    }
+    fail_references(ReferenceFault::AfterSync, &author, false);
+    for id in [&retried, &deleted] {
+        assert!(
+            PostDetails::is_reply_in_graph(&author, id).await?,
+            "the edge"
+        );
+        assert_eq!(root_lists_and_replies(&author, id).await?, ROOT, "stale");
+    }
+    // The retry puts it in the reply lists
+    handle(format!("PUT pubky://{author}{retried_path}")).await?;
+    assert_eq!(root_lists_and_replies(&author, &retried).await?, REPLY);
+    // The DEL before any retry leaves nothing behind
+    handle(format!("DEL pubky://{author}{deleted_path}")).await?;
+    assert!(PostDetails::get_from_graph(&author, &deleted)
+        .await?
+        .is_none());
+    assert_eq!(
+        root_lists_and_replies(&author, &deleted).await?,
+        (false, false, false, false),
+        "the delete takes the post out of the ranking it was still in"
+    );
+
+    // Reply to root: a Resource reply edge without a reconciled revision accepts an edit that
+    // drops the parent; the edit stops after its edge write, and its retry finds no edge left
+    get_neo4j_graph()?
+        .run(
+            nexus_common::db::graph::Query::new(
+                "test_forget_revision",
+                "MATCH (:User {id: $author})-[:AUTHORED]->(p:Post {id: $id})
+                 REMOVE p.resource_ref_revision",
+            )
+            .param("author", author.as_str())
+            .param("id", to_root.as_str()),
+        )
+        .await?;
+    let edit: ResourcePath =
+        format!("/pub/social/v1/posts/{to_root}/{}.json", generate_post_id()).parse()?;
+    test.put(
+        &key,
+        &edit,
+        &json!({"kind":"note","content":"a root post now"}),
+    )
+    .await?;
+    fail_references(ReferenceFault::AfterSync, &author, true);
+    assert!(handle(format!("PUT pubky://{author}{edit}")).await.is_err());
+    fail_references(ReferenceFault::AfterSync, &author, false);
+    assert!(!PostDetails::is_reply_in_graph(&author, &to_root).await?);
+    assert_eq!(
+        root_lists_and_replies(&author, &to_root).await?,
+        REPLY,
+        "stale"
+    );
+    handle(format!("PUT pubky://{author}{edit}")).await?;
+    assert_eq!(
+        root_lists_and_replies(&author, &to_root).await?,
+        ROOT,
+        "the retry lists and ranks the root post"
+    );
+
+    for path in posts.iter().chain([&profile]) {
+        handle(format!("DEL pubky://{author}{path}")).await?;
+    }
     Ok(())
 }
 
