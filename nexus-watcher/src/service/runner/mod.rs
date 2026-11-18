@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nexus_common::types::DynError;
+use pubky_app_specs::PubkyId;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
 
@@ -52,7 +53,7 @@ pub trait TEventProcessorRunner: Send + Sync {
     ///
     /// # Errors
     /// Returns an error if the event processor couldn't be built
-    async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError>;
+    async fn build(&self, hs_id: &PubkyId) -> Result<Arc<dyn TEventProcessor>, DynError>;
 
     /// Pre-processing step before the main run loop.
     ///
@@ -60,7 +61,7 @@ pub trait TEventProcessorRunner: Send + Sync {
     ///
     /// The list is not truncated here: [`Self::poll_limit`] is applied in [`Self::run`], after
     /// the HS IDs in backoff are skipped.
-    async fn pre_run(&self) -> Result<Vec<String>, DynError>;
+    async fn pre_run(&self) -> Result<Vec<PubkyId>, DynError>;
 
     /// Maximum number of HS IDs built and run per cycle. HS IDs skipped by backoff don't count.
     ///
@@ -98,7 +99,11 @@ pub trait TEventProcessorRunner: Send + Sync {
 
             if self.backoff_hs_should_skip(&hs_id).await {
                 debug!(homeserver = %hs_id, "Skipping homeserver in backoff");
-                run_stats.add_run_result(hs_id, Duration::ZERO, ProcessorRunStatus::Skipped);
+                run_stats.add_run_result(
+                    hs_id.to_string(),
+                    Duration::ZERO,
+                    ProcessorRunStatus::Skipped,
+                );
                 continue;
             }
 
@@ -114,7 +119,7 @@ pub trait TEventProcessorRunner: Send + Sync {
             let duration = t0.elapsed();
 
             self.backoff_hs_record_result(&hs_id, &status).await;
-            run_stats.add_run_result(hs_id, duration, status);
+            run_stats.add_run_result(hs_id.to_string(), duration, status);
         }
 
         let processed_stats = self.post_run(run_stats).await;
@@ -141,6 +146,7 @@ mod tests {
     use crate::errors::EventProcessorError;
     use crate::events::{Event, EventHandler};
     use crate::service::indexer::RunOutcome;
+    use pubky::Keypair;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::Mutex;
 
@@ -205,19 +211,19 @@ mod tests {
 
     /// Runner over fixed HS IDs that records which ones it was asked to build.
     struct RecordingRunner {
-        hs_ids: Vec<String>,
+        hs_ids: Vec<PubkyId>,
         poll_limit: usize,
         backoff: HomeserverBackoff,
-        built: Mutex<Vec<String>>,
+        built: Mutex<Vec<PubkyId>>,
         /// The processor every build returns. Builds fail unless it is set.
         processor: Option<Arc<SlowProcessor>>,
         shutdown_rx: Receiver<bool>,
     }
 
     impl RecordingRunner {
-        fn new(hs_ids: &[&str], poll_limit: usize) -> Self {
+        fn new(hs_ids: Vec<PubkyId>, poll_limit: usize) -> Self {
             Self {
-                hs_ids: hs_ids.iter().map(|id| id.to_string()).collect(),
+                hs_ids,
                 poll_limit,
                 backoff: HomeserverBackoff::default(),
                 built: Mutex::new(vec![]),
@@ -240,13 +246,13 @@ mod tests {
             self.shutdown_rx.clone()
         }
 
-        async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError> {
-            self.built.lock().await.push(hs_id.to_string());
+        async fn build(&self, hs_id: &PubkyId) -> Result<Arc<dyn TEventProcessor>, DynError> {
+            self.built.lock().await.push(hs_id.clone());
             let processor = self.processor.clone().ok_or("not built in this test")?;
             Ok(processor)
         }
 
-        async fn pre_run(&self) -> Result<Vec<String>, DynError> {
+        async fn pre_run(&self) -> Result<Vec<PubkyId>, DynError> {
             Ok(self.hs_ids.clone())
         }
 
@@ -261,23 +267,37 @@ mod tests {
 
     #[tokio::test]
     async fn poll_limit_caps_the_homeservers_built() {
-        let runner = RecordingRunner::new(&["hs1", "hs2", "hs3", "hs4"], 2);
+        let hs1 = PubkyId::from(Keypair::random().public_key());
+        let hs2 = PubkyId::from(Keypair::random().public_key());
+        let hs3 = PubkyId::from(Keypair::random().public_key());
+        let hs4 = PubkyId::from(Keypair::random().public_key());
+
+        let runner = RecordingRunner::new(vec![hs1.clone(), hs2.clone(), hs3, hs4], 2);
 
         runner.run().await.unwrap();
 
-        assert_eq!(*runner.built.lock().await, ["hs1", "hs2"]);
+        assert_eq!(*runner.built.lock().await, [hs1, hs2]);
     }
 
     #[tokio::test]
     async fn backed_off_homeservers_do_not_use_up_the_poll_limit() {
-        let runner = RecordingRunner::new(&["hs1", "hs2", "hs3", "hs4", "hs5"], 2);
-        runner.backoff.record_failure("hs1");
-        runner.backoff.record_failure("hs2");
+        let hs1 = PubkyId::from(Keypair::random().public_key());
+        let hs2 = PubkyId::from(Keypair::random().public_key());
+        let hs3 = PubkyId::from(Keypair::random().public_key());
+        let hs4 = PubkyId::from(Keypair::random().public_key());
+        let hs5 = PubkyId::from(Keypair::random().public_key());
+
+        let runner = RecordingRunner::new(
+            vec![hs1.clone(), hs2.clone(), hs3.clone(), hs4.clone(), hs5],
+            2,
+        );
+        runner.backoff.record_failure(hs1.as_ref());
+        runner.backoff.record_failure(hs2.as_ref());
 
         let ProcessedStats(stats) = runner.run().await.unwrap();
 
         // The two highest-priority HSs are in backoff, so the next two take their slots
-        assert_eq!(*runner.built.lock().await, ["hs3", "hs4"]);
+        assert_eq!(*runner.built.lock().await, [hs3, hs4]);
         assert_eq!(stats.count_skipped(), 2);
         assert_eq!(stats.count_failed_to_build(), 2);
     }
@@ -286,7 +306,9 @@ mod tests {
     /// once, even when its run is slow: the tick waits for the run to end.
     #[tokio::test(start_paused = true)]
     async fn a_homeserver_never_runs_twice_at_once() {
-        let runner = RecordingRunner::new(&["hs1"], usize::MAX)
+        let hs1 = PubkyId::from(Keypair::random().public_key());
+
+        let runner = RecordingRunner::new(vec![hs1.clone()], usize::MAX)
             .with_processors_taking(Duration::from_millis(300), Duration::from_millis(50));
 
         let ProcessedStats(first) = runner.run().await.unwrap();
@@ -367,12 +389,15 @@ mod tests {
     /// holds up the homeservers after it for good. Bounding the calls a run makes fixes it.
     #[tokio::test(start_paused = true)]
     async fn a_run_that_never_returns_holds_up_the_homeservers_after_it() {
-        let runner = RecordingRunner::new(&["hs1", "hs2"], usize::MAX)
+        let hs1 = PubkyId::from(Keypair::random().public_key());
+        let hs2 = PubkyId::from(Keypair::random().public_key());
+
+        let runner = RecordingRunner::new(vec![hs1.clone(), hs2], usize::MAX)
             .with_processors_taking(Duration::MAX, Duration::from_secs(60));
 
         let tick = tokio::time::timeout(Duration::from_secs(24 * 3600), runner.run()).await;
 
         assert!(tick.is_err(), "the tick ended");
-        assert_eq!(*runner.built.lock().await, ["hs1"]);
+        assert_eq!(*runner.built.lock().await, [hs1]);
     }
 }

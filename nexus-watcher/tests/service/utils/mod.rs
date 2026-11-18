@@ -13,3 +13,9 @@ pub use processor::{
 pub use processor_runner::MockEventProcessorRunner;
 pub use result::MockEventProcessorResult;
 pub use setup::{setup, HS_IDS};
+
+use pubky_app_specs::PubkyId;
+
+pub fn hs_id(s: &str) -> PubkyId {
+    PubkyId::try_from(s).expect("valid PubkyId")
+}
