@@ -79,4 +79,60 @@ mod tests {
             .scheduled_jobs(&config)
             .expect("shipped [jobs.*] keys must match the catalog");
     }
+
+    /// A job that may not be scheduled has no schedule of its own either: with one, every
+    /// startup would fail asking to remove a cron nobody configured.
+    #[test]
+    fn unschedulable_jobs_have_no_default_cron() {
+        use std::sync::Arc;
+
+        let registry = JobRegistry::catalog(&TrustRankConfig::default());
+        let unschedulable: Vec<_> = registry
+            .jobs()
+            .iter()
+            .filter(|job| !job.schedulable())
+            .map(Arc::as_ref)
+            .collect();
+        assert_eq!(unschedulable.len(), 2, "the two seed jobs");
+        for job in unschedulable {
+            assert_eq!(job.default_cron(), None, "{}", job.name());
+        }
+    }
+
+    /// Every seed run resets every consumer of the feed, so neither seed job may be given a
+    /// cron: config resolution (`nexusd run`, and `nexusd jobs run` before it runs a job)
+    /// fails naming the section. Without a cron, as shipped, both stay runnable on demand.
+    #[tokio::test]
+    async fn seed_jobs_reject_a_cron() {
+        use crate::config::CONFIG_FILE_NAME;
+        use crate::jobs::JobError;
+        use nexus_common::file::ConfigLoader;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let shipped = DaemonConfig::read_or_create_config_file(dir.path().to_path_buf())
+            .await
+            .unwrap();
+        let registry = JobRegistry::catalog(&shipped.trust_rank);
+        registry.scheduled_jobs(&shipped).expect("shipped config");
+        let toml = std::fs::read_to_string(dir.path().join(CONFIG_FILE_NAME)).unwrap();
+        for job in ["resource-changes-seed", "resource-changes-seed-empty"] {
+            // A section without a cron is still accepted.
+            let config = DaemonConfig::try_from_str(&format!("{toml}\n[jobs.{job}]\n")).unwrap();
+            registry
+                .scheduled_jobs(&config)
+                .expect("a section without cron");
+            let config = DaemonConfig::try_from_str(&format!(
+                "{toml}\n[jobs.{job}]\ncron = \"0 0 3 * * *\"\n"
+            ))
+            .unwrap();
+            let err = registry.scheduled_jobs(&config).err().expect("rejected");
+            assert!(
+                matches!(err, JobError::UnschedulableJob { job: name } if name == job),
+                "{job}: {err:?}"
+            );
+            let text = err.to_string();
+            assert!(text.contains(&format!("[jobs.{job}]")), "{text}");
+            assert!(text.contains("on demand"), "{text}");
+        }
+    }
 }

@@ -34,6 +34,10 @@ impl Deref for ResourceId {
     }
 }
 
+/// At most this many characters of a rejected id are echoed in its error, so a request
+/// cannot have a body-sized id repeated back in the 400 answer and the log line.
+const ECHOED_ID_CHARS: usize = 64;
+
 impl ResourceId {
     pub(crate) fn validate_id(id: &str) -> Result<(), Error> {
         if id.len() != 32
@@ -41,8 +45,12 @@ impl ResourceId {
                 .chars()
                 .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
         {
+            let shown = match id.char_indices().nth(ECHOED_ID_CHARS) {
+                Some((end, _)) => format!("{}…", &id[..end]),
+                None => id.to_string(),
+            };
             return Err(Error::invalid_input(format!(
-                "resource_id must be 32-char lowercase hex, got: {id}"
+                "resource_id must be 32-char lowercase hex, got: {shown}"
             )));
         }
         Ok(())
@@ -146,6 +154,29 @@ mod tests {
         let id = "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!".to_string();
         let result = ResourceId::validate_id(&id);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_id_echoes_a_bounded_prefix() {
+        let long = "x".repeat(10_000);
+        let error = ResourceId::validate_id(&long).unwrap_err().to_string();
+        assert!(error.contains("must be 32-char lowercase hex"), "{error}");
+        assert!(
+            error.contains(&format!("got: {}…", "x".repeat(64))),
+            "{error}"
+        );
+        assert!(error.len() < 200, "{} bytes: {error}", error.len());
+        // Multi-byte characters are cut on a character boundary.
+        let wide = "é".repeat(10_000);
+        let error = ResourceId::validate_id(&wide).unwrap_err().to_string();
+        assert!(
+            error.contains(&format!("got: {}…", "é".repeat(64))),
+            "{error}"
+        );
+        assert!(error.len() < 300, "{} bytes: {error}", error.len());
+        // A short bad id is still shown whole.
+        let error = ResourceId::validate_id("short").unwrap_err().to_string();
+        assert!(error.ends_with("got: short"), "{error}");
     }
 
     // -- TryFrom<String> tests --

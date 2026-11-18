@@ -133,7 +133,9 @@ To intentionally rebuild later (for example after replacing/clearing Redis):
 nexusd --config-dir /path/to/config jobs run resource-changes-seed
 ```
 
-The job is unscheduled by default. It walks every User–TAGGED–Resource edge ordered
+The job runs only on demand: every run resets every consumer, so a `cron` for it (or
+for `resource-changes-seed-empty`) makes `nexusd run` and `nexusd jobs run` refuse
+the config. It walks every User–TAGGED–Resource edge ordered
 by `indexed_at`, with deterministic author/path/ID tie breakers, into a temporary
 Redis list in batches of 1000, one put per edge under the edge's stored address. It
 never renormalizes or changes IDs. An edge it cannot turn into a line (no stored

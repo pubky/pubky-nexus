@@ -516,8 +516,41 @@ async fn assert_feed_matches_graph(author: &str, start: u64, target: &str) -> Re
     Ok(())
 }
 
-/// A DEL of a resource tag waits while another handler of the same tagger holds the tagger's lock,
-/// and runs once it is released.
+/// Gives `author`'s `steps` edge to `target` the id `id` and the `social/v1` address built from it,
+/// with the flip's own write (`set_tag_addresses`, which the tags step runs under the tagger's
+/// lock): the same tagger, target and label, at a new address.
+async fn move_resource_tag_edge(author: &str, target: &str, id: &str) -> Result<String> {
+    use nexus_common::db::{fetch_key_from_graph, fetch_row_from_graph, graph::Query, queries};
+
+    let (normalized, _) = normalize_uri(target).unwrap();
+    let edge: String = fetch_row_from_graph(
+        Query::new(
+            "test_resource_tag_edge_element",
+            "MATCH (:User {id: $author})-[t:TAGGED {label: 'steps'}]->(:Resource {id: $resource_id})
+             RETURN elementId(t) AS edge",
+        )
+        .param("author", author)
+        .param("resource_id", resource_id(&normalized)),
+    )
+    .await?
+    .expect("the edge")
+    .get("edge")?;
+    let uri = pubky_social_specs::tag_uri_builder(author.to_string(), id.to_string());
+    let changed = fetch_key_from_graph::<i64>(
+        queries::migration::set_tag_addresses(author, &[(edge, id.to_string(), uri.clone())]),
+        "changed",
+    )
+    .await?;
+    assert_eq!(changed, Some(1));
+    Ok(uri)
+}
+
+/// A DEL of a resource tag reads the edge only once it holds the tagger's lock. While another
+/// handler of the tagger holds the lock, the DEL waits; meanwhile the edge moves to the address
+/// the DEL names, as the flip's tags step moves it (new id and `social/v1` address, same tagger,
+/// target and label). Once released, the DEL finds and deletes the edge, and its del follows
+/// the graph. A DEL that read the edge before taking the lock would have found none at that id
+/// and left the moved edge in the graph.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_tag_delete_waits_for_the_tagger_lock() -> Result<()> {
     use nexus_watcher::events::handlers::tag;
@@ -535,16 +568,25 @@ async fn test_resource_tag_delete_waits_for_the_tagger_lock() -> Result<()> {
     let storage: ResourcePath = format!("/pub/pubky.app/tags/{id}").parse()?;
     let tag_uri = format!("pubky://{author}{storage}");
     test.put(&key, &storage, &tag).await?;
+    assert_eq!(
+        resource_tag_edge(&author, &target).await?,
+        Some(tag_uri.clone())
+    );
+    // Another id of the tagger's, standing in for the one the flip gives the edge
+    let moved_id = PubkyAppTag::new(format!("{target}#moved"), "steps".into()).create_id();
+    assert_ne!(moved_id, id);
+    let moved_uri = pubky_social_specs::tag_uri_builder(author.clone(), moved_id.clone());
 
     let guard = tag::lock_tagger(&author).await;
     let owner_id = crate::event_processor::posts::utils::pubky_id(&author)?;
+    let (del_id, del_uri) = (moved_id.clone(), moved_uri.clone());
     let mut delete = tokio::spawn(async move {
         tag::del_at(
             ResourceKey {
                 owner_id,
-                resource_id: id,
+                resource_id: del_id,
             },
-            &tag_uri,
+            &del_uri,
         )
         .await
     });
@@ -555,13 +597,25 @@ async fn test_resource_tag_delete_waits_for_the_tagger_lock() -> Result<()> {
             .is_err(),
         "a DEL must wait while the tagger's lock is held"
     );
+    assert_eq!(
+        move_resource_tag_edge(&author, &target, &moved_id).await?,
+        moved_uri
+    );
     drop(guard);
     delete.await??;
+    assert_eq!(
+        resource_tag_edge(&author, &target).await?,
+        None,
+        "the DEL deletes the edge it finds under the lock"
+    );
     assert_feed_matches_graph(&author, start, &target).await?;
     let lines = authored_since(&author, start).await?;
-    assert_eq!(
-        lines.last().map(|line| line.op),
-        Some(ResourceChangeOp::Del)
+    let del = lines.last().expect("the DEL appends its del");
+    assert_eq!(del.op, ResourceChangeOp::Del);
+    assert!(
+        moved_uri.ends_with(&del.object_path),
+        "{} is the DEL's file",
+        del.object_path
     );
     test.cleanup_user(&key).await?;
     Ok(())
@@ -735,9 +789,13 @@ async fn test_resource_changes_delete_ignores_a_bad_stored_address() -> Result<(
 /// The flip's tags step holds the tagger's lock for each batch, from its read to its write: while
 /// another handler of the tagger holds it, the step moves nothing, and it runs once the lock is
 /// released. A DEL therefore never reads an edge, appends its del and then misses the edge the
-/// step gave a new id.
+/// step gave a new id. While the step waits, the lock's holder deletes the edge (the graph
+/// write of a DEL): the step then reads its page under the lock, finds nothing left to move
+/// and succeeds. A step that read its page before taking the lock would write a page of edges
+/// that are gone, and fail.
 #[tokio_shared_rt::test(shared)]
 async fn test_resource_tag_flip_waits_for_the_tagger_lock() -> Result<()> {
+    use nexus_common::db::{fetch_row_from_graph, queries};
     use nexus_watcher::events::{handlers::tag, v0_to_v1};
 
     let mut test = WatcherTest::setup(None).await?;
@@ -769,8 +827,23 @@ async fn test_resource_tag_flip_waits_for_the_tagger_lock() -> Result<()> {
         Some(format!("pubky://{author}{path}")),
         "nothing moves while the lock is held"
     );
+    let id = PubkyAppTag::new(target.clone(), "steps".into()).create_id();
+    assert!(path.ends_with(&id), "{path}");
+    fetch_row_from_graph(queries::del::delete_tag(&author, &id)).await?;
+    assert_eq!(resource_tag_edge(&author, &target).await?, None);
     drop(guard);
-    flip.await?;
+    flip.await
+        .map_err(|e| anyhow::anyhow!("the step must read its page under the lock: {e}"))?;
+    assert_eq!(
+        resource_tag_edge(&author, &target).await?,
+        None,
+        "the step moves no deleted edge"
+    );
+
+    // With the edge in place, the released step moves it.
+    let path = run_tag_steps(&author, &target, &[TagStep::Put]).await?;
+    assert!(path.contains("/pub/pubky.app/tags/"), "{path}");
+    v0_to_v1::tags::migrate(&user, &files, v0_to_v1::tags::BATCH_SIZE).await?;
     let moved = resource_tag_edge(&author, &target)
         .await?
         .expect("the edge");

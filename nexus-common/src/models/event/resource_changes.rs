@@ -486,24 +486,28 @@ mod tests {
             .collect();
         assert_eq!(own, [first.clone(), second]);
 
-        // Emulate a watcher append between snapshot start and publication.
+        // Emulate a watcher append between snapshot start and publication. The lease is
+        // released before any assertion or error return, so a failure leaves no seed blocked.
         let token = format!("feed-test-{author}");
         let temp = format!("{RESOURCE_CHANGES_KEY}:Seed:{token}");
         assert!(try_acquire_lock(SEED_LOCK, &token, SEED_TTL).await?);
-        let start: u64 = conn.llen(RESOURCE_CHANGES_KEY).await?;
-        write_seed_batch(&temp, &[first.json()?]).await?;
-        deleted.store().await?;
-        let before = ResourceChange::get_from_index(0, 1000).await?;
-        assert_eq!(before.1, new_epoch, "staging must not publish early");
-        assert!(publish_seed("wrong-token", &temp, start, false)
-            .await
-            .is_err());
-        assert_eq!(
-            ResourceChange::get_from_index(0, 1000).await?.0.lines,
-            before.0.lines
-        );
-        assert_eq!(publish_seed(&token, &temp, start, false).await?, 2);
+        let leased = async {
+            let start: u64 = conn.llen(RESOURCE_CHANGES_KEY).await?;
+            write_seed_batch(&temp, &[first.json()?]).await?;
+            deleted.store().await?;
+            let before = ResourceChange::get_from_index(0, 1000).await?;
+            let wrong_token = publish_seed("wrong-token", &temp, start, false).await;
+            let after_wrong_token = ResourceChange::get_from_index(0, 1000).await?.0.lines;
+            let published = publish_seed(&token, &temp, start, false).await;
+            Ok::<_, crate::types::DynError>((before, wrong_token, after_wrong_token, published))
+        }
+        .await;
         release_lock(SEED_LOCK, &token).await?;
+        let (before, wrong_token, after_wrong_token, published) = leased?;
+        assert_eq!(before.1, new_epoch, "staging must not publish early");
+        assert!(wrong_token.is_err());
+        assert_eq!(after_wrong_token, before.0.lines);
+        assert_eq!(published?, 2);
         let after = ResourceChange::get_from_index(0, 1000).await?;
         assert_eq!(after.0.lines, [first, deleted]);
         assert_ne!(after.1, before.1);
@@ -521,8 +525,11 @@ mod tests {
         let mut conn = get_redis_conn().await?;
         let graph = get_neo4j_graph()?;
         let author = pubky::Keypair::random().public_key().to_z32();
-        // One edge more than a seed batch, then two edges the seed cannot turn into lines, which
-        // it skips: one with no stored address, one whose address is another user's
+        // One edge more than a seed batch, `indexed_at` 0, 2, 4, …, and two edges the seed cannot
+        // turn into lines, which it skips: one with no stored address inside the first batch
+        // (at 601), one whose address is another user's just before the last good edge, in the
+        // second batch. A seed that stopped at a bad edge instead of skipping it misses the good
+        // edges after it.
         let edges = BATCH_SIZE + 1;
         let other = pubky::Keypair::random().public_key().to_z32();
         graph
@@ -535,7 +542,12 @@ mod tests {
             UNWIND range(0, $edges + 1) AS i
             CREATE (r:Resource {id: $author + ':' + toString(i), scheme: 'https',
                 uri: 'https://example.com/seed-batches/' + $author + '/' + toString(i)})
-            CREATE (u)-[t:TAGGED {id: 'seed' + toString(i), label: 'test', indexed_at: i}]->(r)
+            CREATE (u)-[t:TAGGED {id: 'seed' + toString(i), label: 'test'}]->(r)
+            SET t.indexed_at = CASE
+                WHEN i < $edges THEN 2 * i
+                WHEN i = $edges THEN 601
+                ELSE 2 * $edges - 3
+            END
             SET t.uri = CASE
                 WHEN i < $edges THEN 'pubky://' + $author + '/pub/pubky.app/tags/seed' + toString(i)
                 WHEN i > $edges THEN 'pubky://' + $other + '/pub/pubky.app/tags/seed' + toString(i)
@@ -568,23 +580,27 @@ mod tests {
 
         // Appends made while a seed runs, more than one copy chunk of them, follow the seed
         let token = format!("feed-test-{author}");
-        assert!(try_acquire_lock(SEED_LOCK, &token, SEED_TTL).await?);
         let temp = format!("{RESOURCE_CHANGES_KEY}:Seed:{token}");
-        let start: u64 = conn.llen(RESOURCE_CHANGES_KEY).await?;
         let snapshot = tag(&author, "snapshot", 0);
-        write_seed_batch(&temp, &[snapshot.json()?]).await?;
         let appended: Vec<ResourceChange> = (0..2500)
             .map(|i| tag(&author, &format!("appended{i}"), i))
             .collect();
-        let json = appended
-            .iter()
-            .map(ResourceChange::json)
-            .collect::<RedisResult<Vec<_>>>()?;
-        let _: () = conn.rpush(RESOURCE_CHANGES_KEY, &json).await?;
-        // The lease is released before any assertion, so a failure leaves no seed blocked
-        let published = publish_seed(&token, &temp, start, false).await;
+        // The lease is released before any assertion or error return, so a failure leaves no
+        // seed blocked
+        assert!(try_acquire_lock(SEED_LOCK, &token, SEED_TTL).await?);
+        let leased = async {
+            let start: u64 = conn.llen(RESOURCE_CHANGES_KEY).await?;
+            write_seed_batch(&temp, &[snapshot.json()?]).await?;
+            let json = appended
+                .iter()
+                .map(ResourceChange::json)
+                .collect::<RedisResult<Vec<_>>>()?;
+            let _: () = conn.rpush(RESOURCE_CHANGES_KEY, &json).await?;
+            Ok::<_, crate::types::DynError>(publish_seed(&token, &temp, start, false).await)
+        }
+        .await;
         release_lock(SEED_LOCK, &token).await?;
-        assert_eq!(published?, 2501);
+        assert_eq!(leased??, 2501);
         let (published, _, _) = ResourceChange::get_from_index(0, usize::MAX).await?;
         assert_eq!(published.lines[0], snapshot);
         assert_eq!(published.lines[1..], appended[..]);
@@ -605,19 +621,24 @@ mod tests {
         let before = ResourceChange::get_from_index(0, usize::MAX).await?;
         let token = format!("feed-test-{author}");
         let temp = format!("{RESOURCE_CHANGES_KEY}:Seed:{token}");
+        // The lease is released before any assertion or error return
         assert!(try_acquire_lock(SEED_LOCK, &token, SEED_TTL).await?);
-        let start: u64 = conn.llen(RESOURCE_CHANGES_KEY).await?;
-        assert!(start > 0);
-
-        // A snapshot that read no references, as from an empty or wrong graph
-        let refused = publish_seed(&token, &temp, start, false).await;
-        let after_refusal = ResourceChange::get_from_index(0, usize::MAX).await?;
-        // Allowed explicitly, it publishes the empty feed under a new epoch
-        let allowed = publish_seed(&token, &temp, start, true).await;
-        let after_allowed = ResourceChange::get_from_index(0, usize::MAX).await?;
+        let leased = async {
+            let start: u64 = conn.llen(RESOURCE_CHANGES_KEY).await?;
+            // A snapshot that read no references, as from an empty or wrong graph
+            let refused = publish_seed(&token, &temp, start, false).await;
+            let after_refusal = ResourceChange::get_from_index(0, usize::MAX).await?;
+            // Allowed explicitly, it publishes the empty feed under a new epoch
+            let allowed = publish_seed(&token, &temp, start, true).await;
+            let after_allowed = ResourceChange::get_from_index(0, usize::MAX).await?;
+            Ok::<_, crate::types::DynError>((start, refused, after_refusal, allowed, after_allowed))
+        }
+        .await;
         release_lock(SEED_LOCK, &token).await?;
         ResourceChange::reseed(false).await?;
 
+        let (start, refused, after_refusal, allowed, after_allowed) = leased?;
+        assert!(start > 0);
         let refused = refused.expect_err("an empty snapshot must not replace the feed");
         assert!(
             refused.to_string().contains("found no references"),
