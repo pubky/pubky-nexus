@@ -6,7 +6,7 @@ use nexus_common::db::{
 };
 use nexus_common::models::error::ModelError;
 use pubky::Keypair;
-use pubky_app_specs::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{traits::HashId, PubkyAppPost, PubkyAppTag, PubkyAppUser};
 
 /// Two taggers, same label → identical t.id, distinct (tagger.id, t.id) pairs.
 /// A regression to a plain t.id keyset drops the second edge; this test catches it.

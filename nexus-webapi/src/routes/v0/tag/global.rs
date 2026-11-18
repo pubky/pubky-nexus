@@ -1,5 +1,6 @@
-use crate::models::{BoundedLimit, BoundedPagination, BoundedSkip, PubkyId, TagLabel};
+use crate::models::{BoundedLimit, BoundedPagination, BoundedSkip, PubkyId};
 use crate::routes::v0::endpoints::{TAGS_HOT_ROUTE, TAG_TAGGERS_ROUTE};
+use crate::routes::v0::version::{versioned_handlers, ApiVersion};
 use crate::routes::Path;
 use crate::routes::Query;
 use crate::{Error, Result};
@@ -33,28 +34,10 @@ pub struct TagTaggersQuery {
     timeframe: Option<Timeframe>,
 }
 
-#[utoipa::path(
-    get,
-    path = TAG_TAGGERS_ROUTE,
-    description = "Global tag Taggers",
-    tag = "Tags",
-    params(
-        ("label" = TagLabel, Path, description = "Tag name"),
-        ("reach" = Option<String>, Query, example = "wot_2", description = "Reach type: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. To apply that, user_id is required. Bare `wot` defaults to depth 2."),
-        ("user_id" = Option<PubkyId>, Query, description = "User ID to base reach on"),
-        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N taggers (0–10 000, **default** 0)"),
-        ("limit" = Option<BoundedLimit<20, 20>>, Query, description = "Retrieve N tagggers. Defaults to `20`"),
-        ("timeframe" = Option<Timeframe>, Query, description = "Retrieve taggers for this specific timeframe (not applied for reach). Defaults to `all_time`"),
-    ),
-    responses(
-        (status = 400, description = "Invalid parameters"),
-        (status = 200, description = "Taggers", body = TaggersType),
-        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn tag_taggers_handler(
-    Path(label): Path<TagLabel>,
+/// The one body behind `tag_taggers_handler_v0` and `tag_taggers_handler_v1`: the global
+/// taggers of the label as the version folds it.
+pub async fn tag_taggers<V: ApiVersion>(
+    Path(label): Path<V::TagLabel>,
     Query(query): Query<TagTaggersQuery>,
 ) -> Result<Json<TaggersType>> {
     debug!("GET {TAG_TAGGERS_ROUTE} label:{label}, query: {query:?}");
@@ -71,7 +54,7 @@ pub async fn tag_taggers_handler(
     let timeframe = query.timeframe.unwrap_or(Timeframe::AllTime);
 
     match Taggers::get_global_taggers(
-        label.0,
+        label.to_string(),
         query.user_id.map(|id| id.to_string()),
         query.reach,
         skip,
@@ -83,6 +66,31 @@ pub async fn tag_taggers_handler(
         Some(post) => Ok(Json(post)),
         None => Ok(Json(vec![])),
     }
+}
+
+versioned_handlers! {
+    tag_taggers_handler_v0 / tag_taggers_handler_v1 => tag_taggers(path: Path<shapes::TagLabel>, query: Query<TagTaggersQuery>) -> TaggersType;
+    #[utoipa::path(
+        get,
+        path = TAG_TAGGERS_ROUTE,
+        operation_id = "tag_taggers_handler",
+        description = "Global tag Taggers",
+        tag = "Tags",
+        params(
+            ("label" = shapes::TagLabel, Path, description = "Tag name"),
+            ("reach" = Option<String>, Query, example = "wot_2", description = "Reach type: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. To apply that, user_id is required. Bare `wot` defaults to depth 2."),
+            ("user_id" = Option<PubkyId>, Query, description = "User ID to base reach on"),
+            ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N taggers (0–10 000, **default** 0)"),
+            ("limit" = Option<BoundedLimit<20, 20>>, Query, description = "Retrieve N tagggers. Defaults to `20`"),
+            ("timeframe" = Option<Timeframe>, Query, description = "Retrieve taggers for this specific timeframe (not applied for reach). Defaults to `all_time`"),
+        )
+    )]
+    responses(
+        (status = 200, description = "Taggers"),
+        (status = 400, description = "Invalid parameters"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error")
+    )
 }
 
 #[utoipa::path(
@@ -135,9 +143,11 @@ pub async fn hot_tags_handler(Query(query): Query<HotTagsQuery>) -> Result<Json<
     }
 }
 
+/// The hot tags and the schemas both routes share; the global taggers route, whose label is
+/// the version's, comes with the version's document.
 #[derive(OpenApi)]
 #[openapi(
-    paths(hot_tags_handler, tag_taggers_handler),
-    components(schemas(HotTags, HotTag, Taggers, StreamReach, Timeframe, PubkyId, TagLabel))
+    paths(hot_tags_handler),
+    components(schemas(HotTags, HotTag, Taggers, StreamReach, Timeframe, PubkyId))
 )]
 pub struct TagGlobalApiDoc;

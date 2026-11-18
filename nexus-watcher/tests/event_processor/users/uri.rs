@@ -5,8 +5,8 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::tag::view::TagView;
 use pubky::Keypair;
-use pubky_app_specs::traits::HashId;
-use pubky_app_specs::{user_uri_builder, PubkyAppTag};
+use pubky_social_specs::legacy_v0::traits::HashId;
+use pubky_social_specs::legacy_v0::{user_uri_builder, PubkyAppTag};
 
 fn tag_on_user(user_id: &str, label: &str) -> PubkyAppTag {
     PubkyAppTag {

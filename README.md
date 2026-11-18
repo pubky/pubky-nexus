@@ -17,9 +17,12 @@ Pubky Nexus is the central bridge connecting Pubky homeservers with [Pubky-App�
 
 ## 🌐 Accessing the API
 
-> ⚠️ **Warning**: The API is currently **unstable**. We are using the `/v0` route prefix while the API undergoes active development and changes. Expect potential breaking changes as we work toward stability.
+Nexus serves two versions of its REST API:
 
-Nexus provides a REST API, accessible via Swagger UI:
+- **`/v1`** is the current API, read by the `social/v1` clients. Every new feature lands here.
+- **`/v0`** is **frozen**: fixes only, no new routes or fields. It serves the clients that have not moved to `/v1` yet and goes away once they all have; that date is open.
+
+The OpenAPI documents are `/api-docs/v0/openapi.json`, `/api-docs/v1/openapi.json` and, for the `/static` file routes that go with `/v0`, `/api-docs/static/openapi.json`. The Swagger UI offers all three:
 
 - **Staging API** (latest): [https://nexus.staging.pubky.app/swagger-ui/](https://nexus.staging.pubky.app/swagger-ui/)
 - **Production API** (current): [https://nexus.pubky.app/swagger-ui/](https://nexus.pubky.app/swagger-ui/)

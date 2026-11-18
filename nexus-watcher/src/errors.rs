@@ -47,20 +47,49 @@ pub enum EventProcessorError {
         cursor_floor: u64,
     },
 
-    /// The event payload deserialized but failed `pubky-app-specs` validation
+    /// The event payload deserialized but failed `pubky-social-specs` v0 validation
     /// (e.g. unknown post kind, malformed Collection envelope, oversized field).
     /// Non-retryable: re-running the same payload will produce the same error.
     #[error("SpecValidation: {0}")]
     SpecValidation(String),
 
-    /// A keyset scan could not advance: a deterministic data anomaly, so retrying reproduces it.
+    /// A scan could not advance (a stalled keyset scan, a tags page whose write changed
+    /// nothing): a deterministic data anomaly, so retrying reproduces it and the event is
+    /// dropped. Inside a flip step it is wrapped in [`Self::FlipFailed`] instead, which keeps the
+    /// user at `v0` and retries the step whole.
     #[error("DataAnomaly: {0}")]
     DataAnomaly(String),
 
+    /// A step of the flip failed, between the gate's `Flip` decision and the end of the details
+    /// cache refresh: the internal migration, the epoch write or the cache refresh after it.
+    /// `step` names the step and `source` keeps the cause, so one line shows what failed and why.
+    ///
+    /// Its retry class is its own, whatever the source's, so a new migration step cannot pick
+    /// one by accident: always enqueued, never a batch stop, the transient backoff and
+    /// `max_retries`, and no limit while the user is still `v0` in the graph
+    /// (`RetryProcessor::limit_reached`). Losing a flip would strand its user at `v0`, so a
+    /// Neo4j or Redis outage of any length delays it instead; a bug in a migration query pins
+    /// the affected flips hourly, in the queue and the logs, until a release fixes it. Never a
+    /// batch stop, so the user's next events are handled while they are still `v0`: the gate
+    /// holds their `pubky.app` DELs and `social/v1` writes until the flip lands (`Gate::Defer`),
+    /// each for the dependency limit.
+    #[error("FlipFailed at step `{step}`: {source}")]
+    FlipFailed {
+        step: &'static str,
+        source: Box<EventProcessorError>,
+    },
+
     /// The event is valid but targets a resource kind this handler does not index (e.g. a tag on
-    /// something that is neither a Post nor a User). Non-retryable: the target kind will not change.
+    /// something that is neither a Post nor a User, or a bookmark of something that is not a
+    /// Post). Non-retryable: the target kind will not change.
     #[error("UnsupportedTarget: {0}")]
     UnsupportedTarget(String),
+
+    /// An edit names a different reply parent or repost embed than the post holds. Both are set
+    /// when the post is created, so the edit is rejected whole. Non-retryable: the same payload
+    /// is rejected again.
+    #[error("PostParentChanged: {0}")]
+    PostParentChanged(String),
 
     /// Fetch exceeded size cap (non-retryable).
     #[error("FetchSizeExceeded: {0} bytes (limit: {1} bytes)")]
@@ -98,6 +127,18 @@ pub enum EventProcessorError {
     #[error("StaticSaveFailed: {0}")]
     StaticSaveFailed(String),
 
+    /// The flip's copy of a user's files could not check for, write or remove a `social/v1`
+    /// copy: a full disk, permissions. A legacy `main` that cannot be read is not this error:
+    /// the copy skips it like a missing one. It only ever leaves the copy step wrapped in
+    /// [`Self::FlipFailed`], so its retry class is the flip's: enqueued, never a batch stop, and
+    /// no limit while the user is `v0`. So a full disk can never dead-letter a flip, nor can one
+    /// bad folder stall the homeserver's run: the retry runs the whole flip again, and the copy
+    /// skips what already exists. A file PUT's
+    /// own failed write stays the counted [`Self::StaticSaveFailed`]: there the cost of giving
+    /// up is one file, here it is a user stuck at `v0`.
+    #[error("MigrationDiskFailed: {0}")]
+    MigrationDiskFailed(String),
+
     /// Catch-all for miscellaneous errors in the processor layer
     #[error("Generic error: {0}")]
     Generic(String),
@@ -112,6 +153,7 @@ impl From<ModelError> for EventProcessorError {
                 EventProcessorError::IndexOperationFailed(should_not_retry_now, source.to_string())
             }
             ModelError::HsBlacklisted { hs_id } => EventProcessorError::HsBlacklisted { hs_id },
+            ModelError::InvalidInput(message) => EventProcessorError::SpecValidation(message),
             ModelError::Generic(message) => EventProcessorError::Generic(message),
         }
     }
@@ -193,6 +235,10 @@ impl EventProcessorError {
         Self::StaticSaveFailed(source.to_string())
     }
 
+    pub fn migration_disk_failed(source: impl Display) -> Self {
+        Self::MigrationDiskFailed(source.to_string())
+    }
+
     pub fn generic(source: impl Display) -> Self {
         Self::Generic(source.to_string())
     }
@@ -245,12 +291,20 @@ impl EventProcessorError {
     pub fn is_missing_dependency(&self) -> bool {
         matches!(self, Self::MissingDependency { .. })
     }
+
+    /// Whether a step of the flip failed ([`Self::FlipFailed`]): the one error a flip is
+    /// retried without limit for. The flip step runs before the profile fetch, so a fetch error
+    /// on a `social/v1` profile PUT is a `v1` user's and keeps the limit.
+    pub fn is_flip_failed(&self) -> bool {
+        matches!(self, Self::FlipFailed { .. })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::events::retry::RetryScheduler;
+    use pubky::errors::PkarrError;
 
     #[test]
     fn event_stream_5xx_is_not_retry_now() {
@@ -273,7 +327,7 @@ mod tests {
     }
 
     fn hs_error(op: HsOp, kind: HsErrorKind) -> EventProcessorError {
-        let hs = pubky_app_specs::PubkyId::try_from(
+        let hs = pubky_social_specs::PubkyId::try_from(
             "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy",
         )
         .unwrap();
@@ -403,6 +457,64 @@ mod tests {
         assert!(message.contains("HTTP 502: bad gateway"), "{message}");
     }
 
+    /// A fetch error the retry queue takes (a 5xx, a 429, a rejected status, a timeout, a PKARR
+    /// failure or a client not yet initialised) is retried with the transient class and never
+    /// stops the batch; a 404 is dropped. After the flip step a fetch error on a `social/v1`
+    /// profile PUT is a `v1` user's, so none of these lifts the retry limit.
+    #[test]
+    fn retried_fetch_errors_take_the_transient_class_and_keep_the_limit() {
+        for err in [
+            hs_error(HsOp::GetResource, HsErrorKind::ServerError(500, "".into())),
+            hs_error(HsOp::GetResource, HsErrorKind::RateLimited("".into())),
+            hs_error(HsOp::GetResource, HsErrorKind::Rejected(403, "".into())),
+            hs_error(HsOp::GetResource, HsErrorKind::Timeout),
+            hs_error(
+                HsOp::GetResource,
+                HsErrorKind::Sdk("could not resolve".into()),
+            ),
+            EventProcessorError::from(PubkyClientError::NotInitialized),
+            EventProcessorError::from(PubkyClientError::PkarrFailed(PkarrError::InvalidRecord(
+                "`_pubky` target `example.com`".into(),
+            ))),
+        ] {
+            assert!(
+                RetryScheduler::should_enqueue_related_event(&err),
+                "{err:?}"
+            );
+            assert!(!err.should_not_retry_now(), "{err:?}");
+            assert!(!err.is_flip_failed(), "{err:?}");
+        }
+
+        let not_found = hs_error(HsOp::GetResource, HsErrorKind::NotFound("".into()));
+        assert!(!RetryScheduler::should_enqueue_related_event(&not_found));
+        assert!(!not_found.is_flip_failed());
+    }
+
+    /// The copy's disk error never stops a batch: one unreadable folder must not stall a
+    /// homeserver's run. Its retry class is the flip's, whose `FlipFailed` wraps it. A file
+    /// PUT's own failed write stays a counted retry.
+    #[test]
+    fn migration_disk_failure_is_a_per_event_error_wrapped_by_the_flip() {
+        let err = EventProcessorError::migration_disk_failed("No space left on device");
+
+        assert!(
+            matches!(err, EventProcessorError::MigrationDiskFailed(ref m) if m == "No space left on device")
+        );
+        assert!(!err.should_not_retry_now(), "{err}");
+        assert!(RetryScheduler::should_enqueue_related_event(&err), "{err}");
+
+        let flip = EventProcessorError::FlipFailed {
+            step: "copy",
+            source: Box::new(err),
+        };
+        assert!(flip.is_flip_failed(), "{flip}");
+        assert!(!flip.should_not_retry_now(), "{flip}");
+
+        let file_write = EventProcessorError::static_save_failed("No space left on device");
+        assert!(!file_write.should_not_retry_now(), "{file_write}");
+        assert!(RetryScheduler::should_enqueue_related_event(&file_write));
+    }
+
     #[test]
     fn hs_not_found_404_stays_retryable_per_user() {
         let err = EventProcessorError::from(PubkyClientError::NotFound404 {
@@ -412,5 +524,36 @@ mod tests {
             !err.should_not_retry_now(),
             "a 404 is per-user and must not abort the run"
         );
+    }
+
+    /// A failed flip step names the step and its cause, and takes one retry class whatever
+    /// the cause's: enqueued, no batch stop, the transient backoff and limit, and the flip's
+    /// unlimited rule. Each source has a class of its own that the wrapper overrides.
+    #[test]
+    fn a_failed_flip_step_names_its_cause_and_keeps_one_retry_class() {
+        let sources = [
+            EventProcessorError::GraphQueryFailed(true, "connection refused".to_string()),
+            EventProcessorError::IndexOperationFailed(false, "wrong type".to_string()),
+            EventProcessorError::DataAnomaly("keyset scan cannot advance".to_string()),
+        ];
+        for source in sources {
+            let cause = source.to_string();
+            let err = EventProcessorError::FlipFailed {
+                step: "posts",
+                source: Box::new(source),
+            };
+
+            let message = err.to_string();
+            assert!(message.contains("step `posts`"), "{message}");
+            assert!(message.contains(&cause), "{message}");
+
+            assert!(err.is_flip_failed(), "{err:?}");
+            assert!(
+                RetryScheduler::should_enqueue_related_event(&err),
+                "{err:?}"
+            );
+            assert!(!err.should_not_retry_now(), "{err:?}");
+            assert!(!err.is_missing_dependency(), "{err:?}");
+        }
     }
 }

@@ -2,7 +2,7 @@ use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::models::user::UserView;
 use pubky::Keypair;
-use pubky_app_specs::PubkyAppUser;
+use pubky_social_specs::legacy_v0::PubkyAppUser;
 
 #[tokio_shared_rt::test(shared)]
 async fn test_user_view_batch_retrieval() -> Result<()> {
