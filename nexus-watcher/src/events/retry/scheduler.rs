@@ -83,6 +83,10 @@ impl RetryScheduler {
             // the step is rerun whole over its partial work, instead of being dropped.
             EventProcessorError::FlipFailed { .. } => true,
 
+            // A guarded write found the graph changed under it and wrote nothing: the retry
+            // reads the graph again.
+            EventProcessorError::StaleWrite(_) => true,
+
             _ => true,
         }
     }

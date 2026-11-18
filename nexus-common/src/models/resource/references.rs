@@ -253,8 +253,8 @@ pub async fn stage(post: &PostDetails, mut lines: Vec<ResourceChange>) -> ModelR
         query = query.param(name, values);
     }
     if fetch_row_from_graph(query).await?.is_none() {
-        return Err(ModelError::from_generic(
-            "Post changed while reconciling external references; retry",
+        return Err(ModelError::StaleWrite(
+            "Post changed while reconciling external references".into(),
         ));
     }
     Ok(())
@@ -475,6 +475,60 @@ mod tests {
             ]
         );
         assert_eq!(moved[1].3, first_at, "the put carries the edge's time");
+
+        retract(&author, &id).await?;
+        delete_posts_and_author(&author, &[&id]).await
+    }
+
+    /// A stage whose post no longer matches the graph (another version's content, written since
+    /// its read) is refused whole: a typed error the watcher retries, and no edge, Resource or
+    /// outbox written.
+    #[tokio_shared_rt::test(shared)]
+    async fn a_stage_for_content_the_graph_no_longer_has_is_refused_and_writes_nothing(
+    ) -> Result<(), crate::types::DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let post = author_with_post("the graph's content").await?;
+        let (author, id) = (post.author.clone(), post.id.clone());
+        let source = format!("{}/{id}.json", post.uri);
+        let kept = reference(
+            &author,
+            &source,
+            &format!("https://example.com/{author}/kept"),
+            ResourceChangeKind::Reply,
+        )?;
+        sync(&post, vec![kept.clone()]).await?;
+        let before = state(&author, &id).await?;
+
+        let stale = PostDetails {
+            content: "an older version's content".into(),
+            ..post.clone()
+        };
+        let refused = reference(
+            &author,
+            &source,
+            &format!("https://example.com/{author}/refused"),
+            ResourceChangeKind::Embed,
+        )?;
+        let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+        let result = stage(&stale, vec![refused.clone()]).await;
+        assert!(
+            matches!(result, Err(ModelError::StaleWrite(_))),
+            "{result:?}"
+        );
+        let after = state(&author, &id).await?;
+        assert_eq!(after.revision, before.revision);
+        assert_eq!(after.outbox, None, "no outbox");
+        assert_eq!(
+            after
+                .lines
+                .iter()
+                .map(|line| (line.kind, line.resource_id.clone()))
+                .collect::<Vec<_>>(),
+            [(ResourceChangeKind::Reply, kept.resource_id.clone())],
+            "the edges are the graph's"
+        );
+        assert!(!exists(&refused.resource_id).await?, "no Resource");
+        assert_eq!(own_lines_since(&author, cursor).await?, []);
 
         retract(&author, &id).await?;
         delete_posts_and_author(&author, &[&id]).await
