@@ -140,8 +140,9 @@ struct Staged {
 
 /// Commit edges and recovery metadata, without acknowledging the feed append. The outbox holds
 /// the dels of the edges the post loses and the puts of the ones it gains, or of all its edges
-/// after a [`retract`]; with neither, nothing is written and nothing is published. A new edge
-/// takes this write's time, an existing one keeps the time it was first indexed.
+/// after a [`retract`]; with neither, nothing is published, and only a post's first stage
+/// writes (its revision). A new edge takes this write's time, an existing one keeps the time it
+/// was first indexed.
 ///
 /// Like [`flush`] and [`retract`], it reads and then writes the post's
 /// references and outbox: its callers serialize every handler of one post (the watcher's post
@@ -408,11 +409,17 @@ mod tests {
         let first_at = state(&author, &id).await?.lines[0].at;
 
         let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+        let revision = state(&author, &id).await?.revision;
         sync(&post, vec![line(&first_source)?]).await?;
         assert_eq!(
             own_lines_since(&author, cursor).await?,
             [],
             "a replay appends nothing"
+        );
+        assert_eq!(
+            state(&author, &id).await?.revision,
+            revision,
+            "and writes nothing"
         );
 
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
@@ -496,8 +503,31 @@ mod tests {
         assert!(!exists(&refused.resource_id).await?, "no Resource");
         assert_eq!(own_lines_since(&author, cursor).await?, []);
 
+        // A post never reconciled stays so when its stage is refused
+        let fresh = author_with_post("never reconciled").await?;
+        let line = reference(
+            &fresh.author,
+            &format!("{}/{}.json", fresh.uri, fresh.id),
+            &format!("https://example.com/{}/fresh", fresh.author),
+            ResourceChangeKind::Reply,
+        )?;
+        let stale_fresh = PostDetails {
+            content: "another version's content".into(),
+            ..fresh.clone()
+        };
+        let result = stage(&stale_fresh, vec![line]).await;
+        assert!(
+            matches!(result, Err(ModelError::StaleWrite(_))),
+            "{result:?}"
+        );
+        assert!(
+            !state(&fresh.author, &fresh.id).await?.reconciled,
+            "a refused stage writes no revision"
+        );
+
         retract(&author, &id).await?;
-        delete_posts_and_author(&author, &[&id]).await
+        delete_posts_and_author(&author, &[&id]).await?;
+        delete_posts_and_author(&fresh.author, &[&fresh.id]).await
     }
 
     #[tokio_shared_rt::test(shared)]
