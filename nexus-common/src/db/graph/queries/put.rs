@@ -595,9 +595,8 @@ pub fn sync_resource_references(write: ResourceReferenceWrite) -> Query {
     let mut cypher = String::from(
         r"
         MATCH (p:Post {id: $id}) WHERE EXISTS { (:User {id: $author})-[:AUTHORED]->(p) }
-        SET p.resource_ref_revision = coalesce(p.resource_ref_revision, '')
-        WITH p WHERE p.content = $content AND p.kind = $kind AND NOT coalesce(p.deleted, false)
-          AND p.resource_ref_revision = $previous
+          AND p.content = $content AND p.kind = $kind AND NOT coalesce(p.deleted, false)
+          AND coalesce(p.resource_ref_revision, '') = $previous
         SET p.resource_ref_revision = $revision, p.resource_ref_outbox = $outbox
         REMOVE p.resource_ref_retracted
         WITH p
