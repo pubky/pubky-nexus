@@ -140,6 +140,9 @@ mod tests {
             .remove("bookmarks");
         v0["posts"][0].as_object_mut().unwrap().remove("bookmark");
         v0["posts"][0]["details"]["kind"] = json!("note");
+        // The rating summary is `/v1`'s alone.
+        v0["posts"][0]["rating_avg"] = json!(0.0);
+        v0["posts"][0]["rating_count"] = json!(0);
         v0["notifications"][0]["body"]["post_kind"] = json!("article");
         assert_eq!(v1, v0);
     }

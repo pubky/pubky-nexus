@@ -106,5 +106,12 @@ pub const STREAM_RESOURCE_IDS_ROUTE: &str = concatcp!(STREAM_RESOURCES_ROUTE, "/
 // -- EVENTS endpoints
 pub const EVENTS_ROUTE: &str = "/events";
 
+// -- SOCIAL EVENT endpoints, served under `/v1` only (`V1::own_routes`)
+pub const STREAM_EVENTS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/events");
+pub const EVENT_ROUTE: &str = "/event/{author}/{id}";
+pub const EVENT_ATTENDEES_ROUTE: &str = concatcp!(EVENT_ROUTE, "/attendees");
+pub const STREAM_AVAILABILITY_ROUTE: &str = concatcp!(STREAM_PREFIX, "/availability");
+pub const AVAILABILITY_ROUTE: &str = "/availability/{author}";
+
 // -- RESOURCE CHANGES endpoints, served under `/v1` only (`V1::own_routes`)
 pub const RESOURCE_CHANGES_ROUTE: &str = "/resources/changes";

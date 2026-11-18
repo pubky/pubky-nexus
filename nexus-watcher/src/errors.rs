@@ -162,6 +162,9 @@ impl From<ModelError> for EventProcessorError {
             ModelError::InvalidInput(message) => EventProcessorError::SpecValidation(message),
             ModelError::StaleWrite(message) => EventProcessorError::StaleWrite(message),
             ModelError::UnreadableOutbox(message) => EventProcessorError::DataAnomaly(message),
+            ModelError::MissingDependency(uri) => {
+                EventProcessorError::missing_dependencies(vec![uri])
+            }
             ModelError::Generic(message) => EventProcessorError::Generic(message),
         }
     }
