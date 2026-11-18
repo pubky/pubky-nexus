@@ -106,6 +106,15 @@ mod tests {
                 assert_eq!(lock_stripe(key, stripes), stripe, "{key:?}");
             }
         }
+        // Not the fixed keys of `DefaultHasher::new()`, which anyone can compute: the two agree
+        // on a key's full hash only by chance.
+        use std::hash::{DefaultHasher, Hasher};
+        let mut fixed = DefaultHasher::new();
+        "alice".hash(&mut fixed);
+        assert_ne!(
+            lock_stripe("alice", usize::MAX) as u64,
+            fixed.finish() % usize::MAX as u64
+        );
     }
 
     #[test]
