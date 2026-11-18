@@ -175,6 +175,10 @@ impl ResourceChange {
             .arg(raw)
             .invoke_async::<()>(&mut get_redis_conn().await?)
             .await?;
+        #[cfg(any(test, feature = "test-utils"))]
+        if lines.iter().any(|line| line.op == ResourceChangeOp::Del) {
+            crate::utils::test_utils::feed_del_fault(&lines[0].author)?;
+        }
         Ok(())
     }
 
