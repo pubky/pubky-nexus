@@ -94,6 +94,11 @@ async fn replies_embeds_and_collections_share_resources_and_replay_keys() -> Res
         test.event_processor_runner.event_handler.clone(),
     )
     .await?;
+    assert_eq!(
+        root_lists_and_replies(&author, &id).await?,
+        REPLY,
+        "the recovered reply stays out of the root timelines and the ranking"
+    );
     // A tag deletion must preserve the node while posts still reference it.
     test.del(&key, &tag_path).await?;
     assert!(ResourceView::get_by_id(&rid, None, None, None, None)
@@ -1610,5 +1615,243 @@ async fn bookmarks_and_private_paths_never_become_resources() -> Result<()> {
         test.cleanup_post(&legacy, path).await?;
     }
     test.cleanup_user(&legacy).await?;
+    Ok(())
+}
+
+/// `author`'s lines since `cursor`, as (op, resource id).
+async fn own_ops_since(author: &str, cursor: u64) -> Result<Vec<(ResourceChangeOp, String)>> {
+    Ok(ResourceChange::get_from_index(cursor, 10_000)
+        .await?
+        .0
+        .lines
+        .into_iter()
+        .filter(|line| line.author == author)
+        .map(|line| (line.op, line.resource_id))
+        .collect())
+}
+
+/// The reply, embed and collection counts of the Resource `id`.
+async fn reference_counts(id: &str) -> Result<(usize, usize, usize)> {
+    let view = ResourceView::get_by_id(id, None, None, None, None)
+        .await?
+        .expect("the Resource");
+    Ok((
+        view.replies_count,
+        view.embeds_count,
+        view.collections_count,
+    ))
+}
+
+/// Two authors reference one URL, and the second author's post even has the same id as the
+/// first's. One author's delete, or an edit that drops an embed, leaves the other author's
+/// edges, counts and lists, and publishes no line naming the other author. A Resource that has
+/// a tag and loses its only post stays, with its tag.
+#[tokio_shared_rt::test(shared)]
+async fn one_authors_delete_or_edit_leaves_another_authors_references() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let (a_key, b_key) = (Keypair::random(), Keypair::random());
+    let mut profiles = Vec::new();
+    for (key, name) in [
+        (&a_key, "Shared references A"),
+        (&b_key, "Shared references B"),
+    ] {
+        test.register_user(key).await?;
+        profiles.push(test.put_v1_profile(key, &v1_test_user(name, "")).await?);
+        super::utils::watcher::rank_user(&key.public_key().to_z32()).await?;
+    }
+    let (a, b) = (a_key.public_key().to_z32(), b_key.public_key().to_z32());
+    let replied = format!("https://example.com/shared-reply/{a}");
+    let embedded = format!("https://example.com/shared-embed/{a}");
+    let tagged = format!("https://example.com/shared-tagged/{a}");
+    let (replied_id, embedded_id, tagged_id) = (
+        resource_id(&replied),
+        resource_id(&embedded),
+        resource_id(&tagged),
+    );
+    let id = generate_post_id();
+    let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
+    let both = json!({"kind":"note","content":"shared","parent":replied,"embed":embedded});
+    test.put(&a_key, &path, &both).await?;
+    test.put(&b_key, &path, &both).await?;
+    let embed_id = generate_post_id();
+    let embed_path: ResourcePath =
+        format!("/pub/social/v1/posts/{embed_id}/{embed_id}.json").parse()?;
+    test.put(
+        &a_key,
+        &embed_path,
+        &json!({"kind":"note","content":"an embed","embed":embedded}),
+    )
+    .await?;
+    let tag = PubkySocialTag::new(tagged.clone(), "kept".into());
+    let tag_path: ResourcePath = PubkySocialTag::create_path(&tag.create_id()).parse()?;
+    test.put(&b_key, &tag_path, &tag).await?;
+    let only_id = generate_post_id();
+    let only_path: ResourcePath =
+        format!("/pub/social/v1/posts/{only_id}/{only_id}.json").parse()?;
+    test.put(
+        &a_key,
+        &only_path,
+        &json!({"kind":"note","content":"the only post","embed":tagged}),
+    )
+    .await?;
+    assert_eq!(reference_counts(&replied_id).await?, (2, 0, 0));
+    assert_eq!(reference_counts(&embedded_id).await?, (0, 3, 0));
+    assert_eq!(reference_counts(&tagged_id).await?, (0, 1, 0));
+    let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+
+    // A deletes its post with B's id
+    test.del(&a_key, &path).await?;
+    assert_eq!(
+        references::posts(&replied_id, ResourceChangeKind::Reply, 0, 10).await?,
+        [(b.clone(), id.clone())]
+    );
+    assert_eq!(reference_counts(&replied_id).await?, (1, 0, 0));
+    assert_eq!(reference_counts(&embedded_id).await?, (0, 2, 0));
+    assert!(PostDetails::get_from_graph(&b, &id).await?.is_some());
+    assert_eq!(root_lists_and_replies(&b, &id).await?, REPLY);
+    // A edits its embed away
+    let edit: ResourcePath = format!(
+        "/pub/social/v1/posts/{embed_id}/{}.json",
+        generate_post_id()
+    )
+    .parse()?;
+    test.put(&a_key, &edit, &json!({"kind":"note","content":"no embed"}))
+        .await?;
+    assert_eq!(
+        references::posts(&embedded_id, ResourceChangeKind::Embed, 0, 10).await?,
+        [(b.clone(), id.clone())]
+    );
+    assert_eq!(reference_counts(&embedded_id).await?, (0, 1, 0));
+    // The tagged Resource loses its only post and keeps its tag
+    test.del(&a_key, &only_path).await?;
+    let view = ResourceView::get_by_id(&tagged_id, None, None, None, None)
+        .await?
+        .expect("the tag keeps the Resource");
+    assert_eq!(
+        (view.taggers_count, view.embeds_count),
+        (1, 0),
+        "the tag stays, the embed goes"
+    );
+    assert_eq!(own_ops_since(&b, cursor).await?, [], "no line names B");
+    let a_ops = own_ops_since(&a, cursor).await?;
+    for rid in [&replied_id, &embedded_id, &tagged_id] {
+        assert!(
+            a_ops.contains(&(ResourceChangeOp::Del, rid.clone())),
+            "A's references are retracted: {a_ops:?}"
+        );
+    }
+
+    test.del(&a_key, &edit).await?;
+    test.del(&b_key, &path).await?;
+    test.del(&b_key, &tag_path).await?;
+    for rid in [&replied_id, &embedded_id, &tagged_id] {
+        assert!(
+            ResourceView::get_by_id(rid, None, None, None, None)
+                .await?
+                .is_none(),
+            "the Resource goes with its last relationship"
+        );
+    }
+    for (key, profile) in [&a_key, &b_key].into_iter().zip(&profiles) {
+        test.del(key, profile).await?;
+    }
+    Ok(())
+}
+
+/// A tombstone keeps its Resource edges and is off every Resource-side read: no reply, embed
+/// or collection count and no list names it. A PUT that brings it back puts its references
+/// again, after the dels its delete published.
+#[tokio_shared_rt::test(shared)]
+async fn a_tombstone_is_off_every_count_and_a_put_brings_its_references_back() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    test.register_user(&key).await?;
+    let author = key.public_key().to_z32();
+    let profile = test
+        .put_v1_profile(&key, &v1_test_user("Tombstone counts", ""))
+        .await?;
+    super::utils::watcher::rank_user(&author).await?;
+    let replied = format!("https://example.com/tombstone-counts/reply/{author}");
+    let embedded = format!("https://example.com/tombstone-counts/embed/{author}");
+    let collected = format!("https://example.com/tombstone-counts/item/{author}");
+    let (replied_id, embedded_id, collected_id) = (
+        resource_id(&replied),
+        resource_id(&embedded),
+        resource_id(&collected),
+    );
+    let post =
+        |content: &str| json!({"kind":"note","content":content,"parent":replied,"embed":embedded});
+    let child = |parent: &str| json!({"kind":"note","content":"keeps the tombstone","parent":format!("pubky://{author}/pub/social/v1/posts/{parent}")});
+    let id = generate_post_id();
+    let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
+    test.put(&key, &path, &post("a reply with an embed"))
+        .await?;
+    let collection_id = generate_post_id();
+    let collection: ResourcePath =
+        format!("/pub/social/v1/posts/{collection_id}/{collection_id}.json").parse()?;
+    test.put(&key, &collection, &json!({"kind":"collection", "content":json!({"name":"Items","items":[{"uri":collected}]}).to_string()})).await?;
+    let mut children = Vec::new();
+    for parent in [&id, &collection_id] {
+        let child_id = generate_post_id();
+        let child_path: ResourcePath =
+            format!("/pub/social/v1/posts/{child_id}/{child_id}.json").parse()?;
+        test.put(&key, &child_path, &child(parent)).await?;
+        children.push(child_path);
+    }
+    assert_eq!(reference_counts(&replied_id).await?, (1, 0, 0));
+    assert_eq!(reference_counts(&embedded_id).await?, (0, 1, 0));
+    assert_eq!(reference_counts(&collected_id).await?, (0, 0, 1));
+
+    test.del(&key, &path).await?;
+    test.del(&key, &collection).await?;
+    for (rid, kind) in [
+        (&replied_id, ResourceChangeKind::Reply),
+        (&embedded_id, ResourceChangeKind::Embed),
+        (&collected_id, ResourceChangeKind::Collection),
+    ] {
+        assert_eq!(reference_counts(rid).await?, (0, 0, 0), "{kind:?}");
+        assert!(
+            references::posts(rid, kind, 0, 10).await?.is_empty(),
+            "{kind:?}"
+        );
+    }
+    let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+
+    // The PUT that brings the reply back
+    test.put(&key, &path, &post("back again")).await?;
+    assert!(
+        !PostDetails::get_from_graph(&author, &id)
+            .await?
+            .unwrap()
+            .0
+            .deleted
+    );
+    let ops = own_ops_since(&author, cursor).await?;
+    assert_eq!(ops.len(), 2, "{ops:?}");
+    for rid in [&replied_id, &embedded_id] {
+        assert!(
+            ops.contains(&(ResourceChangeOp::Put, rid.clone())),
+            "its references are put again: {ops:?}"
+        );
+    }
+    assert_eq!(reference_counts(&replied_id).await?, (1, 0, 0));
+    assert_eq!(reference_counts(&embedded_id).await?, (0, 1, 0));
+
+    for child_path in &children {
+        test.del(&key, child_path).await?;
+    }
+    test.del(&key, &path).await?;
+    retrieve_and_handle_event_line(
+        &format!("DEL pubky://{author}{collection}"),
+        &test.homeserver_id,
+        test.event_processor_runner.event_handler.clone(),
+    )
+    .await?;
+    for rid in [&replied_id, &embedded_id, &collected_id] {
+        assert!(ResourceView::get_by_id(rid, None, None, None, None)
+            .await?
+            .is_none());
+    }
+    test.del(&key, &profile).await?;
     Ok(())
 }
