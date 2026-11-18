@@ -1,21 +1,39 @@
+//! The file handlers: a `pubky.app` file is a metadata object whose blob is downloaded and kept
+//! with a `File` node; a `social/v1` file is raw bytes at its own address, kept on disk alone.
+//! Both live in the folder [`file_folder`] picks by the id, and the one DEL handler picks the
+//! same way.
+
+use crate::events::translation::legacy_v0::read_blob;
+use crate::events::translation::social_v1::read_v1_file;
 use crate::events::EventProcessorError;
 use crate::homeserver::HomeserverClient;
 
-use nexus_common::media::FileVariant;
+use nexus_common::media::{file_folder, is_v1_file_id, FileVariant, V1_FILES_DIR};
 use nexus_common::models::user::UserIngestor;
 use nexus_common::models::{file::FileDetails, traits::Collection};
 use pubky::PubkyResource;
-use pubky_app_specs::{ParsedUri, PubkyAppBlob, PubkyAppFile, PubkyAppObject, PubkyId};
-use std::path::Path;
+use pubky_social_specs::{file_uri_builder, PubkyId};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::fs::{self, remove_dir_all};
+use tokio::io::AsyncWriteExt;
 use tracing::{debug, warn};
 
-#[tracing::instrument(name = "file.put", skip_all, fields(user_id = %user_id, file_id = %file_id))]
+use crate::events::inputs::{FileInput, ResourceKey};
+
+/// Where a `social/v1` file is written before it is renamed into its folder, under
+/// [`V1_FILES_DIR`] so the rename stays on one filesystem. The watcher's own: not the API's
+/// `.tmp` beside the variants, which it sweeps by age and treats as its own.
+const V1_TEMP_DIR: &str = ".tmp";
+
+/// Distinguishes the temp files of the loops (primary, external, retry) that may write one file
+/// at once in this process; the process id separates processes sharing the folder.
+static TEMP_FILE_SEQ: AtomicU64 = AtomicU64::new(0);
+
+#[tracing::instrument(name = "file.put", skip_all, fields(user_id = %key.owner_id, file_id = %key.resource_id))]
 pub async fn sync_put(
-    file: PubkyAppFile,
-    uri: String,
-    user_id: PubkyId,
-    file_id: String,
+    file: FileInput,
+    key: ResourceKey,
     files_path: &Path,
     ingestor: &UserIngestor,
     client: &dyn HomeserverClient,
@@ -23,8 +41,8 @@ pub async fn sync_put(
     debug!("Indexing file");
 
     ingest(
-        &user_id,
-        file_id.as_str(),
+        &key.owner_id,
+        &key.resource_id,
         &file,
         files_path,
         ingestor,
@@ -32,142 +50,307 @@ pub async fn sync_put(
     )
     .await?;
 
-    let file_details = FileDetails::from_homeserver(&file, uri, user_id.to_string(), file_id);
+    let file_details = file.into_details(&key);
     file_details.put_to_graph().await?;
 
     Ok(())
 }
 
+/// Downloads the blob `file` names and writes it as the file's `main` variant.
+///
+/// The translator has already parsed `src` into [`FileInput::blob`], so what is left is the
+/// I/O: refuse a blob hosted on a blacklisted homeserver, fetch it, check the bytes against the
+/// id in the address, write them. A mismatch is spec validation and never retried.
 // TODO: Move it into its own process, server, etc
 #[tracing::instrument(name = "file.ingest", skip_all, fields(user_id = %user_id, file_id = %file_id))]
 async fn ingest(
     user_id: &PubkyId,
     file_id: &str,
-    pubkyapp_file: &PubkyAppFile,
+    file: &FileInput,
     files_path: &Path,
     ingestor: &UserIngestor,
     client: &dyn HomeserverClient,
 ) -> Result<(), EventProcessorError> {
-    let file_src = &pubkyapp_file.src;
-    let parsed_source_uri = file_source(file_src)?;
-
     // Refuse to download content hosted on a blacklisted HS
     ingestor
-        .ensure_hs_not_blacklisted(&parsed_source_uri.user_id)
+        .ensure_hs_not_blacklisted(&file.blob.owner_id)
         .await
-        .inspect_err(|e| warn!("Aborting file ingest: source {file_src}: {e}"))?;
+        .inspect_err(|e| warn!("Aborting file ingest: source {}: {e}", file.src))?;
 
-    let source: PubkyResource = file_src.parse()?;
-    let blob = client.get_blob(&source).await?;
+    let source: PubkyResource = file.src.parse()?;
+    let bytes = read_blob(client.get_blob(&source).await?, &file.blob.blob_id)?;
 
-    let path = Path::new(&user_id.to_string()).join(file_id);
-    let full_path = files_path.join(&path);
-    let pubky_app_object = PubkyAppObject::from_resource(&parsed_source_uri.resource, &blob)
-        .map_err(EventProcessorError::generic)?;
-
-    match pubky_app_object {
-        PubkyAppObject::Blob(blob) => {
-            write_main_variant(&full_path, blob)
-                .await
-                .map_err(EventProcessorError::static_save_failed)?;
-            Ok(())
-        }
-        _ => Err(EventProcessorError::InvalidEventLine(format!(
-            "The file has a source uri that is not a blob path: {}",
-            pubkyapp_file.src
-        ))),
-    }
+    let full_path = files_path.join(file_folder(user_id.as_ref(), file_id));
+    write_main_variant(&full_path, &bytes)
+        .await
+        .map_err(EventProcessorError::static_save_failed)
 }
 
-/// Parses the `src` of a file.
-///
-/// A `src` that is not a pubky.app URI can never be fetched by retrying, so it is rejected
-/// with [`EventProcessorError::UnsupportedTarget`], which is not retried.
-fn file_source(src: &str) -> Result<ParsedUri, EventProcessorError> {
-    ParsedUri::try_from(src).map_err(|e| {
-        EventProcessorError::UnsupportedTarget(format!("Invalid file source URI {src}: {e}"))
-    })
-}
-
-/// Writes `blob` to `<dir>/main`, creating `dir` if it does not exist.
+/// Writes `bytes` to `<dir>/main`, creating `dir` if it does not exist.
 ///
 /// An existing file is overwritten, which is what re-indexing an already
 /// downloaded file relies on.
-async fn write_main_variant(dir: &Path, blob: PubkyAppBlob) -> std::io::Result<()> {
+async fn write_main_variant(dir: &Path, bytes: &[u8]) -> std::io::Result<()> {
     fs::create_dir_all(dir).await?;
 
-    fs::write(dir.join(FileVariant::Main.to_string()), blob.0).await
+    fs::write(dir.join(FileVariant::Main.to_string()), bytes).await
 }
 
-#[tracing::instrument(name = "file.del", skip_all, fields(user_id = %user_id, file_id = %file_id))]
-pub async fn del(
-    user_id: &PubkyId,
-    file_id: String,
+/// Stores the `social/v1` file `key` names, whose address is the hash of its bytes: downloads
+/// it from its owner's homeserver, checks it against `hash` and writes it as `main`. No graph
+/// write: a v1 file has no metadata and no node.
+///
+/// In order: a `main` already on disk ends it with no fetch, since an address names exact bytes
+/// and every write checks the hash, so a replayed batch costs nothing; the owner's homeserver
+/// is checked against the blacklist; the bytes are fetched under the file cap, over it being
+/// [`EventProcessorError::FetchSizeExceeded`]; bytes that don't hash to the address are
+/// [`EventProcessorError::SpecValidation`], neither retried; a failed write is
+/// [`EventProcessorError::StaticSaveFailed`] and retried, as for a `pubky.app` file, and so is
+/// a check for `main` that fails other than by absence, mapped here and not left to the
+/// catch-all conversion. A homeserver 404 is the fetch error it is for every PUT.
+#[tracing::instrument(name = "file.put_v1", skip_all, fields(user_id = %key.owner_id, file_id = %key.resource_id))]
+pub async fn sync_put_v1(
+    key: ResourceKey,
+    hash: &str,
     files_path: &Path,
+    ingestor: &UserIngestor,
+    client: &dyn HomeserverClient,
 ) -> Result<(), EventProcessorError> {
-    debug!("Deleting file");
-    let result = FileDetails::get_by_ids(&[&[user_id, &file_id]]).await?;
-
-    if result.is_empty() {
+    let folder = files_path.join(file_folder(key.owner_id.as_ref(), &key.resource_id));
+    if fs::try_exists(main_path(&folder))
+        .await
+        .map_err(EventProcessorError::static_save_failed)?
+    {
+        debug!("File is already on disk; nothing to fetch");
         return Ok(());
     }
+    debug!("Indexing v1 file");
 
-    let file = &result[0];
-    if let Some(file_details) = file {
-        file_details.delete().await?;
+    ingestor
+        .ensure_hs_not_blacklisted(&key.owner_id)
+        .await
+        .inspect_err(|e| warn!("Aborting v1 file ingest: owner {}: {e}", key.owner_id))?;
+
+    let source: PubkyResource =
+        file_uri_builder(key.owner_id.to_string(), key.resource_id.clone()).parse()?;
+    let bytes = read_v1_file(client.get_blob(&source).await?, hash).await?;
+
+    write_v1_main(files_path, &folder, &bytes)
+        .await
+        .map_err(EventProcessorError::static_save_failed)
+}
+
+/// The `main` variant inside a file's folder. The flip's copy reads and checks it too.
+pub(crate) fn main_path(folder: &Path) -> PathBuf {
+    folder.join(FileVariant::Main.to_string())
+}
+
+/// Writes `bytes` to a new file at `path` and syncs it to disk before returning, so a rename
+/// that follows never puts a file whose bytes are still in the page cache under its final name.
+async fn write_synced(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut file = fs::File::create(path).await?;
+    file.write_all(bytes).await?;
+    file.sync_all().await
+}
+
+/// Writes `bytes` as the `main` of the `social/v1` file whose folder is `folder`, under
+/// `files_path`: into a temp file in `files_path/v1/.tmp` first, synced to disk, then a rename
+/// into place. Never a direct write: a crash, a power loss included, leaves no partial file
+/// under the final name, so an existing `main` always means a complete one, and a `main` being served is replaced whole, never
+/// truncated while a reader has it open. The folder is made only once the temp file is
+/// written, right before the rename, so a failed write leaves no empty folder under the final
+/// name; a failed rename removes the temp file, and the folder too when this call made it.
+///
+/// The flip's copy writes through here too, so both writers leave the same thing on disk.
+pub(crate) async fn write_v1_main(
+    files_path: &Path,
+    folder: &Path,
+    bytes: &[u8],
+) -> std::io::Result<()> {
+    let temp_dir = files_path.join(V1_FILES_DIR).join(V1_TEMP_DIR);
+    fs::create_dir_all(&temp_dir).await?;
+
+    let name = folder
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("file");
+    let temp_path = temp_dir.join(format!(
+        "{name}.{}.{}",
+        std::process::id(),
+        TEMP_FILE_SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+
+    let renamed = async {
+        write_synced(&temp_path, bytes).await?;
+        let created = create_folder(folder).await?;
+        let renamed = fs::rename(&temp_path, main_path(folder)).await;
+        if renamed.is_err() && created {
+            // Only an empty folder goes: a rename that failed put nothing into it.
+            let _ = fs::remove_dir(folder).await;
+        }
+        renamed
+    }
+    .await;
+    if renamed.is_err() {
+        // Best effort: a temp file left behind holds no address, so nothing serves it.
+        let _ = fs::remove_file(&temp_path).await;
+    }
+    renamed
+}
+
+/// Makes `folder`, and its parents; `true` when this call made the folder itself, `false` when
+/// it was there already.
+async fn create_folder(folder: &Path) -> std::io::Result<bool> {
+    if let Some(parent) = folder.parent() {
+        fs::create_dir_all(parent).await?;
+    }
+    match fs::create_dir(folder).await {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+/// The names left in the watcher's temp folder under `files_path`; for the tests of both
+/// writers through [`write_v1_main`], the handler's and the flip's copy.
+#[cfg(test)]
+pub(crate) async fn temp_files(files_path: &Path) -> Vec<String> {
+    let mut names = Vec::new();
+    let Ok(mut entries) = fs::read_dir(files_path.join(V1_FILES_DIR).join(V1_TEMP_DIR)).await
+    else {
+        return names;
+    };
+    while let Some(entry) = entries.next_entry().await.unwrap() {
+        names.push(entry.file_name().to_string_lossy().into_owned());
+    }
+    names
+}
+
+/// Deletes the file `key` names, of either epoch, picking what to remove by the id. A
+/// `social/v1` file has no `File` node: its folder goes, and nothing else, so a DEL of `H.png`
+/// leaves `H.bin` and every legacy folder alone. A `pubky.app` file's node and folder go.
+/// Deleting what isn't there is a no-op either way; a removal that fails otherwise is
+/// [`EventProcessorError::StaticSaveFailed`], a counted retry as for a failed write, mapped
+/// here and not left to the catch-all conversion.
+#[tracing::instrument(name = "file.del", skip_all, fields(user_id = %key.owner_id, file_id = %key.resource_id))]
+pub async fn del(key: ResourceKey, files_path: &Path) -> Result<(), EventProcessorError> {
+    debug!("Deleting file");
+    if !is_v1_file_id(&key.resource_id) {
+        let result = FileDetails::get_by_ids(&[&[&key.owner_id, &key.resource_id]]).await?;
+
+        if result.is_empty() {
+            return Ok(());
+        }
+
+        if let Some(file_details) = &result[0] {
+            file_details.delete().await?;
+        }
     }
 
-    let folder_path = Path::new(&user_id.to_string()).join(&file_id);
-    let full_path = files_path.join(folder_path);
+    let full_path = files_path.join(file_folder(key.owner_id.as_ref(), &key.resource_id));
+    remove_folder(&full_path).await
+}
 
-    match remove_dir_all(full_path.as_path()).await {
-        Ok(_) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e.into()),
+/// Removes `folder` and everything in it; a folder that is not there is a no-op. Any other
+/// failure is [`EventProcessorError::StaticSaveFailed`], a counted retry as for a failed write.
+async fn remove_folder(folder: &Path) -> Result<(), EventProcessorError> {
+    match remove_dir_all(folder).await {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            Err(EventProcessorError::static_save_failed(e))
+        }
+        _ => Ok(()),
     }
+}
+
+/// The key a takedown of the owner's blob `hash` is recorded under and looked up by: the
+/// `social/v1` file address with no extension, `…/files/{hash}`, which no file has (a v1 file id
+/// is `{hash}.{ext}`). The bytes are the content a takedown removes, so the key names them rather
+/// than one upload: it holds against the same bytes under any extension, and against the copy
+/// the flip makes of a v0 file, whatever extension the flip picks once the tagged upload's node
+/// is gone and another upload names the blob.
+pub fn blob_takedown_key(owner_id: &str, hash: &str) -> String {
+    file_uri_builder(owner_id.to_string(), hash.to_string())
+}
+
+/// The blob a `social/v1` file id names: the `{hash}` before its extension.
+pub fn blob_of(file_id: &str) -> &str {
+    file_id.split_once('.').map_or(file_id, |(hash, _)| hash)
+}
+
+/// Removes every `social/v1` folder of the owner's blob `hash`, `v1/<owner>/{hash}.*`: a
+/// moderator's takedown removes the bytes under every extension, where a user's own DEL
+/// ([`del`]) removes the one address it names. A missing owner folder is a no-op; any other
+/// failure is [`EventProcessorError::StaticSaveFailed`], as for [`del`].
+#[tracing::instrument(name = "file.del_blob", skip_all, fields(user_id = %owner_id, hash = %hash))]
+pub async fn del_blob(
+    owner_id: &PubkyId,
+    hash: &str,
+    files_path: &Path,
+) -> Result<(), EventProcessorError> {
+    let owner_folder = files_path.join(V1_FILES_DIR).join(owner_id.as_ref());
+    let mut entries = match fs::read_dir(&owner_folder).await {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(EventProcessorError::static_save_failed(e)),
+    };
+    let prefix = format!("{hash}.");
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(EventProcessorError::static_save_failed)?
+    {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with(&prefix) {
+            debug!(file_id = %name, "Deleting a file of the taken-down blob");
+            remove_folder(&entry.path()).await?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::retry::RetryScheduler;
-
-    #[test]
-    fn file_source_rejects_non_pubky_uris_without_retry() {
-        let user_id = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo";
-        let cases = [
-            "https://example.com/image.png".to_string(),
-            format!("pubky://{user_id}/pub/mapky/blobs/0033SSE3B1FQ0"),
-            "pubky://notakey/pub/pubky.app/blobs/0033SSE3B1FQ0".to_string(),
-        ];
-
-        for src in cases {
-            let err = file_source(&src).expect_err(&format!("{src} must be rejected"));
-            assert!(
-                matches!(err, EventProcessorError::UnsupportedTarget(_)),
-                "{src}: unexpected error {err:?}"
-            );
-            assert!(
-                !RetryScheduler::should_enqueue_related_event(&err),
-                "{src}: a deterministic rejection must not be retried"
-            );
-        }
-
-        let blob = format!("pubky://{user_id}/pub/pubky.app/blobs/0033SSE3B1FQ0");
-        assert!(file_source(&blob).is_ok());
-    }
 
     async fn read_main(dir: &Path) -> Vec<u8> {
         fs::read(dir.join("main")).await.unwrap()
+    }
+
+    /// A blob's takedown removes every v1 folder of its bytes, `H.png` and `H.bin` alike, and
+    /// leaves another blob's folder and the legacy folders alone.
+    #[tokio_shared_rt::test(shared)]
+    async fn del_blob_removes_every_extension_of_the_blob_and_nothing_else() {
+        let tmp_dir = tempfile::TempDir::new().unwrap();
+        let owner =
+            PubkyId::try_from("operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo").unwrap();
+        let hash = "8Z8CWH8NVYQY39ZEBFGKQWWEKG";
+        let folders: Vec<PathBuf> = [
+            format!("{hash}.png"),
+            format!("{hash}.bin"),
+            "9Z8CWH8NVYQY39ZEBFGKQWWEKG.png".to_string(),
+            "0032SSN7Q4EVG".to_string(),
+        ]
+        .iter()
+        .map(|id| tmp_dir.path().join(file_folder(owner.as_ref(), id)))
+        .collect();
+        for folder in &folders {
+            fs::create_dir_all(folder).await.unwrap();
+            fs::write(folder.join("main"), b"bytes").await.unwrap();
+        }
+
+        del_blob(&owner, hash, tmp_dir.path()).await.unwrap();
+
+        assert!(!folders[0].exists(), "H.png must go");
+        assert!(!folders[1].exists(), "H.bin must go");
+        assert!(folders[2].exists(), "another blob's folder stays");
+        assert!(folders[3].exists(), "the legacy folder stays");
     }
 
     #[tokio_shared_rt::test(shared)]
     async fn write_main_variant_creates_new_file() {
         let tmp_dir = tempfile::TempDir::new().unwrap();
         let dir = tmp_dir.path().join("user1").join("file1");
-        let blob = PubkyAppBlob::new(b"hello world".to_vec());
-
-        write_main_variant(&dir, blob)
+        write_main_variant(&dir, b"hello world")
             .await
             .expect("write_main_variant should succeed for a new file");
 
@@ -178,17 +361,14 @@ mod tests {
     async fn write_main_variant_overwrites_existing_file() {
         let tmp_dir = tempfile::TempDir::new().unwrap();
         let dir = tmp_dir.path().join("user1").join("file1");
-        let blob1 = PubkyAppBlob::new(b"first write".to_vec());
-
-        write_main_variant(&dir, blob1)
+        write_main_variant(&dir, b"first write")
             .await
             .expect("first write_main_variant should succeed");
 
         // Writing again simulates re-indexing when the file already exists on disk.
         // The second payload is shorter than the first, so a write without truncation
         // would leave stale trailing bytes and fail the assertion below.
-        let blob2 = PubkyAppBlob::new(b"second".to_vec());
-        write_main_variant(&dir, blob2).await.expect(
+        write_main_variant(&dir, b"second").await.expect(
             "write_main_variant should succeed even when file already exists (re-indexing)",
         );
 
@@ -211,10 +391,112 @@ mod tests {
         fs::create_dir_all(dir.join(FileVariant::Main.to_string()))
             .await
             .unwrap();
-        let blob = PubkyAppBlob::new(b"hello world".to_vec());
-
-        write_main_variant(&dir, blob)
+        write_main_variant(&dir, b"hello world")
             .await
             .expect_err("write_main_variant should surface the failure to open `main`");
+    }
+
+    // ---- the v1 writer ------------------------------------------------------------------
+
+    /// The v1 file's folder under `files_path`, as the handler builds it.
+    fn v1_folder(files_path: &Path) -> PathBuf {
+        files_path.join(file_folder("owner", "8Z8CWH8NVYQY39ZEBFGKQWWEKG.png"))
+    }
+
+    /// A write lands as `main` in the file's folder, inside `v1/`, and leaves nothing in the
+    /// temp folder: the temp file is consumed by the rename.
+    #[tokio_shared_rt::test(shared)]
+    async fn write_v1_main_writes_main_through_the_temp_folder() {
+        let tmp_dir = tempfile::TempDir::new().unwrap();
+        let folder = v1_folder(tmp_dir.path());
+
+        write_v1_main(tmp_dir.path(), &folder, b"hello world")
+            .await
+            .expect("a first write succeeds");
+
+        assert_eq!(read_main(&folder).await, b"hello world");
+        assert!(folder.starts_with(tmp_dir.path().join("v1")));
+        assert!(
+            temp_files(tmp_dir.path()).await.is_empty(),
+            "the temp file is consumed by the rename"
+        );
+    }
+
+    /// A second write replaces `main` whole, shorter bytes included, so a reader sees the old
+    /// file or the new one and never a truncated mix.
+    #[tokio_shared_rt::test(shared)]
+    async fn write_v1_main_replaces_an_existing_main_whole() {
+        let tmp_dir = tempfile::TempDir::new().unwrap();
+        let folder = v1_folder(tmp_dir.path());
+        write_v1_main(tmp_dir.path(), &folder, b"first write")
+            .await
+            .unwrap();
+
+        write_v1_main(tmp_dir.path(), &folder, b"second")
+            .await
+            .expect("a rewrite succeeds");
+
+        assert_eq!(read_main(&folder).await, b"second");
+        assert!(temp_files(tmp_dir.path()).await.is_empty());
+    }
+
+    /// A failed temp write leaves nothing under the final name: the folder is made only once
+    /// the temp file is written, so a write that fails, here into a temp folder that cannot be
+    /// written, leaves no empty folder, not even the owner's, for a reader to find.
+    #[cfg(unix)]
+    #[tokio_shared_rt::test(shared)]
+    async fn write_v1_main_failed_temp_write_leaves_no_folder_under_the_final_name() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp_dir = tempfile::TempDir::new().unwrap();
+        let folder = v1_folder(tmp_dir.path());
+        let temp_dir = tmp_dir.path().join(V1_FILES_DIR).join(V1_TEMP_DIR);
+        fs::create_dir_all(&temp_dir).await.unwrap();
+        fs::set_permissions(&temp_dir, std::fs::Permissions::from_mode(0o555))
+            .await
+            .unwrap();
+
+        let result = write_v1_main(tmp_dir.path(), &folder, b"hello world").await;
+
+        fs::set_permissions(&temp_dir, std::fs::Permissions::from_mode(0o755))
+            .await
+            .unwrap();
+        result.expect_err("the failed temp write is reported");
+        assert!(!folder.exists(), "no folder is made under the final name");
+        assert!(
+            !tmp_dir.path().join(V1_FILES_DIR).join("owner").exists(),
+            "nor the owner's folder"
+        );
+        assert!(temp_files(tmp_dir.path()).await.is_empty());
+    }
+
+    /// A failed rename reports its error and removes the temp file, so a failure leaves no
+    /// partial file under the final name and nothing in the temp folder. The folder was there
+    /// before the call, so it stays: only a folder this call made is removed, and no file
+    /// system state makes a rename into a folder just made fail, so that branch holds by
+    /// construction.
+    #[tokio_shared_rt::test(shared)]
+    async fn write_v1_main_propagates_io_error_and_leaves_no_temp_file() {
+        let tmp_dir = tempfile::TempDir::new().unwrap();
+        let folder = v1_folder(tmp_dir.path());
+        // A non-empty directory where `main` should go: the rename over it fails on any
+        // platform, after the temp file was written.
+        fs::create_dir_all(main_path(&folder).join("occupied"))
+            .await
+            .unwrap();
+
+        write_v1_main(tmp_dir.path(), &folder, b"hello world")
+            .await
+            .expect_err("the failed rename is reported");
+
+        assert!(main_path(&folder).is_dir(), "nothing was written over it");
+        assert!(
+            folder.is_dir(),
+            "a folder that was there before the call stays"
+        );
+        assert!(
+            temp_files(tmp_dir.path()).await.is_empty(),
+            "the temp file is removed on failure"
+        );
     }
 }

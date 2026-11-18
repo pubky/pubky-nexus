@@ -135,20 +135,23 @@ pub fn routes(ctx: &ApiContext, shutdown_rx: Receiver<bool>) -> Router {
     )
 }
 
-/// The application's routes: v0 API, static file serving, and OpenAPI/Swagger UI docs.
+/// The application's routes: the API under its version prefixes, static file serving, and the
+/// OpenAPI documents with their Swagger UI.
 pub fn app_routes(
     state: AppState,
     rate_limit: &RateLimitConfig,
     shutdown_rx: Receiver<bool>,
 ) -> Router<AppState> {
-    // Split routes into expensive and default buckets
-    let (v0_expensive, v0_default) = v0::routes(state.clone());
+    // Split routes into expensive and default buckets. Each API bucket already holds its
+    // `/v0` and `/v1` mounts, so the one layer below gives both versions one bucket.
+    let (api_expensive, api_default) = v0::routes(state.clone());
     let (static_expensive, static_default) = r#static::routes();
 
     // Swagger UI and OpenAPI docs get default-bucket rate limiting
     let swagger = Router::new().merge(
         SwaggerUi::new("/swagger-ui")
-            .url("/api-docs/v0/openapi.json", v0::ApiDoc::merge_docs())
+            .url("/api-docs/v0/openapi.json", v0::ApiDoc::v0_docs())
+            .url("/api-docs/v1/openapi.json", v0::ApiDoc::v1_docs())
             .url(
                 "/api-docs/static/openapi.json",
                 r#static::ApiDoc::merge_docs(),
@@ -157,14 +160,14 @@ pub fn app_routes(
 
     // Apply expensive rate limiting to expensive routes
     let expensive = middlewares::rate_limit::apply_rate_limit_expensive(
-        v0_expensive.merge(static_expensive),
+        api_expensive.merge(static_expensive),
         rate_limit,
         shutdown_rx.clone(),
     );
 
     // Apply default rate limiting to default routes (including swagger)
     let default = middlewares::rate_limit::apply_rate_limit_default(
-        v0_default.merge(static_default).merge(swagger),
+        api_default.merge(static_default).merge(swagger),
         rate_limit,
         shutdown_rx,
     );

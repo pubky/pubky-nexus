@@ -2,9 +2,12 @@ use super::utils::find_post_details;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::models::notification::{Notification, NotificationBody};
+use nexus_common::models::post::PostKind;
 use nexus_common::types::Pagination;
 use pubky::Keypair;
-use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{
+    post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
+};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_homeserver_post_reply_notification() -> Result<()> {
@@ -102,7 +105,7 @@ async fn test_homeserver_post_reply_notification() -> Result<()> {
     {
         assert_eq!(
             post_kind,
-            &PubkyAppPostKind::Short,
+            &PostKind::Short,
             "Replying to a note should report the parent's post_kind = Short"
         );
         assert_eq!(

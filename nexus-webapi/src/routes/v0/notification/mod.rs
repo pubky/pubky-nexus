@@ -1,16 +1,17 @@
 use crate::routes::v0::endpoints::NOTIFICATION_ROUTE;
+use crate::routes::v0::version::ApiVersion;
 use crate::routes::AppState;
 
-use axum::routing::get;
 use axum::Router;
 use utoipa::OpenApi;
 
-mod list;
+pub mod list;
 
 pub use list::NEXT_START_HEADER;
 
-pub fn routes() -> Router<AppState> {
-    Router::new().route(NOTIFICATION_ROUTE, get(list::list_notifications_handler))
+/// The notification route for one version, listing the version's notification shape.
+pub fn routes<V: ApiVersion>() -> Router<AppState> {
+    Router::new().route(NOTIFICATION_ROUTE, V::list_notifications())
 }
 
 #[derive(OpenApi)]
@@ -18,6 +19,7 @@ pub fn routes() -> Router<AppState> {
 pub struct NotificationApiDoc;
 
 impl NotificationApiDoc {
+    /// The shared schemas; the route comes with the version's document.
     pub fn merge_docs() -> utoipa::openapi::OpenApi {
         list::NotificationsApiDocs::openapi()
     }

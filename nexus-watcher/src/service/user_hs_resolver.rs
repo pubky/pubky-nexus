@@ -754,7 +754,7 @@ mod tests {
     use nexus_common::utils::test_utils::{random_pk, random_pubky_id, signed_packet_naming};
     use nexus_common::{StackConfig, StackManager};
     use pubky::Keypair;
-    use pubky_app_specs::PubkyId;
+    use pubky_social_specs::PubkyId;
 
     async fn setup() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await

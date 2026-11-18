@@ -3,7 +3,8 @@ use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::{set_user_homeserver, set_user_homeserver_stale};
 use nexus_common::types::DynError;
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppUser, PubkyId};
+use pubky_social_specs::legacy_v0::PubkyAppUser;
+use pubky_social_specs::PubkyId;
 
 /// Helper: create a PubkyAppUser with a given name.
 fn make_test_user(name: &str) -> PubkyAppUser {

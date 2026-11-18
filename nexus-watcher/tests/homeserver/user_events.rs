@@ -11,7 +11,8 @@ use crate::event_processor::utils::watcher::{
 };
 use nexus_common::types::DynError;
 use pubky::{Keypair, PublicKey};
-use pubky_app_specs::{PubkyAppUser, PubkyId};
+use pubky_social_specs::legacy_v0::PubkyAppUser;
+use pubky_social_specs::PubkyId;
 use pubky_testnet::pubky_homeserver::quota_config::{
     GlobPattern, HttpMethod, LimitKeyType, PathLimit,
 };

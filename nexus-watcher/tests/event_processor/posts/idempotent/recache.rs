@@ -4,7 +4,7 @@
 use crate::event_processor::posts::utils::{
     check_member_global_timeline_user_post, check_member_post_replies,
     check_member_total_engagement_user_posts, check_member_user_post_timeline,
-    check_member_user_replies_timeline, find_post_details, pubky_id, short_post, short_reply,
+    check_member_user_replies_timeline, find_post_details, resource_key, short_post, short_reply,
     test_user,
 };
 use crate::event_processor::utils::watcher::WatcherTest;
@@ -15,7 +15,7 @@ use nexus_common::models::post::{PostCounts, PostDetails, PostRelationships};
 use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_watcher::events::handlers;
 use pubky::Keypair;
-use pubky_app_specs::post_uri_builder;
+use pubky_social_specs::legacy_v0::post_uri_builder;
 
 use super::{simulate_partial_del_cleanup_child, simulate_partial_del_cleanup_root, ChildKind};
 
@@ -130,12 +130,7 @@ async fn test_post_read_during_delete_does_not_recache() -> Result<()> {
     assert_counts_expire(&user_id, &post_id).await?;
 
     // The delete finishes: the graph node goes, and the index stays empty.
-    handlers::post::del(
-        pubky_id(&user_id)?,
-        post_id.clone(),
-        &default_ingestor_tests(),
-    )
-    .await?;
+    handlers::post::del(resource_key(&user_id, &post_id)?, &default_ingestor_tests()).await?;
     assert!(find_post_details(&user_id, &post_id).await.is_err());
     assert!(PostDetails::get_by_id(&user_id, &post_id).await?.is_none());
     assert_post_not_cached(&user_id, &post_id, None).await?;

@@ -9,7 +9,7 @@ use nexus_common::models::error::ModelError;
 use nexus_common::models::homeserver::Homeserver;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::PubkyId;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::watch::Receiver;
@@ -173,7 +173,7 @@ impl TEventProcessor for HsEventProcessor {
     ///   diverged): log a warning and skip until the resolver realigns it.
     /// - An edge to a different homeserver: log a warning and skip.
     async fn should_process_event(&self, event: &Event) -> Result<bool, EventProcessorError> {
-        let user_id = event.parsed_uri.user_id();
+        let user_id = event.target.user_id();
 
         match self.user_hs_mapping(user_id).await? {
             HsMapping::Unresolved | HsMapping::Current { stale: false } => Ok(true),
@@ -241,7 +241,11 @@ impl HsEventProcessor {
 
     /// Classifies the homeserver `user_id` publishes relative to this processor's HS.
     async fn published_hs_mapping(&self, user_id: &PubkyId) -> HsMapping {
-        let user_pk = user_id.to_public_key();
+        // A format-valid id need not be a curve point. No record can be signed by such a key,
+        // so the user publishes no homeserver.
+        let Ok(user_pk) = user_id.to_public_key() else {
+            return HsMapping::Unresolved;
+        };
         let published = match self.client.resolve_own_record(&user_pk).await {
             Ok(record) => record.homeserver(),
             Err(e) => {

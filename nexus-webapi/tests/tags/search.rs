@@ -1,6 +1,10 @@
 use crate::utils::get_request;
 use anyhow::Result;
-use nexus_webapi::routes::v0::endpoints::SEARCH_TAGS_BY_PREFIX_ROUTE;
+use const_format::concatcp;
+use nexus_webapi::routes::v0::endpoints::{self, V0_PREFIX};
+
+const SEARCH_TAGS_BY_PREFIX_ROUTE: &str =
+    concatcp!(V0_PREFIX, endpoints::SEARCH_TAGS_BY_PREFIX_ROUTE);
 
 pub fn format_search_tags_by_prefix(prefix: &str) -> String {
     SEARCH_TAGS_BY_PREFIX_ROUTE.replace("{prefix}", prefix)

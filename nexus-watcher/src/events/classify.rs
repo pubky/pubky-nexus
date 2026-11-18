@@ -1,0 +1,83 @@
+//! The one decision point after routing: index, skip, reject or invalid.
+
+use super::route::Routed;
+use super::target::EventTarget;
+use super::translation::social_v1;
+use pubky_social_specs::legacy_v0::{ExtendedParsedUri, Resource};
+use pubky_social_specs::{epoch_segment, ParsedUri};
+
+/// Why an event is skipped before any fetch: no GET, no retry entry, no stored event line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SkipReason {
+    /// A `pubky.app` resource Nexus never indexed: last-read, feed, blob or mute.
+    LegacyNotIndexed { resource: String },
+    /// A tag file in another app's folder (`/pub/<app>/tags/{id}`), PUT or DEL. Apps write their
+    /// tags at `pubky.app/tags/` or `social/v1/tags/`; the edges indexed from app folders before
+    /// stay, and a DEL here never removes one, since the tag id ignores the folder and the same
+    /// tag may live on in the other folder.
+    AppFolderTag { app: String },
+    /// A resource of a spec epoch this build recognises but does not index yet; `resource` is
+    /// `unknown` for a path that epoch's parser cannot classify.
+    EpochNotIndexed { epoch: String, resource: String },
+    /// A `social/vN` epoch the pinned spec crate does not speak.
+    UnsupportedEpoch { version: String },
+}
+
+/// What the watcher does with a routed address. Reasons name no URI; the caller has it.
+#[derive(Debug)]
+pub enum Classified {
+    Index(EventTarget),
+    Skip(SkipReason),
+    /// Not an address Nexus recognises.
+    Unrecognized(String),
+    /// An address under a namespace Nexus indexes that names no resource.
+    Invalid(String),
+}
+
+/// Decides index, skip, reject or invalid for a route.
+pub fn classify(routed: Routed) -> Classified {
+    match routed {
+        Routed::Legacy(parsed) => classify_legacy(parsed),
+        Routed::Social(parsed) => classify_social(parsed),
+        Routed::UnsupportedEpoch { version } => {
+            Classified::Skip(SkipReason::UnsupportedEpoch { version })
+        }
+        Routed::Malformed { reason } => Classified::Unrecognized(reason),
+    }
+}
+
+/// Index a v1 address the v1 translator has a handler for, a file included, whose bytes its
+/// handler fetches; skip the rest (a feed, a versionless post address, an unknown resource),
+/// which would be fetched only to fail translation.
+fn classify_social(parsed: ParsedUri) -> Classified {
+    if social_v1::has_handler(&parsed.resource) {
+        return Classified::Index(EventTarget::Social(parsed));
+    }
+    Classified::Skip(SkipReason::EpochNotIndexed {
+        epoch: epoch_segment(),
+        resource: parsed.resource.to_string(),
+    })
+}
+
+/// Index, skip or reject a v0 address; the resources Nexus never indexed and another app's tag
+/// files are skipped.
+fn classify_legacy(parsed: ExtendedParsedUri) -> Classified {
+    if let ExtendedParsedUri::UniversalTag { app, .. } = parsed {
+        return Classified::Skip(SkipReason::AppFolderTag { app });
+    }
+    match parsed.resource() {
+        Resource::User
+        | Resource::Post(_)
+        | Resource::Follow(_)
+        | Resource::Bookmark(_)
+        | Resource::Tag(_)
+        | Resource::File(_) => Classified::Index(EventTarget::Legacy(parsed)),
+        resource @ (Resource::LastRead
+        | Resource::Feed(_)
+        | Resource::Blob(_)
+        | Resource::Mute(_)) => Classified::Skip(SkipReason::LegacyNotIndexed {
+            resource: resource.to_string(),
+        }),
+        Resource::Unknown => Classified::Invalid("Unknown resource in URI".to_string()),
+    }
+}

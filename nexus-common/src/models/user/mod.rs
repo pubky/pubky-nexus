@@ -16,7 +16,7 @@ pub use counts::UserCounts;
 pub use cursor::{user_hs_cursor_key, UserHsCursor, UserHsCursorKey};
 pub use details::{
     set_user_homeserver, set_user_homeserver_from_record, set_user_homeserver_stale, users_exist,
-    UserDetails,
+    UserDetails, UserLink,
 };
 pub use epoch::Epoch;
 pub use homeserver_resolver::{
