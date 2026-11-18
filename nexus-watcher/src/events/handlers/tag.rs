@@ -17,7 +17,7 @@ use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use pubky_social_specs::PubkyId;
 use std::sync::LazyLock;
 use tokio::sync::{Mutex, MutexGuard};
-use tracing::{debug, Instrument};
+use tracing::{debug, warn, Instrument};
 
 use super::utils::{
     bounded, fail_on_permanent_ingest_error, lock_stripe, post_kind, post_relationships_is_reply,
@@ -468,9 +468,22 @@ pub async fn del_at(key: ResourceKey, tag_uri: &str) -> Result<(), EventProcesso
         // Resource tags keep no Redis index to clean up. The feed writes before the graph:
         // a delete that fails after this append leaves the edge, and its retry appends again.
         (None, None, None, Some(res_id)) => {
-            let uri: String = row
+            let uri: Option<String> = row
                 .get("resource_uri")
                 .map_err(EventProcessorError::generic)?;
+            // A Resource with no `uri` (corrupt or imported data) has no feed key: a retry reads
+            // the same node, so the event is dropped as a data anomaly, as the seed skips it.
+            let Some(uri) = uri else {
+                warn!(
+                    tagger_id = %arg_user_id,
+                    tag_id = %arg_tag_id,
+                    resource_id = %res_id,
+                    "Resource tag DEL dropped: the tagged Resource has no uri"
+                );
+                return Err(EventProcessorError::DataAnomaly(format!(
+                    "Resource {res_id} tagged by {arg_user_id} (tag {arg_tag_id}) has no uri"
+                )));
+            };
             ResourceChange::tag(
                 ResourceChangeOp::Del,
                 res_id,

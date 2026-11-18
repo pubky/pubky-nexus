@@ -54,9 +54,10 @@ pub enum EventProcessorError {
     SpecValidation(String),
 
     /// A scan could not advance (a stalled keyset scan, a tags page whose write changed
-    /// nothing): a deterministic data anomaly, so retrying reproduces it and the event is
-    /// dropped. Inside a flip step it is wrapped in [`Self::FlipFailed`] instead, which keeps the
-    /// user at `v0` and retries the step whole.
+    /// nothing), or stored data lacks what the handler needs (a tagged Resource with no `uri`):
+    /// a deterministic data anomaly, so retrying reproduces it and the event is dropped. Inside
+    /// a flip step it is wrapped in [`Self::FlipFailed`] instead, which keeps the user at `v0`
+    /// and retries the step whole.
     #[error("DataAnomaly: {0}")]
     DataAnomaly(String),
 
