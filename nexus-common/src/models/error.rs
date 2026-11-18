@@ -19,6 +19,12 @@ pub enum ModelError {
     #[error("InvalidInput: {0}")]
     InvalidInput(String),
 
+    /// A guarded graph write found the graph changed since the state it was computed from (a
+    /// newer version of the post, a delete): nothing was written, and a retry reads the graph
+    /// again.
+    #[error("StaleWrite: {0}")]
+    StaleWrite(String),
+
     #[error("Generic: {0}")]
     Generic(String),
 }

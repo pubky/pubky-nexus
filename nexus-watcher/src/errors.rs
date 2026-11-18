@@ -140,6 +140,11 @@ pub enum EventProcessorError {
     #[error("MigrationDiskFailed: {0}")]
     MigrationDiskFailed(String),
 
+    /// A guarded graph write found the graph changed under it ([`ModelError::StaleWrite`]):
+    /// nothing was written. Retried, per event: the retry reads the graph again.
+    #[error("StaleWrite: {0}")]
+    StaleWrite(String),
+
     /// Catch-all for miscellaneous errors in the processor layer
     #[error("Generic error: {0}")]
     Generic(String),
@@ -155,6 +160,7 @@ impl From<ModelError> for EventProcessorError {
             }
             ModelError::HsBlacklisted { hs_id } => EventProcessorError::HsBlacklisted { hs_id },
             ModelError::InvalidInput(message) => EventProcessorError::SpecValidation(message),
+            ModelError::StaleWrite(message) => EventProcessorError::StaleWrite(message),
             ModelError::Generic(message) => EventProcessorError::Generic(message),
         }
     }
@@ -553,6 +559,22 @@ mod tests {
         let file_write = EventProcessorError::static_save_failed("No space left on device");
         assert!(!file_write.should_not_retry_now(), "{file_write}");
         assert!(RetryScheduler::should_enqueue_related_event(&file_write));
+    }
+
+    /// A reference write that found its post changed (a newer version, a delete) is retried
+    /// on purpose, per event: enqueued, never a batch stop, never a flip failure.
+    #[test]
+    fn a_stale_write_is_retried_per_event() {
+        let err = EventProcessorError::from(ModelError::StaleWrite("post changed".into()));
+
+        assert!(
+            matches!(err, EventProcessorError::StaleWrite(ref m) if m == "post changed"),
+            "{err:?}"
+        );
+        assert!(RetryScheduler::should_enqueue_related_event(&err), "{err}");
+        assert!(!err.should_not_retry_now(), "{err}");
+        assert!(!err.is_missing_dependency(), "{err}");
+        assert!(!err.is_flip_failed(), "{err}");
     }
 
     #[test]
