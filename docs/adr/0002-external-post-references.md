@@ -54,16 +54,16 @@ attachment metadata). Existing Resources with no matches return `200 []`; a miss
 Resource returns 404 and malformed parameters return 400. The `/v1` resource views and
 tag responses include `replies_count`, `embeds_count`, and `collections_count`: they count
 live posts, not authors. Collections are counted and published on the feed but not
-listed by a route. The views count
-the live posts that reference the Resource only on `/v1`; `/v0` views and streams skip
-those counts. `/v0` is frozen: it serves neither route (404) and its resource views and
-tag responses keep their shape, with no counts. On `/v1`, post relationships carry the
-external reply URI in `replied` and an external embed URI in `embedded`. `/v0` serves
-typed post shapes built from the stored models: a post's relationships there have no
-`embedded`, and `replied` names only a post (`null` for an external reply). Whether the
-reply parent is a post comes from the graph and is cached with the relationships, never
-read from the address. For posts without external references, `/v0` answers are
-the stored models' bytes: the same fields in the same order.
+listed by a route. The views count the live posts that reference the Resource only
+on `/v1`; `/v0` views and streams skip those counts. `/v0` is frozen: it serves
+neither route (404) and its resource views and tag responses keep their shape, with
+no counts. On `/v1`, post relationships carry the external reply URI in `replied`
+and an external embed URI in `embedded`. `/v0` serves typed post shapes built from
+the stored models: a post's relationships there have no `embedded`, and `replied`
+names only a post (`null` for an external reply). Whether the reply parent is a post
+comes from the graph and is cached with the relationships, never read from the
+address. For posts without external references, `/v0` answers are the stored models'
+bytes: the same fields in the same order.
 
 Two `/v0` changes are part of the feature. A URL that only posts reference is a
 Resource, so `GET /v0/resource/{id}/tags` and `GET /v0/resource/by-uri` answer 200 with
@@ -76,8 +76,9 @@ edge exists. After the reference write the handler reads the post's cached
 relationships and lists back from the graph when the post has or had a Resource edge,
 or when its lists disagree with what it is, and ranks a root post that is not ranked:
 a retry after a failure past the reference write finds the same facts. A delete always
-takes the post out of the engagement ranking and the author's replies. Deleting the last incoming reference removes the Resource; a
-remaining tag, reply, embed, collection or another relationship keeps it.
+takes the post out of the engagement ranking and the author's replies. Deleting the
+last incoming reference removes the Resource; a remaining tag, reply, embed, collection
+or another relationship keeps it.
 
 A deleted post that still has other relationships (replies, reposts, tags and so on)
 becomes a tombstone, which keeps its Resource edges. Every Resource-side reader skips a
