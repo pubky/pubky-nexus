@@ -85,7 +85,9 @@ pub async fn post_views(
         ("limit" = Option<BoundedLimit<20, 100>>, Query), ("viewer_id" = Option<PubkyId>, Query),
         ("limit_tags" = Option<BoundedLimit<5, 100>>, Query), ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query)),
     responses((status=200, body=Vec<v1::PostView>, description="Replies"), (status=400, description="Invalid parameters"),
-        (status=404, description="Resource not found"), (status=500, description="Internal server error")))]
+        (status=404, description="Resource not found"),
+        (status=429, description="Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status=500, description="Internal server error")))]
 pub async fn replies(
     Path(id): Path<ResourceId>,
     Query(query): Query<ReferencesQuery>,
@@ -99,7 +101,9 @@ pub async fn replies(
         ("limit" = Option<BoundedLimit<20, 100>>, Query), ("viewer_id" = Option<PubkyId>, Query),
         ("limit_tags" = Option<BoundedLimit<5, 100>>, Query), ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query)),
     responses((status=200, body=Vec<v1::PostView>, description="Embeds"), (status=400, description="Invalid parameters"),
-        (status=404, description="Resource not found"), (status=500, description="Internal server error")))]
+        (status=404, description="Resource not found"),
+        (status=429, description="Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status=500, description="Internal server error")))]
 pub async fn embeds(
     Path(id): Path<ResourceId>,
     Query(query): Query<ReferencesQuery>,
