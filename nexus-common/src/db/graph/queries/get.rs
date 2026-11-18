@@ -1476,41 +1476,42 @@ pub fn get_all_time_influencers(after_id: &str, limit: usize) -> Query {
 }
 
 /// The top `limit` users after `skip` for a ranged timeframe, which only counts
-/// tags on posts. AllTime is ranked in full by [`get_all_time_influencers`].
+/// tags on posts. AllTime is ranked in full by [`get_all_time_influencers`]. Like it, this
+/// ranks every user who is neither tombstoned nor a discovery stub: a quiet timeframe is
+/// padded with users scoring zero, and a stub has no profile to list.
 pub fn get_global_influencers(skip: usize, limit: usize, timeframe: CacheTimeframe) -> Query {
     let (from, to) = timeframe.timeframe().to_timestamp_range();
-    Query::new(
-        "get_global_influencers",
+    let cypher = format!(
         "
         MATCH (user:User)
-        WHERE NOT coalesce(user.deleted, false)
+        WHERE NOT coalesce(user.deleted, false) AND NOT {stub}
         WITH DISTINCT user
 
-        // Each count is a scoped CALL(user){} subquery so it stays per-user
+        // Each count is a scoped CALL(user){{}} subquery so it stays per-user
         // instead of multiplying into a cartesian product. Mirrors
         // get_influencers_by_reach.
-        CALL (user) {
+        CALL (user) {{
             MATCH (others:User)-[follow:FOLLOWS]->(user)
             WHERE follow.indexed_at >= $from AND follow.indexed_at < $to
             RETURN count(DISTINCT follow) AS followers_count
-        }
-        CALL (user) {
+        }}
+        CALL (user) {{
             MATCH (user)-[tag:TAGGED]->(:Post)
             WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
             RETURN count(DISTINCT tag) AS tags_count
-        }
-        CALL (user) {
+        }}
+        CALL (user) {{
             // Filter on the Post node's indexed_at, like get_influencers_by_reach does.
             // The AUTHORED edge carries no indexed_at property (create_post never sets
             // one), so filtering on the edge would always yield posts_count = 0.
             MATCH (user)-[:AUTHORED]->(post:Post)
             WHERE post.indexed_at >= $from AND post.indexed_at < $to
             RETURN count(DISTINCT post) AS posts_count
-        }
-        WITH {
+        }}
+        WITH {{
             id: user.id,
             score: (tags_count + posts_count) * sqrt(followers_count)
-        } AS influencer
+        }} AS influencer
         WHERE influencer.id IS NOT NULL
 
         ORDER BY influencer.score DESC, influencer.id ASC
@@ -1518,11 +1519,13 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: CacheTimefra
         LIMIT $limit
         RETURN COLLECT([influencer.id, influencer.score]) as influencers
     ",
-    )
-    .param("skip", skip as i64)
-    .param("limit", limit as i64)
-    .param("from", from)
-    .param("to", to)
+        stub = discovery_stub("user")
+    );
+    Query::new("get_global_influencers", &cypher)
+        .param("skip", skip as i64)
+        .param("limit", limit as i64)
+        .param("from", from)
+        .param("to", to)
 }
 
 /// Every Collection post key, for backfills.

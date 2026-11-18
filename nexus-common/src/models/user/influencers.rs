@@ -688,6 +688,43 @@ mod tests {
         Ok(())
     }
 
+    /// A ranged ranking is padded with users scoring zero, in id order. A discovery stub
+    /// scores zero too, and must not take one of those places: the ranking lists a user
+    /// with a profile and no activity, never a stub.
+    #[tokio_shared_rt::test(shared)]
+    async fn ranged_ranking_leaves_discovery_stubs_out() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let stub = PubkyId::from(Keypair::random());
+        let quiet = PubkyId::from(Keypair::random());
+        UserDetails::create_stub_in_graph(&stub).await?;
+        UserDetails::from_pubky(quiet.clone())
+            .put_profile_to_graph(&format!("pubky://{quiet}/pub/pubky.app/profile.json"))
+            .await?;
+
+        // Every user of the graph, so the two are not cut off by the limit. Remove the nodes
+        // before asserting, so a failure cannot leave them in the graph.
+        let query = queries::get::get_global_influencers(0, 1_000_000, CacheTimeframe::Today);
+        let ranked = fetch_key_from_graph::<Influencers>(query, "influencers").await;
+        exec_single_row(queries::del::delete_user(&stub)).await?;
+        exec_single_row(queries::del::delete_user(&quiet)).await?;
+        let ranked: HashMap<String, f64> = ranked?
+            .expect("the query collects one row")
+            .0
+            .into_iter()
+            .collect();
+
+        assert_eq!(
+            ranked.get(&*quiet),
+            Some(&0.0),
+            "a user with a profile pads the ranking"
+        );
+        assert!(
+            !ranked.contains_key(&*stub),
+            "a discovery stub must not be ranked"
+        );
+        Ok(())
+    }
+
     /// The fixture fits in one page of `ALL_TIME_PAGE_SIZE`, so walk it in small pages
     /// to cover the cursor a larger graph needs.
     #[tokio_shared_rt::test(shared)]
