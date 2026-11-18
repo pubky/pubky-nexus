@@ -8,7 +8,8 @@ use nexus_common::db::OperationOutcome;
 use nexus_common::models::event::resource_changes::ResourceChangeKind;
 use nexus_common::models::post::{PostCounts, PostDetails, PostKind, PostRelationships};
 use nexus_common::models::resource::references;
-use nexus_webapi::models::{v1, PostViewDetailed};
+use nexus_webapi::models::v1;
+use nexus_webapi::routes::v0::resource;
 use setup::run_setup;
 use std::sync::{LazyLock, OnceLock};
 use std::time::Duration;
@@ -86,20 +87,13 @@ fn data() -> &'static str {
     DATA.get_or_init(|| RT.block_on(self::seed(seed)))
 }
 
-/// The handlers' read: the Resource lookup, one page of post keys, then each post's `/v1` view.
+/// The handlers' read: the Resource lookup, one page of post keys, then the posts' `/v1` views.
 async fn read(id: &str, kind: ResourceChangeKind, skip: usize, limit: usize) -> Vec<v1::PostView> {
     assert!(references::exists(id).await.unwrap());
     let keys = references::posts(id, kind, skip, limit).await.unwrap();
-    let mut posts = Vec::with_capacity(keys.len());
-    for (author, id) in keys {
-        if let Some(post) = PostViewDetailed::get_by_id(&author, &id, None, None, None, false)
-            .await
-            .unwrap()
-        {
-            posts.push(v1::PostView::from(post));
-        }
-    }
-    posts
+    resource::references::post_views(keys, None, None, None)
+        .await
+        .unwrap()
 }
 
 fn bench_resource_references(c: &mut Criterion) {

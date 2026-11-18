@@ -11,6 +11,7 @@ use crate::routes::v0::endpoints::{RESOURCE_EMBEDS_ROUTE, RESOURCE_REPLIES_ROUTE
 use crate::routes::{Path, Query};
 use crate::{Error, Result};
 use axum::Json;
+use futures_util::stream::{self, StreamExt, TryStreamExt};
 use nexus_common::models::event::resource_changes::ResourceChangeKind;
 use nexus_common::models::resource::references;
 use serde::Deserialize;
@@ -41,22 +42,41 @@ async fn read(
         query.pagination.limit_value(),
     )
     .await?;
-    let mut posts = Vec::with_capacity(keys.len());
-    for (author, id) in keys {
-        if let Some(post) = PostViewDetailed::get_by_id(
-            &author,
-            &id,
-            query.viewer_id.as_deref(),
-            query.limit_tags.as_ref().map(|n| n.value()),
-            query.limit_taggers.as_ref().map(|n| n.value()),
-            false,
-        )
-        .await?
-        {
-            posts.push(v1::PostView::from(post));
-        }
-    }
+    let posts = post_views(
+        keys,
+        query.viewer_id.as_deref(),
+        query.limit_tags.as_ref().map(|n| n.value()),
+        query.limit_taggers.as_ref().map(|n| n.value()),
+    )
+    .await?;
     Ok(Json(posts))
+}
+
+/// How many post views of a page load at once.
+const PAGE_CONCURRENCY: usize = 8;
+
+/// The `/v1` views of the posts `keys` names, `(author, post id)`, in the order of `keys`. A
+/// page loads [`PAGE_CONCURRENCY`] views at a time, bounded to protect the pool as the post
+/// streams are; a post with no view is left out.
+pub async fn post_views(
+    keys: Vec<(String, String)>,
+    viewer_id: Option<&str>,
+    limit_tags: Option<usize>,
+    limit_taggers: Option<usize>,
+) -> Result<Vec<v1::PostView>> {
+    let views: Vec<Option<PostViewDetailed>> = stream::iter(keys)
+        .map(|(author, id)| async move {
+            PostViewDetailed::get_by_id(&author, &id, viewer_id, limit_tags, limit_taggers, false)
+                .await
+        })
+        .buffered(PAGE_CONCURRENCY)
+        .try_collect()
+        .await?;
+    Ok(views
+        .into_iter()
+        .flatten()
+        .map(v1::PostView::from)
+        .collect())
 }
 
 #[utoipa::path(get, path = RESOURCE_REPLIES_ROUTE, tag = "Resource",
