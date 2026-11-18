@@ -1,6 +1,7 @@
 //! References from social posts to universal Resources. Content stays on the Post.
 
-use crate::db::graph::{GraphError, Query};
+use crate::db::graph::queries::{self, put::ResourceReferenceWrite};
+use crate::db::graph::GraphError;
 use crate::db::{fetch_row_from_graph, get_neo4j_graph};
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::event::resource_changes::{
@@ -50,21 +51,7 @@ struct State {
 }
 
 async fn state(author: &str, id: &str) -> ModelResult<State> {
-    let row = fetch_row_from_graph(Query::new("resource_references_state", r"
-        MATCH (p:Post {id: $id}) WHERE EXISTS { (:User {id: $author})-[:AUTHORED]->(p) }
-        OPTIONAL MATCH (p)-[e:REPLIED|EMBEDS|COLLECTED]->(r:Resource)
-        WITH p, e, r ORDER BY type(e), r.id
-        RETURN coalesce(p.resource_ref_revision, '') AS revision,
-               p.resource_ref_revision IS NOT NULL AS reconciled,
-               coalesce(p.deleted, false) AS deleted,
-               coalesce(p.resource_ref_retracted, false) AS retracted,
-               p.resource_ref_outbox AS outbox,
-               collect(CASE WHEN e IS NOT NULL THEN {
-                 op: 'put', resource_id: r.id, uri: r.uri,
-                 kind: CASE type(e) WHEN 'REPLIED' THEN 'reply' WHEN 'EMBEDS' THEN 'embed' ELSE 'collection' END,
-                 author: $author, object_path: e.object_path, at: e.indexed_at
-               } END) AS lines
-    ").param("author", author).param("id", id)).await?;
+    let row = fetch_row_from_graph(queries::get::resource_references_state(author, id)).await?;
     match row {
         Some(row) => Ok(State {
             revision: row.get("revision")?,
@@ -75,6 +62,16 @@ async fn state(author: &str, id: &str) -> ModelResult<State> {
             lines: row.get("lines")?,
         }),
         None => Ok(State::default()),
+    }
+}
+
+/// The edge from a post to a Resource for a reference of `kind`.
+fn reference_edge(kind: ResourceChangeKind) -> ModelResult<&'static str> {
+    match kind {
+        ResourceChangeKind::Reply => Ok("REPLIED"),
+        ResourceChangeKind::Embed => Ok("EMBEDS"),
+        ResourceChangeKind::Collection => Ok("COLLECTED"),
+        _ => Err(ModelError::InvalidInput("Not a post reference".into())),
     }
 }
 
@@ -103,19 +100,7 @@ async fn publish(author: &str, id: &str, raw: String) -> ModelResult<()> {
         serde_json::from_str(&raw).map_err(ModelError::from_generic)?;
     ResourceChange::store_batch(&lines).await?;
     get_neo4j_graph()?
-        .run(
-            Query::new(
-                "resource_references_ack",
-                r"
-        MATCH (p:Post {id: $id}) WHERE EXISTS { (:User {id: $author})-[:AUTHORED]->(p) }
-          AND p.resource_ref_outbox = $outbox
-        REMOVE p.resource_ref_outbox
-    ",
-            )
-            .param("author", author)
-            .param("id", id)
-            .param("outbox", raw),
-        )
+        .run(queries::put::resource_references_ack(author, id, &raw))
         .await
         .map_err(GraphError::from)?;
     Ok(())
@@ -213,9 +198,9 @@ async fn stage_outbox(post: &PostDetails, mut lines: Vec<ResourceChange>) -> Mod
             .filter(|line| old.retracted || !old.lines.iter().any(|old| same_reference(old, line)))
             .cloned(),
     );
+    let touched = !old.lines.is_empty() || !lines.is_empty();
     // A post's first stage writes its revision even with nothing to publish: from then on its
     // external reply parent is fixed (the watcher's parent check reads the revision).
-    let touched = !old.lines.is_empty() || !lines.is_empty();
     if changes.is_empty() && !old.retracted && old.reconciled {
         return Ok(Staged {
             touched,
@@ -226,25 +211,13 @@ async fn stage_outbox(post: &PostDetails, mut lines: Vec<ResourceChange>) -> Mod
         .then(|| serde_json::to_string(&changes))
         .transpose()
         .map_err(ModelError::from_generic)?;
-    let revision = pubky::Keypair::random().public_key().to_z32();
-    let mut query = String::from(
-        r"
-        MATCH (p:Post {id: $id}) WHERE EXISTS { (:User {id: $author})-[:AUTHORED]->(p) }
-        SET p.resource_ref_revision = coalesce(p.resource_ref_revision, '')
-        WITH p WHERE p.content = $content AND p.kind = $kind AND NOT coalesce(p.deleted, false)
-          AND p.resource_ref_revision = $previous
-        SET p.resource_ref_revision = $revision, p.resource_ref_outbox = $outbox
-        REMOVE p.resource_ref_retracted
-        WITH p
-    ",
-    );
     let mut groups = Vec::new();
-    for (kind, edge, name) in [
-        (ResourceChangeKind::Reply, "REPLIED", "replies"),
-        (ResourceChangeKind::Embed, "EMBEDS", "embeds"),
-        (ResourceChangeKind::Collection, "COLLECTED", "collections"),
+    for kind in [
+        ResourceChangeKind::Reply,
+        ResourceChangeKind::Embed,
+        ResourceChangeKind::Collection,
     ] {
-        let values: Vec<HashMap<String, String>> = lines
+        let targets: Vec<HashMap<String, String>> = lines
             .iter()
             .filter(|line| line.kind == kind)
             .map(|line| {
@@ -257,52 +230,25 @@ async fn stage_outbox(post: &PostDetails, mut lines: Vec<ResourceChange>) -> Mod
                 ])
             })
             .collect();
-        query.push_str(&format!(
-            r"
-            FOREACH (item IN ${name} |
-                MERGE (r:Resource {{id: item.id}})
-                ON CREATE SET r.uri = item.uri, r.scheme = item.scheme, r.indexed_at = $at
-                MERGE (p)-[e:{edge}]->(r)
-                ON CREATE SET e.indexed_at = $at
-                SET e.object_path = item.path
-            )
-            WITH p
-            CALL (p) {{ MATCH (p)-[e:{edge}]->(r:Resource)
-                WHERE NOT r.id IN [item IN ${name} | item.id] DELETE e }}
-        "
-        ));
-        groups.push((name, values));
+        groups.push((reference_edge(kind)?, targets));
     }
-    // Remove orphans in the edge transaction: retry cannot forget an old target.
-    query.push_str(
-        r"
-        CALL () {
-            UNWIND $old_targets AS id MATCH (r:Resource {id: id})
-            WITH DISTINCT r WHERE NOT EXISTS { (r)--() } DELETE r
-        }
-        RETURN p.id AS id
-    ",
-    );
     let kind = serde_json::to_string(&post.kind).map_err(ModelError::from_generic)?;
-    let mut query = Query::new("resource_references_sync", query)
-        .param("author", post.author.clone())
-        .param("id", post.id.clone())
-        .param("content", post.content.clone())
-        .param("kind", kind.trim_matches('"'))
-        .param(
-            "old_targets",
-            old.lines
-                .iter()
-                .map(|line| line.resource_id.clone())
-                .collect::<Vec<_>>(),
-        )
-        .param("previous", old.revision)
-        .param("revision", revision)
-        .param("outbox", outbox.clone())
-        .param("at", at);
-    for (name, values) in groups {
-        query = query.param(name, values);
-    }
+    let query = queries::put::sync_resource_references(ResourceReferenceWrite {
+        author_id: &post.author,
+        post_id: &post.id,
+        content: &post.content,
+        kind: kind.trim_matches('"'),
+        previous: &old.revision,
+        revision: &pubky::Keypair::random().public_key().to_z32(),
+        outbox: outbox.clone(),
+        at,
+        old_targets: old
+            .lines
+            .iter()
+            .map(|line| line.resource_id.clone())
+            .collect(),
+        groups,
+    });
     if fetch_row_from_graph(query).await?.is_none() {
         return Err(ModelError::StaleWrite(
             "Post changed while reconciling external references".into(),
@@ -331,17 +277,7 @@ pub async fn retract(author: &str, id: &str) -> ModelResult<()> {
     // Marked before the append: a PUT after a delete that stopped anywhere past here puts the
     // references again, as the graph still holds them.
     get_neo4j_graph()?
-        .run(
-            Query::new(
-                "resource_references_retracted",
-                r"
-        MATCH (p:Post {id: $id}) WHERE EXISTS { (:User {id: $author})-[:AUTHORED]->(p) }
-        SET p.resource_ref_retracted = true
-    ",
-            )
-            .param("author", author)
-            .param("id", id),
-        )
+        .run(queries::put::resource_references_retracted(author, id))
         .await
         .map_err(GraphError::from)?;
     let at = chrono::Utc::now().timestamp_millis();
@@ -355,15 +291,9 @@ pub async fn retract(author: &str, id: &str) -> ModelResult<()> {
 
 /// Existence check without hydrating tags or reference counts.
 pub async fn exists(id: &str) -> ModelResult<bool> {
-    Ok(fetch_row_from_graph(
-        Query::new(
-            "resource_reference_exists",
-            "MATCH (:Resource {id: $id}) RETURN 1 AS present",
-        )
-        .param("id", id),
-    )
-    .await?
-    .is_some())
+    Ok(fetch_row_from_graph(queries::get::resource_exists(id))
+        .await?
+        .is_some())
 }
 
 /// Indexed Resource lookup, stable newest-first pagination over live source posts.
@@ -373,29 +303,13 @@ pub async fn posts(
     skip: usize,
     limit: usize,
 ) -> ModelResult<Vec<(String, String)>> {
-    let edge = match kind {
-        ResourceChangeKind::Reply => "REPLIED",
-        ResourceChangeKind::Embed => "EMBEDS",
-        ResourceChangeKind::Collection => "COLLECTED",
-        _ => return Err(ModelError::InvalidInput("Not a post reference".into())),
-    };
     let mut rows = get_neo4j_graph()?
-        .execute(
-            Query::new(
-                "resource_reference_posts",
-                format!(
-                    r"
-        MATCH (r:Resource {{id: $id}})<-[:{edge}]-(p:Post)<-[:AUTHORED]-(a:User)
-        WHERE NOT coalesce(p.deleted, false)
-        RETURN a.id AS author, p.id AS id ORDER BY p.indexed_at DESC, a.id, p.id
-        SKIP $skip LIMIT $limit
-    "
-                ),
-            )
-            .param("id", id)
-            .param("skip", skip as i64)
-            .param("limit", limit as i64),
-        )
+        .execute(queries::get::resource_reference_posts(
+            id,
+            reference_edge(kind)?,
+            skip,
+            limit,
+        ))
         .await
         .map_err(GraphError::from)?;
     let mut keys = vec![];
@@ -408,6 +322,7 @@ pub async fn posts(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::graph::Query;
     use crate::{StackConfig, StackManager};
 
     /// A user with one social Short post in the graph, as the post write leaves it.
