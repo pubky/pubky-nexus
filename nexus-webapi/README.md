@@ -17,7 +17,7 @@ The crate leverages the shared `nexus_common` library for database interactions 
 
 ## Key Features
 
-- **Robust Routing:** Uses Axum’s routing system to define clear API endpoints across multiple versions.
+- **Robust Routing:** Uses Axum’s routing system to define each API endpoint once and mount it under two versions: `/v1`, the current API where every new feature lands, and `/v0`, frozen to fixes only.
 - **Modular Design:** Organized into modules like `builder`, `config`, `error`, `mock`, `models`, and `routes`.
 - **Observability:** Integrated OpenTelemetry tracing and automatically generated OpenAPI documentation via Swagger UI.
 - **High Performance:** Includes extensive testing and benchmarking to ensure optimal performance.

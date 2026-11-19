@@ -29,6 +29,17 @@ pub async fn is_taken_down(uri: &str) -> ModelResult<bool> {
         .unwrap_or(false))
 }
 
+/// Whether the moderator took down any of `uris`, canonical addresses, in one graph read.
+pub async fn is_any_taken_down(uris: &[String]) -> ModelResult<bool> {
+    if uris.is_empty() {
+        return Ok(false);
+    }
+    let query = queries::get::is_any_taken_down(uris);
+    Ok(fetch_key_from_graph(query, "taken_down")
+        .await?
+        .unwrap_or(false))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -45,9 +56,18 @@ mod tests {
         let uri = format!("pubky://{user}/pub/pubky.app/posts/0034FJVRPG4V0");
         let tag_uri = format!("pubky://{user}/pub/pubky.app/tags/MODERATORTAG");
 
+        let other = format!("pubky://{user}/pub/pubky.app/posts/0034FJVRPG4V1");
+
         assert!(!is_taken_down(&uri).await?);
+        assert!(!is_any_taken_down(&[uri.clone(), other.clone()]).await?);
         record_takedown(&uri, &tag_uri).await?;
         assert!(is_taken_down(&uri).await?);
+        assert!(
+            is_any_taken_down(&[other.clone(), uri.clone()]).await?,
+            "one taken-down address of the list is enough"
+        );
+        assert!(!is_any_taken_down(&[other]).await?);
+        assert!(!is_any_taken_down(&[]).await?);
 
         let query = Query::new(
             "test_takedown_tag_uri",

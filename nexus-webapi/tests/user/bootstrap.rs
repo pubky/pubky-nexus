@@ -125,9 +125,7 @@ async fn test_bootstrap_user_not_indexed() -> Result<()> {
         .posts
         .0
         .iter()
-        .filter_map(|p| p.details.attachments.as_ref())
-        .flatten()
-        .cloned()
+        .flat_map(|p| p.details.attachments.iter().cloned())
         .collect();
     assert_eq!(
         user_bootstrap_response.files.len(),

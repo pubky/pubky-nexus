@@ -10,4 +10,4 @@ mod put_idempotent;
 mod put_notification;
 mod put_sequential;
 mod retry_follow;
-mod utils;
+pub mod utils;

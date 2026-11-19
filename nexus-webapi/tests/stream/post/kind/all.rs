@@ -17,6 +17,7 @@ const COL_BOGOTA_2: &str = "COLW1TGL5BKG2";
 const COL_BOGOTA_1: &str = "COLW1TGL5BKG1";
 const COL_BOGOTA_MALF: &str = "MALF1TGL5BKG7";
 const COL_BOGOTA_NEST: &str = "NEST1TGL5BKG8";
+const COL_BOGOTA_V1: &str = "C01V1TG15BKG4";
 const POST_A10: &str = "5YCW1TGL5BKG6";
 
 const POST_W_PUBKY_TAG_1: &str = "5YCW1TGL5BKG1";
@@ -30,10 +31,10 @@ pub const FK_TAG: &str = "4k";
 
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_post_kind() -> Result<()> {
-    // limit=14 to bound the assertion to a deterministic prefix — Bogota
-    // authored 22 root posts (incl. 4 Collections); the list below is the
+    // limit=15 to bound the assertion to a deterministic prefix — Bogota
+    // authored 23 root posts (incl. 5 Collections); the list below is the
     // top of that by indexed_at DESC.
-    let path = format!("{ROOT_PATH}?author_id={BOGOTA}&source=author&limit=14");
+    let path = format!("{ROOT_PATH}?author_id={BOGOTA}&source=author&limit=15");
 
     let body = get_request(&path).await?;
     let post_list = vec![
@@ -50,6 +51,7 @@ async fn test_stream_post_kind() -> Result<()> {
         POST_A9,
         COL_BOGOTA_2,
         COL_BOGOTA_1,
+        COL_BOGOTA_V1,
         POST_A10,
     ];
     verify_post_list(post_list, body);

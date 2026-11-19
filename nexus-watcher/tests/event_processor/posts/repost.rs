@@ -11,7 +11,7 @@ use nexus_common::{
     models::post::{PostDetails, PostRelationships},
 };
 use pubky::Keypair;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
 };
 
@@ -124,7 +124,7 @@ async fn test_homeserver_post_repost() -> Result<()> {
         "Repost should have parent post URI"
     );
     assert_eq!(
-        relationships.reposted.unwrap().try_to_uri_str().unwrap(),
+        relationships.reposted.unwrap(),
         parent_absolute_uri,
         "The parent URIs does not match"
     );

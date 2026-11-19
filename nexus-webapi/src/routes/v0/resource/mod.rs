@@ -1,14 +1,14 @@
-use crate::models::{BoundedLimit, BoundedSkip, PubkyId, ResourceId, TagLabel};
+use crate::models::{BoundedLimit, BoundedSkip, PubkyId, ResourceId};
 use crate::routes::v0::endpoints::{
     RESOURCE_BY_URI_ROUTE, RESOURCE_TAGGERS_ROUTE, RESOURCE_TAGS_ROUTE,
 };
 use crate::routes::v0::user::tags::TaggersQuery;
-use crate::routes::v0::{TaggersInfoResponse, TagsQuery};
+use crate::routes::v0::version::{versioned_handlers, ApiVersion};
+use crate::routes::v0::TagsQuery;
 use crate::routes::AppState;
 use crate::routes::Path;
 use crate::routes::Query;
 use crate::{Error, Result};
-use axum::routing::get;
 use axum::{Json, Router};
 use nexus_common::models::resource::tag::TagResource;
 use nexus_common::models::resource::view::ResourceView;
@@ -38,11 +38,13 @@ impl From<ResourceView> for ResourceTagsResponse {
     }
 }
 
-pub fn routes() -> Router<AppState> {
+/// The resource routes for one version: every one serves the version's tags, and the taggers
+/// route folds its label the version's way.
+pub fn routes<V: ApiVersion>() -> Router<AppState> {
     Router::new()
-        .route(RESOURCE_TAGS_ROUTE, get(resource_tags_handler))
-        .route(RESOURCE_TAGGERS_ROUTE, get(resource_taggers_handler))
-        .route(RESOURCE_BY_URI_ROUTE, get(resource_by_uri_handler))
+        .route(RESOURCE_TAGS_ROUTE, V::resource_tags())
+        .route(RESOURCE_TAGGERS_ROUTE, V::resource_taggers())
+        .route(RESOURCE_BY_URI_ROUTE, V::resource_by_uri())
 }
 
 /// Resource tags have no Web-of-Trust variant: the WoT tag query matches a
@@ -66,30 +68,12 @@ pub struct ResourceByUriQuery {
     pub tags_query: TagsQuery,
 }
 
-#[utoipa::path(
-    get,
-    path = RESOURCE_TAGS_ROUTE,
-    description = "Resource tags",
-    tag = "Resource",
-    params(
-        ("resource_id" = ResourceId, Path, description = "Resource ID (32-char hex)"),
-        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip_tags" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags (0–10 000, **default** 0)"),
-        ("limit_tags" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of tags (1–100, **default** 5)"),
-        ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of taggers per tag (1–100, **default** 5)"),
-    ),
-    responses(
-        (status = 400, description = "Invalid parameters"),
-        (status = 404, description = "Resource not found"),
-        (status = 200, description = "Resource tags with metadata", body = ResourceTagsResponse),
-        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn resource_tags_handler(
+/// The one body behind `resource_tags_handler_v0` and `resource_tags_handler_v1`: the envelope
+/// in the version's shape.
+pub async fn resource_tags<V: ApiVersion>(
     Path(res_id): Path<ResourceId>,
     Query(query): Query<TagsQuery>,
-) -> Result<Json<ResourceTagsResponse>> {
+) -> Result<Json<V::ResourceTagsResponse>> {
     debug!("GET {RESOURCE_TAGS_ROUTE} resource_id:{}", res_id);
 
     reject_resource_depth(query.depth)?;
@@ -103,32 +87,39 @@ pub async fn resource_tags_handler(
     .await?
     .ok_or_else(|| Error::resource_not_found(res_id.to_string()))?;
 
-    Ok(Json(ResourceTagsResponse::from(view)))
+    Ok(Json(V::ResourceTagsResponse::from(view)))
 }
 
-#[utoipa::path(
-    get,
-    path = RESOURCE_BY_URI_ROUTE,
-    description = "Lookup resource tags by raw URI",
-    tag = "Resource",
-    params(
-        ("uri" = String, Query, description = "Raw URI to look up"),
-        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip_tags" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags (0–10 000, **default** 0)"),
-        ("limit_tags" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of tags (1–100, **default** 5)"),
-        ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of taggers per tag (1–100, **default** 5)"),
-    ),
+versioned_handlers! {
+    resource_tags_handler_v0 / resource_tags_handler_v1 => resource_tags(path: Path<ResourceId>, query: Query<TagsQuery>) -> shapes::ResourceTagsResponse;
+    #[utoipa::path(
+        get,
+        path = RESOURCE_TAGS_ROUTE,
+        operation_id = "resource_tags_handler",
+        description = "Resource tags",
+        tag = "Resource",
+        params(
+            ("resource_id" = ResourceId, Path, description = "Resource ID (32-char hex)"),
+            ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
+            ("skip_tags" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags (0–10 000, **default** 0)"),
+            ("limit_tags" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of tags (1–100, **default** 5)"),
+            ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of taggers per tag (1–100, **default** 5)"),
+        )
+    )]
     responses(
+        (status = 200, description = "Resource tags with metadata"),
+        (status = 400, description = "Invalid parameters"),
         (status = 404, description = "Resource not found"),
-        (status = 200, description = "Resource tags with metadata", body = ResourceTagsResponse),
-        (status = 400, description = "Invalid URI"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
-)]
-pub async fn resource_by_uri_handler(
+}
+
+/// The one body behind `resource_by_uri_handler_v0` and `resource_by_uri_handler_v1`: the
+/// envelope in the version's shape.
+pub async fn resource_by_uri<V: ApiVersion>(
     Query(query): Query<ResourceByUriQuery>,
-) -> Result<Json<ResourceTagsResponse>> {
+) -> Result<Json<V::ResourceTagsResponse>> {
     if query.uri.len() > MAX_URI_LENGTH {
         return Err(Error::invalid_input(format!(
             "URI too long (max {MAX_URI_LENGTH} bytes)"
@@ -151,38 +142,49 @@ pub async fn resource_by_uri_handler(
     .await?
     .ok_or_else(|| Error::resource_not_found(res_id.clone()))?;
 
-    Ok(Json(ResourceTagsResponse::from(view)))
+    Ok(Json(V::ResourceTagsResponse::from(view)))
 }
 
-#[derive(Deserialize, Debug)]
-pub struct ResourceTaggersPath {
-    pub resource_id: ResourceId,
-    pub label: TagLabel,
-}
-
-#[utoipa::path(
-    get,
-    path = RESOURCE_TAGGERS_ROUTE,
-    description = "Resource specific label taggers",
-    tag = "Resource",
-    params(
-        ("resource_id" = ResourceId, Path, description = "Resource ID (32-char hex)"),
-        ("label" = TagLabel, Path, description = "Tag label"),
-        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N taggers (0–10 000, **default** 0)"),
-        ("limit" = Option<BoundedLimit<40, 100>>, Query, description = "Limit taggers (1–100, default 40)"),
-    ),
+versioned_handlers! {
+    resource_by_uri_handler_v0 / resource_by_uri_handler_v1 => resource_by_uri(query: Query<ResourceByUriQuery>) -> shapes::ResourceTagsResponse;
+    #[utoipa::path(
+        get,
+        path = RESOURCE_BY_URI_ROUTE,
+        operation_id = "resource_by_uri_handler",
+        description = "Lookup resource tags by raw URI",
+        tag = "Resource",
+        params(
+            ("uri" = String, Query, description = "Raw URI to look up"),
+            ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
+            ("skip_tags" = Option<BoundedSkip<10_000>>, Query, description = "Skip N tags (0–10 000, **default** 0)"),
+            ("limit_tags" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of tags (1–100, **default** 5)"),
+            ("limit_taggers" = Option<BoundedLimit<5, 100>>, Query, description = "Upper limit on the number of taggers per tag (1–100, **default** 5)"),
+        )
+    )]
     responses(
-        (status = 400, description = "Invalid parameters"),
-        (status = 200, description = "Resource taggers", body = TaggersInfoResponse),
+        (status = 200, description = "Resource tags with metadata"),
+        (status = 404, description = "Resource not found"),
+        (status = 400, description = "Invalid URI"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
-)]
-pub async fn resource_taggers_handler(
-    Path(ResourceTaggersPath { resource_id, label }): Path<ResourceTaggersPath>,
+}
+
+/// The path of `GET /resource/{resource_id}/tags/{label}/taggers`, with `label` folded as
+/// version `V` folds it.
+#[derive(Deserialize, Debug)]
+#[serde(bound(deserialize = ""))]
+pub struct ResourceTaggersPath<V: ApiVersion> {
+    pub resource_id: ResourceId,
+    pub label: V::TagLabel,
+}
+
+/// The one body behind `resource_taggers_handler_v0` and `resource_taggers_handler_v1`: the
+/// taggers in the version's shape, of the label as the version folds it.
+pub async fn resource_taggers<V: ApiVersion>(
+    Path(ResourceTaggersPath { resource_id, label }): Path<ResourceTaggersPath<V>>,
     Query(taggers_query): Query<TaggersQuery>,
-) -> Result<Json<TaggersInfoResponse>> {
+) -> Result<Json<V::TaggersInfoResponse>> {
     debug!(
         "GET {RESOURCE_TAGGERS_ROUTE} resource_id:{}, label:{}",
         resource_id, label
@@ -197,24 +199,35 @@ pub async fn resource_taggers_handler(
         taggers_query.tags_query.viewer_id.as_deref(),
     )
     .await?;
-    Ok(Json(TaggersInfoResponse::from(taggers)))
+    Ok(Json(V::TaggersInfoResponse::from(taggers)))
 }
 
+versioned_handlers! {
+    resource_taggers_handler_v0 / resource_taggers_handler_v1 => resource_taggers(path: Path<shapes::ResourceTaggersPath>, query: Query<TaggersQuery>) -> shapes::TaggersInfoResponse;
+    #[utoipa::path(
+        get,
+        path = RESOURCE_TAGGERS_ROUTE,
+        operation_id = "resource_taggers_handler",
+        description = "Resource specific label taggers",
+        tag = "Resource",
+        params(
+            ("resource_id" = ResourceId, Path, description = "Resource ID (32-char hex)"),
+            ("label" = shapes::TagLabel, Path, description = "Tag label"),
+            ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
+            ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N taggers (0–10 000, **default** 0)"),
+            ("limit" = Option<BoundedLimit<40, 100>>, Query, description = "Limit taggers (1–100, default 40)"),
+        )
+    )]
+    responses(
+        (status = 200, description = "Resource taggers"),
+        (status = 400, description = "Invalid parameters"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error")
+    )
+}
+
+/// The schemas the resource routes share; the routes themselves, whose tags, taggers and label
+/// are the version's, come with the version's document.
 #[derive(OpenApi)]
-#[openapi(
-    paths(
-        resource_tags_handler,
-        resource_by_uri_handler,
-        resource_taggers_handler
-    ),
-    components(schemas(
-        ResourceTagsResponse,
-        ResourceDetails,
-        TagDetails,
-        TaggersInfoResponse,
-        PubkyId,
-        ResourceId,
-        TagLabel
-    ))
-)]
+#[openapi(components(schemas(ResourceDetails, PubkyId, ResourceId)))]
 pub struct ResourceApiDoc;

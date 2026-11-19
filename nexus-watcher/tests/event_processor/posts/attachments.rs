@@ -3,7 +3,7 @@ use crate::event_processor::utils::watcher::{assert_file_details, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use pubky::Keypair;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     blob_uri_builder, file_uri_builder,
     traits::{HasIdPath, HashId},
     PubkyAppBlob, PubkyAppFile, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
@@ -61,7 +61,7 @@ async fn test_homeserver_post_attachments() -> Result<()> {
 
     assert_eq!(post_details.id, post_id);
     assert_eq!(post_details.content, post.content);
-    assert_eq!(post_details.attachments, post_attachments);
+    assert_eq!(Some(post_details.attachments), post_attachments);
     // Cleanup
     test.cleanup_user(&user_kp).await?;
     test.cleanup_post(&user_kp, &post_path).await?;
@@ -153,7 +153,7 @@ async fn test_homeserver_post_attachment_only_edits() -> Result<()> {
     let post_details = find_post_details(&user_id, &post_id).await?;
     assert_eq!(
         post_details.attachments,
-        Some(vec![attachment_a.clone(), attachment_b.clone()])
+        vec![attachment_a.clone(), attachment_b.clone()]
     );
 
     post.attachments = Some(vec![attachment_b.clone(), attachment_c.clone()]);
@@ -164,7 +164,7 @@ async fn test_homeserver_post_attachment_only_edits() -> Result<()> {
     assert_eq!(post_details.content, post.content);
     assert_eq!(
         post_details.attachments,
-        Some(vec![attachment_b.clone(), attachment_c.clone()])
+        vec![attachment_b.clone(), attachment_c.clone()]
     );
 
     post.attachments = Some(vec![attachment_c.clone()]);
@@ -175,7 +175,7 @@ async fn test_homeserver_post_attachment_only_edits() -> Result<()> {
     assert_eq!(post_details.content, post.content);
     assert_eq!(
         post_details.attachments,
-        Some(vec![attachment_c]),
+        vec![attachment_c],
         "Expected the removed attachment to no longer appear in post lookup"
     );
 

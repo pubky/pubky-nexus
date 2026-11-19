@@ -3,7 +3,7 @@ use std::ops::Deref;
 
 use super::bounded_vec;
 use crate::Error;
-use pubky_app_specs::validate_crockford_id;
+use pubky_social_specs::legacy_v0::validate_crockford_id;
 use serde::de;
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -12,7 +12,7 @@ use utoipa::ToSchema;
 macro_rules! crockford_id {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
-        #[derive(Debug, ToSchema)]
+        #[derive(Debug, Clone, PartialEq, Eq, ToSchema)]
         #[schema(value_type = String, example = "00000039YD9DP")]
         pub struct $name(pub String);
 

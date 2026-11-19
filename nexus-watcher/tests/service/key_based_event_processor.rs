@@ -23,7 +23,7 @@ use nexus_watcher::service::{
     KeyBasedEventProcessorRunner, TEventProcessorRunner, KEY_BASED_RUN_BUDGET,
 };
 use pubky::{Keypair, PubkyResource, PublicKey};
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::PubkyId;
 use tokio::sync::watch;
 
 use crate::service::utils::{
@@ -1024,7 +1024,7 @@ async fn create_user_on_homeserver(homeserver: &Homeserver) -> Result<String, Dy
         name: "key-based-processor-test-user".into(),
         bio: None,
         status: None,
-        links: None,
+        links: Vec::new(),
         image: None,
         indexed_at: Utc::now().timestamp_millis(),
         deleted: false,
@@ -1061,7 +1061,7 @@ fn test_user_details(user_id: &str) -> Result<UserDetails, DynError> {
         name: "key-based-processor-test-user".into(),
         bio: None,
         status: None,
-        links: None,
+        links: Vec::new(),
         image: None,
         indexed_at: Utc::now().timestamp_millis(),
         deleted: false,

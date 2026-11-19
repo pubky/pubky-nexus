@@ -2,9 +2,12 @@ use super::utils::collection_post;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::models::notification::{Notification, NotificationBody, PostChangedSource};
+use nexus_common::models::post::PostKind;
 use nexus_common::types::Pagination;
 use pubky::Keypair;
-use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser};
+use pubky_social_specs::legacy_v0::{
+    post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser,
+};
 
 #[tokio_shared_rt::test(shared)]
 async fn test_reply_to_collection_notification() -> Result<()> {
@@ -66,7 +69,7 @@ async fn test_reply_to_collection_notification() -> Result<()> {
     {
         assert_eq!(
             post_kind,
-            &PubkyAppPostKind::Collection,
+            &PostKind::Collection,
             "Replying to a collection should tag the notification with the parent's post_kind = Collection"
         );
         assert_eq!(
@@ -98,7 +101,7 @@ async fn test_reply_to_collection_notification() -> Result<()> {
         matches!(
             &notifications[0].body,
             NotificationBody::PostEdited { edit_source: PostChangedSource::Reply, post_kind, .. }
-                if post_kind == &PubkyAppPostKind::Short
+                if post_kind == &PostKind::Short
         ),
         "Editing a reply to a collection notifies the parent with the reply's post_kind = Short"
     );
@@ -111,7 +114,7 @@ async fn test_reply_to_collection_notification() -> Result<()> {
         matches!(
             &notifications[0].body,
             NotificationBody::PostDeleted { delete_source: PostChangedSource::Reply, post_kind, .. }
-                if post_kind == &PubkyAppPostKind::Short
+                if post_kind == &PostKind::Short
         ),
         "Deleting a reply to a collection notifies the parent with the reply's post_kind = Short"
     );

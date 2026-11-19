@@ -19,7 +19,7 @@ use nexus_watcher::service::runner::{HomeserverBackoff, UserNotFoundBackoff, Use
 use nexus_watcher::service::{
     KeyBasedEventProcessorRunner, TEventProcessorRunner, KEY_BASED_RUN_BUDGET,
 };
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::PubkyId;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -29,13 +29,14 @@ async fn test_event_processor_runner_primary_homeserver_excluded() -> Result<(),
     setup().await?;
 
     let client = Arc::new(MockHomeserverClient::default());
+    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
     let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
         default_moderation_tests(),
         default_ingestor_tests(),
         client.clone(),
         PathBuf::from("/tmp/nexus-watcher-test"),
+        store.clone(),
     ));
-    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
     let retry_scheduler = Arc::new(RetryScheduler::new(
         store,
         InitialBackoff {
@@ -80,13 +81,14 @@ async fn test_event_processor_runner_blacklisted_homeserver_excluded() -> Result
     setup().await?;
 
     let client = Arc::new(MockHomeserverClient::default());
+    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
     let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
         default_moderation_tests(),
         default_ingestor_tests(),
         client.clone(),
         PathBuf::from("/tmp/nexus-watcher-test"),
+        store.clone(),
     ));
-    let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
     let retry_scheduler = Arc::new(RetryScheduler::new(
         store,
         InitialBackoff {
@@ -242,7 +244,7 @@ async fn create_active_user_on_homeserver_with_trust(
         name: "prioritization-test-user".into(),
         bio: None,
         status: None,
-        links: None,
+        links: Vec::new(),
         image: None,
         indexed_at: Utc::now().timestamp_millis(),
         deleted: false,

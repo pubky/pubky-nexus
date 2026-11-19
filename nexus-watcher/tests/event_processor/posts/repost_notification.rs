@@ -2,9 +2,10 @@ use super::utils::find_post_details;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
 use nexus_common::models::notification::{Notification, NotificationBody};
+use nexus_common::models::post::PostKind;
 use nexus_common::types::Pagination;
 use pubky::Keypair;
-use pubky_app_specs::{
+use pubky_social_specs::legacy_v0::{
     post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
 };
 
@@ -110,7 +111,7 @@ async fn test_homeserver_post_repost_notification() -> Result<()> {
     {
         assert_eq!(
             post_kind,
-            &PubkyAppPostKind::Short,
+            &PostKind::Short,
             "Reposting a note should report the embed's post_kind = Short"
         );
         assert_eq!(
