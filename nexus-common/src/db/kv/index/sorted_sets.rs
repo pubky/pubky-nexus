@@ -443,13 +443,10 @@ pub async fn ttl(prefix: &str, key: &str) -> RedisResult<Option<i64>> {
 /// * `sorted_set_prefix` - Prefix of the destination sorted set key.
 /// * `sorted_set_key` - Key of the destination sorted set.
 /// * `member` - The sorted-set member to write or remove.
-/// * `removal_guard` - Optional `(json_key, json_path, value)`: when the JSON
-///   document at `json_key` holds `value` at `json_path`, the member is
-///   removed regardless of cardinality. The stored JSON scalar is compared by
-///   its text form, so `value` is `"true"` for a boolean flag and the bare
-///   string for a string field (no JSON quoting). A missing key or path never
-///   matches. Checked inside the same script, so the guard cannot race the
-///   write.
+/// * `removal_guard` - Optional `(set_key, member)`, a full key: when that
+///   set holds `member`, the sorted-set member is removed regardless of
+///   cardinality. Checked inside the same script, so the guard cannot race
+///   the write.
 ///
 /// # Errors
 ///
@@ -460,7 +457,7 @@ pub async fn sync_score_from_set_cardinality(
     sorted_set_prefix: &str,
     sorted_set_key: &str,
     member: &str,
-    removal_guard: Option<(&str, &str, &str)>,
+    removal_guard: Option<(&str, &str)>,
 ) -> RedisResult<()> {
     let set_index_key = format!("{set_prefix}:{set_key}");
     let sorted_set_index_key = format!("{sorted_set_prefix}:{sorted_set_key}");
@@ -477,30 +474,12 @@ pub async fn sync_score_from_set_cardinality(
     "#;
 
     let invocation = match removal_guard {
-        Some((json_key, json_path, value)) => {
-            // cjson maps JSON scalars onto Lua types, so a boolean field decodes to a
-            // Lua boolean and never equals the string in ARGV[3]. Compare text forms
-            // instead, which keeps one guard working for `true` and for a string
-            // sentinel alike. Anything else (null, object, array) cannot match.
+        Some((guard_set_key, guard_member)) => {
             let script = Script::new(&format!(
                 r#"
-                local guarded = redis.call('JSON.GET', KEYS[3], ARGV[2])
-                if guarded then
-                    local decoded = cjson.decode(guarded)
-                    if type(decoded) == 'table' then
-                        local found = decoded[1]
-                        local kind = type(found)
-                        local as_text
-                        if kind == 'boolean' then
-                            as_text = found and 'true' or 'false'
-                        elseif kind == 'string' or kind == 'number' then
-                            as_text = tostring(found)
-                        end
-                        if as_text == ARGV[3] then
-                            redis.call('ZREM', KEYS[2], ARGV[1])
-                            return 0
-                        end
-                    end
+                if redis.call('SISMEMBER', KEYS[3], ARGV[2]) == 1 then
+                    redis.call('ZREM', KEYS[2], ARGV[1])
+                    return 0
                 end
                 {derive}
             "#
@@ -508,10 +487,9 @@ pub async fn sync_score_from_set_cardinality(
             script
                 .key(set_index_key)
                 .key(sorted_set_index_key)
-                .key(json_key)
+                .key(guard_set_key)
                 .arg(member)
-                .arg(json_path)
-                .arg(value)
+                .arg(guard_member)
                 .invoke_async(&mut redis_conn)
                 .await
         }
@@ -533,87 +511,26 @@ pub async fn sync_score_from_set_cardinality(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::kv::index::json;
     use crate::{types::DynError, StackConfig, StackManager};
-    use serde::Serialize;
 
     const TEST_SET_PREFIX: &str = "GuardTestSet";
-    const TEST_JSON_PREFIX: &str = "GuardTestJson";
+    const TEST_GUARD_KEY: &str = "GuardTestGuard";
 
-    #[derive(Serialize)]
-    struct GuardDoc {
-        name: &'static str,
-        deleted: bool,
-    }
-
-    /// The removal guard compares the stored JSON scalar by its text form, so the
-    /// same helper serves a boolean flag and a string sentinel. Each case seeds a
-    /// non-empty source set, so a removal can only come from the guard, never from
-    /// the cardinality derive.
+    /// The removal guard wins over a non-empty source set, and a member absent
+    /// from the guard set leaves the derive alone. Each case seeds a non-empty
+    /// source set, so a removal can only come from the guard.
     #[tokio_shared_rt::test(shared)]
-    async fn test_removal_guard_matches_scalar_by_text_form() -> Result<(), DynError> {
+    async fn test_removal_guard_follows_set_membership() -> Result<(), DynError> {
         StackManager::setup(&StackConfig::default()).await?;
 
-        let cases = [
-            (
-                "bool_set",
-                "$.deleted",
-                "true",
-                GuardDoc {
-                    name: "alice",
-                    deleted: true,
-                },
-                true,
-            ),
-            (
-                "bool_clear",
-                "$.deleted",
-                "true",
-                GuardDoc {
-                    name: "alice",
-                    deleted: false,
-                },
-                false,
-            ),
-            (
-                "str_match",
-                "$.name",
-                "[DELETED]",
-                GuardDoc {
-                    name: "[DELETED]",
-                    deleted: false,
-                },
-                true,
-            ),
-            (
-                "str_other",
-                "$.name",
-                "[DELETED]",
-                GuardDoc {
-                    name: "alice",
-                    deleted: false,
-                },
-                false,
-            ),
-            (
-                "missing_path",
-                "$.absent",
-                "true",
-                GuardDoc {
-                    name: "alice",
-                    deleted: true,
-                },
-                false,
-            ),
-        ];
-
-        for (case, path, value, doc, should_remove) in cases {
+        for (case, guarded, should_remove) in [("guarded", true, true), ("free", false, false)] {
             let member = "member";
             let sorted_key = format!("GuardTest:sorted:{case}");
+            let guard_key = format!("{TEST_GUARD_KEY}:{case}");
             let mut conn = get_redis_conn().await?;
             let _: () = conn.del(format!("{SORTED_PREFIX}:{sorted_key}")).await?;
             let _: () = conn.del(format!("{TEST_SET_PREFIX}:{case}")).await?;
-            json::del_multiple(TEST_JSON_PREFIX, &[case]).await?;
+            let _: () = conn.del(&guard_key).await?;
 
             // Non-empty source set: the derive alone would always ZADD a score of 2
             let _: () = conn
@@ -622,7 +539,9 @@ mod tests {
                     &["tagger_a", "tagger_b"],
                 )
                 .await?;
-            json::put(TEST_JSON_PREFIX, case, &doc, None, None).await?;
+            if guarded {
+                let _: () = conn.sadd(&guard_key, member).await?;
+            }
 
             sync_score_from_set_cardinality(
                 TEST_SET_PREFIX,
@@ -630,7 +549,7 @@ mod tests {
                 SORTED_PREFIX,
                 &sorted_key,
                 member,
-                Some((&format!("{TEST_JSON_PREFIX}:{case}"), path, value)),
+                Some((&guard_key, member)),
             )
             .await?;
 
@@ -643,7 +562,7 @@ mod tests {
 
             let _: () = conn.del(format!("{SORTED_PREFIX}:{sorted_key}")).await?;
             let _: () = conn.del(format!("{TEST_SET_PREFIX}:{case}")).await?;
-            json::del_multiple(TEST_JSON_PREFIX, &[case]).await?;
+            let _: () = conn.del(&guard_key).await?;
         }
         Ok(())
     }

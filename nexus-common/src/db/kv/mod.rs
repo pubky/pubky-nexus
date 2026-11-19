@@ -11,7 +11,7 @@ pub use flush::clear_redis;
 pub(crate) use index::search;
 pub use index::search::AuthorFilter;
 pub use index::sets;
-pub(crate) use index::sorted_sets::sorted_key;
+pub use index::sorted_sets::sorted_key;
 pub use index::sorted_sets::{ScoreAction, SortOrder};
 pub use last_save::get_last_rdb_save_time;
 pub use lock::{release_lock, try_acquire_lock};

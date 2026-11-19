@@ -6,5 +6,6 @@ mod epoch_gate;
 mod idempotent_del;
 mod moderated;
 mod raw;
+mod search_state;
 mod uri;
 pub mod utils;

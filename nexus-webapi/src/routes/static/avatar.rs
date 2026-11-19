@@ -30,6 +30,7 @@ const AVATAR_FALLBACK_CACHE_CONTROL: &str = "public, max-age=30";
         (status = 200, description = "Avatar image"),
         (status = 400, description = "Invalid parameters"),
         (status = 404, description = "User not found, no profile image, or an image Nexus does not hold: a web URL, another app's object, a file that is not an image, or a social/v1 file not on disk"),
+        (status = 422, description = "The profile image cannot be read as an image"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal error retrieving avatar")
     )
@@ -57,6 +58,7 @@ pub async fn user_avatar_handler(
         (status = 200, description = "Avatar image"),
         (status = 400, description = "Invalid parameters"),
         (status = 404, description = "User not found, no profile image, or an image Nexus does not hold: a web URL, another app's object, a file that is not an image, or a social/v1 file not on disk"),
+        (status = 422, description = "The profile image cannot be read as an image"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal error retrieving avatar")
     )

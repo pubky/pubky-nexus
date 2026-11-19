@@ -1,4 +1,4 @@
-use super::utils::{find_cached_user_details, find_user_details, find_user_epoch, set_user_epoch};
+use super::utils::{find_api_user_details, find_user_details, find_user_epoch, set_user_epoch};
 use crate::event_processor::posts::utils::{pubky_id, short_post, test_user};
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
@@ -8,7 +8,7 @@ use nexus_watcher::events::inputs::UserInput;
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::user_uri_builder;
 
-/// A profile edit never overwrites a stored epoch, and caches it.
+/// A profile edit never overwrites a stored epoch, and the API reads it.
 ///
 /// The gate ignores a `pubky.app` profile PUT of a user at `v1`, so the edit goes to the
 /// handler directly.
@@ -36,7 +36,7 @@ async fn test_user_edit_keeps_epoch() -> Result<()> {
         "Watcher:UserEpoch:Put:Edited"
     );
     assert_eq!(find_user_epoch(&user_id).await.as_deref(), Some("v1"));
-    assert_eq!(find_cached_user_details(&user_id).await?.epoch, Epoch::V1);
+    assert_eq!(find_api_user_details(&user_id).await?.epoch, Epoch::V1);
 
     // Back to `v0`, so the gate lets the cleanup through
     set_user_epoch(&user_id, "v0").await?;
@@ -44,7 +44,7 @@ async fn test_user_edit_keeps_epoch() -> Result<()> {
     Ok(())
 }
 
-/// A tombstone written over a user keeps the stored epoch, and caches it.
+/// A tombstone written over a user keeps the stored epoch, and the API reads it.
 ///
 /// The gate ignores a `pubky.app` profile DEL of a user at `v1`, so the delete goes to the
 /// handler directly.
@@ -66,7 +66,7 @@ async fn test_user_tombstone_keeps_epoch() -> Result<()> {
 
     assert!(find_user_details(&user_id).await?.deleted);
     assert_eq!(find_user_epoch(&user_id).await.as_deref(), Some("v1"));
-    assert_eq!(find_cached_user_details(&user_id).await?.epoch, Epoch::V1);
+    assert_eq!(find_api_user_details(&user_id).await?.epoch, Epoch::V1);
 
     // Back to `v0`, so the gate lets the cleanup through
     set_user_epoch(&user_id, "v0").await?;
