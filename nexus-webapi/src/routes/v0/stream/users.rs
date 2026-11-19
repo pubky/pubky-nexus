@@ -269,7 +269,7 @@ pub struct UserDetailsByIdsRequest {
     post,
     path = STREAM_USERS_DETAILS_BY_IDS_ROUTE,
     tag = "Stream",
-    description = "User details by ID, without tags, counts or relationship. Ids Nexus has no details for are left out of the response, so it can be shorter than the request; deleted users come back with `deleted: true`.",
+    description = "User details by ID, without tags, counts or relationship. Ids with no user in Nexus are left out of the response, so it can be shorter than the request. A user Nexus knows only by key, with no profile yet, comes back named after the key; a deleted user comes back with `deleted: true`.",
     request_body = UserDetailsByIdsRequest,
     responses(
         (status = 200, description = "User details, in request order", body = Vec<UserDetails>),
@@ -447,8 +447,6 @@ fn source_name(source: &UserStreamSource) -> &'static str {
     UserIdStream,
     UserStreamSource,
     UserStreamByIdsRequest,
-    UserDetailsByIdsRequest,
-    UserDetails,
     UserIds,
     UsernamePrefix,
     StreamReach,

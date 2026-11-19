@@ -345,6 +345,17 @@ fn test_post_kind_schema_names_the_kinds_per_version() {
     }
 }
 
+/// The details-only routes are v1 only, and so is their request schema: the shared stream
+/// document is merged into v0 too, so a schema listed there would show in v0 without a route.
+#[test]
+fn test_details_by_ids_request_schema_is_v1_only() {
+    let schema = "/components/schemas/UserDetailsByIdsRequest";
+    let v0 = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
+    let v1 = serde_json::to_value(ApiDoc::v1_docs()).expect("serializable spec");
+    assert!(v0.pointer(schema).is_none(), "listed in the v0 document");
+    assert!(v1.pointer(schema).is_some(), "missing from the v1 document");
+}
+
 /// The v1 schemas keep `epoch`, `tag_uri` and `deleted` where v0 has them.
 #[test]
 fn test_v1_schemas_keep_epoch_tag_uri_and_deleted() {

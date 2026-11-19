@@ -85,7 +85,7 @@ pub async fn user_following_handler(
 #[utoipa::path(
     get,
     path = USER_FOLLOWING_DETAILS_ROUTE,
-    description = "List the details of the users a user follows, in the same order and pages as `/following`. Followed users Nexus has no details for are left out, so a page can be shorter than `limit` without being the last one: advance `skip` by `limit`. Deleted users come back with `deleted: true`.",
+    description = "List the details of the users a user follows, in the same order and pages as `/following`. A followed user whose record cannot be read is left out, so a page can be shorter than `limit` without being the last one: advance `skip` by `limit`. A user Nexus knows only by key, with no profile yet, comes back named after the key; a deleted user comes back with `deleted: true`.",
     tag = "User",
     params(
         ("user_id" = PubkyId, Path, description = "User Pubky ID"),

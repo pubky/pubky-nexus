@@ -1,5 +1,6 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use nexus_common::models::follow::{Followers, Following, UserFollows};
+use nexus_common::models::user::UserDetails;
 use setup::run_setup;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -94,6 +95,32 @@ fn bench_get_following_from_graph(c: &mut Criterion) {
     );
 }
 
+fn bench_get_following_details(c: &mut Criterion) {
+    println!("******************************************************************************");
+    println!("Test the performance of a page of following plus their details, as /following/details reads it.");
+    println!("******************************************************************************");
+
+    run_setup();
+
+    let user_id = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
+    let rt = Runtime::new().unwrap();
+
+    c.bench_with_input(
+        BenchmarkId::new("get_following_details", user_id),
+        &user_id,
+        |b, &id| {
+            b.to_async(&rt).iter(|| async {
+                let following = Following::get_by_id(id, None, Some(50))
+                    .await
+                    .unwrap()
+                    .unwrap();
+                let details = UserDetails::get_by_ids(&following.0).await.unwrap();
+                std::hint::black_box(details);
+            });
+        },
+    );
+}
+
 fn configure_criterion() -> Criterion {
     Criterion::default()
         .measurement_time(Duration::new(5, 0))
@@ -108,6 +135,7 @@ criterion_group! {
               bench_get_followers_from_graph,
               bench_get_following_by_id,
               bench_get_following_from_graph,
+              bench_get_following_details,
 }
 
 criterion_main!(benches);
