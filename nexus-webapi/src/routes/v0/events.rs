@@ -43,7 +43,7 @@ pub struct EventsQuery {
     params(
         ("cursor" = u64, Query, description = "Cursor"),
         ("limit" = Option<BoundedLimit<500, 1000>>, Query, description = "Number of events to return (1–1000, **default** 500)"),
-        ("homeserver" = Option<bool>, Query, description = "When `true`, each line is returned as stored: the line the homeserver sent, then the public key of the homeserver Nexus read the event from, `PUT pubky://<pk>/<path> <hs_pk>`. The path may contain spaces, so a reader takes the key after the **last** space and checks that it is a public key. Lines stored before Nexus kept the key, whose user's homeserver the graph did not know, have none and are returned without one, `PUT pubky://<pk>/<path>`. The key says where Nexus read the event, not where the user is hosted: treat it as a hint. `false` (default) strips the key from every line, which is the output this endpoint always had.")
+        ("homeserver" = Option<bool>, Query, description = "When `true`, each line is returned as stored: the line the homeserver sent, then the public key of the homeserver Nexus read the event from, `PUT pubky://<pk>/<path> <hs_pk>`. The path may contain spaces, so a reader takes the key after the **last** space and checks that it is a public key. Lines stored before Nexus kept the key, whose user's homeserver the graph did not know, have none and are returned without one, `PUT pubky://<pk>/<path>`. The key says where Nexus read the event, not where the user is hosted, and on a line stored before Nexus kept the key it is inferred: the homeserver the user was bound to when the key was added. Treat it as a hint. `false` (default) strips the key from every line, which is the output this endpoint always had.")
     ),
     responses(
         (
