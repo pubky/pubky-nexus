@@ -35,8 +35,10 @@ use tracing::{info, warn};
 /// key keeps none after its user gains an edge.
 ///
 /// # Deploy ordering
-/// Run it after the watchers that store the key are deployed. A line an older watcher appends
-/// after the walk passed its end stays without a key.
+/// The API first, or together with the watcher: only an API of this build strips the key from
+/// `/v0/events`, and an older one would serve a new watcher's keyed lines to readers that did
+/// not ask for the key. Then the watchers that store the key, then this migration. A line an
+/// older watcher appends after the walk passed its end stays without a key.
 pub struct EventLineHomeserverBackfill1794005092;
 
 /// Event lines read and rewritten per page.
