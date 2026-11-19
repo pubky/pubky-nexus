@@ -10,7 +10,8 @@ use std::collections::{BTreeSet, HashMap};
 use tracing::{info, warn};
 
 /// Give the event lines stored before Nexus kept the homeserver key that key, where the graph
-/// knows it, without replacing the list they are stored in.
+/// knows it, by swapping a keyed copy in for the list they are stored in and keeping the list
+/// as it was beside it.
 ///
 /// # What this does
 /// Builds a copy of the `Events` list, line for line and at the same offsets, as
