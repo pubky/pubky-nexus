@@ -10,47 +10,75 @@ use std::collections::{BTreeSet, HashMap};
 use tracing::{info, warn};
 
 /// Give the event lines stored before Nexus kept the homeserver key that key, where the graph
-/// knows it.
+/// knows it, without replacing the list they are stored in.
 ///
 /// # What this does
-/// Walks the `Events` list one page at a time. For each line without a key, read as
-/// [`EventLine::split`] reads it, it takes the user from the line's address and puts the key of
-/// the homeserver the user's `HOSTED_BY` edge points to in front of the line. A line whose user has no edge, or
-/// whose user can't be read, is left as it is, without a key.
+/// Builds a copy of the `Events` list, line for line and at the same offsets, as
+/// `Event:Events_new`. A line without a key, read as [`EventLine::split`] reads it, is copied
+/// with the key of the homeserver its user's `HOSTED_BY` edge points to in front. A line whose
+/// user has no edge, or whose user can't be read, is copied as it is, and so is a line a newer
+/// watcher already stored with a key.
+///
+/// Once the copy holds as many lines as the list, one script renames `Event:Events` to
+/// `Event:Events_old` and the copy to `Event:Events`. Nothing stored is rewritten: the list as
+/// it was stays in `Event:Events_old`.
 ///
 /// The edge names the homeserver the user was bound to, not the one an old event was read
 /// from. A user who moves keeps the edge: the resolver marks it stale instead of switching it,
 /// and the stale flag is ignored here. So a user who moved after being bound gets the
 /// homeserver they were bound to, and only a user first bound after moving gets the new one.
 ///
-/// # Batching
-/// Each page's users are looked up in one query, and its lines are rewritten in place by one
-/// Lua script. The list is never rebuilt, so the `/v0/events` cursors, which are offsets into
-/// it, stay valid while this runs.
+/// # While it runs
+/// The watcher and the API keep working on `Event:Events`, whole, until the swap. A line the
+/// watcher appends meanwhile is copied like any other: the swap happens only at the moment
+/// both lists have the same length, so none is left behind. Every line keeps its offset, so
+/// the `/v0/events` cursors stay valid across the swap.
+///
+/// Each page's users are looked up in one query and its lines appended to the copy by one
+/// script, so the cost grows with the length of the list, not with its square.
 ///
 /// # Idempotency
-/// A line that already starts with a key is left alone, and the script writes a line only while
-/// it still holds what was read, so a failed run is safe to repeat. `is_multi_staged()` is
-/// `false`, so the manager marks this Done after one successful backfill: a line left without a
-/// key keeps none after its user gains an edge.
+/// A page is appended only while the copy still has the length the page was read at, and a run
+/// starts where the copy ends, so a failed run is safe to repeat. Once `Event:Events_old`
+/// exists a run does nothing. `is_multi_staged()` is `false`, so the manager marks this Done
+/// after one successful run: a line left without a key keeps none after its user gains an edge.
+///
+/// # Rollback
+/// `Event:Events_old` is never written again and is never deleted here: it holds every line
+/// stored before the swap, as it was. To go back, stop the watcher, append to it the lines
+/// `Event:Events` holds past its length, each without its key ([`EventLine::split`]), and
+/// rename it to `Event:Events`. Delete it (`DEL Event:Events_old`) once the rebuilt list is
+/// trusted: until then the lines are stored twice.
 ///
 /// # Deploy ordering
 /// The API first, or together with the watcher: only an API of this build strips the key from
-/// `/v0/events`, and an older one would serve a new watcher's keyed lines to readers that did
-/// not ask for the key. Then the watchers that store the key, then this migration. A line an
-/// older watcher appends after the walk passed its end stays without a key.
+/// `/v0/events`, and an older one would serve keyed lines to readers that did not ask for the
+/// key. Then the watchers that store the key, then this migration. A line an older watcher
+/// appends after the swap stays without a key.
 pub struct EventLineHomeserverBackfill1794005092;
 
-/// Event lines read and rewritten per page.
+/// Event lines copied per page.
 const EVENT_PAGE_SIZE: usize = 500;
 
-/// The lines of a page read at `cursor` that have no key, each with its index in the list.
-fn keyless_lines(cursor: u64, lines: &[String]) -> Vec<(u64, String)> {
-    (cursor..)
-        .zip(lines)
-        .filter(|(_, line)| EventLine::split(line).1.is_none())
-        .map(|(index, line)| (index, line.clone()))
-        .collect()
+/// The lists a rebuild works on, by name under [`EventLine`]'s prefix.
+struct Lists<'a> {
+    /// The list the watcher appends to and the API reads.
+    live: &'a str,
+    /// The keyed copy under construction. Gone once swapped in.
+    copy: &'a str,
+    /// The live list as it was, kept after the swap.
+    original: &'a str,
+}
+
+const EVENT_LISTS: Lists<'static> = Lists {
+    live: EventLine::LIST,
+    copy: "Events_new",
+    original: "Events_old",
+};
+
+/// The Redis key of `list`.
+async fn list_key(list: &str) -> String {
+    format!("{}:{list}", EventLine::prefix().await)
 }
 
 /// The user in the address of a stored `METHOD pubky://<user_id>/<path>` line, keyed or not.
@@ -89,103 +117,259 @@ async fn hosting_homeservers(user_ids: Vec<String>) -> Result<HashMap<String, Pu
     Ok(homeservers)
 }
 
-/// The rewrites of `keyless`: every line whose user is in `homeservers`, as `(index, line as
-/// read, line with the key)`. The rest stay as they are.
-fn rewrites(
-    keyless: Vec<(u64, String)>,
-    homeservers: &HashMap<String, PubkyId>,
-) -> Vec<(u64, String, String)> {
-    keyless
-        .into_iter()
-        .filter_map(|(index, line)| {
-            let homeserver_id = homeservers.get(line_user_id(&line)?.as_ref())?;
-            let rewritten = EventLine::new(&line, homeserver_id).as_str().to_string();
-            Some((index, line, rewritten))
-        })
-        .collect()
+/// A page of the list as it goes into the copy.
+#[derive(Debug, PartialEq)]
+struct Page {
+    /// The page's lines, in order, each with a key in front where one was given.
+    lines: Vec<String>,
+    /// Lines given a homeserver key.
+    keyed: usize,
+    /// Keyless lines copied as they were: no user, or a user without a homeserver.
+    left: usize,
 }
 
-/// Sets each `(index, read, rewritten)` entry of the list at `key` to `rewritten` while it still
-/// holds `read`, and returns how many were set.
-async fn rewrite_lines(key: &str, lines: &[(u64, String, String)]) -> Result<usize, DynError> {
+/// `lines` as the copy holds them: a keyless line gets the homeserver `homeservers` has for
+/// its user, every other line is copied as it is.
+fn with_keys(lines: Vec<String>, homeservers: &HashMap<String, PubkyId>) -> Page {
+    let mut page = Page {
+        lines: Vec::with_capacity(lines.len()),
+        keyed: 0,
+        left: 0,
+    };
+    for line in lines {
+        if EventLine::split(&line).1.is_some() {
+            page.lines.push(line);
+            continue;
+        }
+        let homeserver_id =
+            line_user_id(&line).and_then(|user_id| homeservers.get(user_id.as_ref()));
+        match homeserver_id {
+            Some(homeserver_id) => {
+                page.keyed += 1;
+                page.lines
+                    .push(EventLine::new(&line, homeserver_id).as_str().to_string());
+            }
+            None => {
+                page.left += 1;
+                page.lines.push(line);
+            }
+        }
+    }
+    page
+}
+
+/// Appends `lines` to `list` if it holds exactly `length` entries, and says whether it did.
+async fn append_if_length(list: &str, length: usize, lines: &[String]) -> Result<bool, DynError> {
     let script = Script::new(
         r#"
-        local set = 0
-        for i = 1, #ARGV, 3 do
-            local index = tonumber(ARGV[i])
-            if redis.call('LINDEX', KEYS[1], index) == ARGV[i + 1] then
-                redis.call('LSET', KEYS[1], index, ARGV[i + 2])
-                set = set + 1
-            end
+        if redis.call('LLEN', KEYS[1]) ~= tonumber(ARGV[1]) then
+            return 0
         end
-        return set
+        redis.call('RPUSH', KEYS[1], unpack(ARGV, 2))
+        return 1
     "#,
     );
 
     let mut invocation = script.prepare_invoke();
-    invocation.key(key);
-    for (index, read, rewritten) in lines {
-        invocation.arg(index).arg(read).arg(rewritten);
+    invocation.key(list_key(list).await).arg(length);
+    for line in lines {
+        invocation.arg(line);
     }
 
     let mut conn = get_redis_conn().await?;
     Ok(invocation.invoke_async(&mut conn).await?)
 }
 
-/// What a walk of the list did.
-#[derive(Debug, Default, PartialEq)]
+/// What [`swap_if_caught_up`] found and did.
+#[derive(Debug, PartialEq)]
+enum Swap {
+    /// The copy held every line of the live list: it is the live list now, and the list as
+    /// it was is the original.
+    Swapped,
+    /// The live list holds lines the copy lacks. Nothing was renamed.
+    Behind,
+    /// An original is already kept: a swap happened before. Nothing was renamed.
+    AlreadySwapped,
+    /// Neither the live list nor the copy holds a line.
+    NothingStored,
+    /// The copy holds more lines than the live list, so it is no copy of it. Nothing was
+    /// renamed.
+    CopyAhead,
+}
+
+/// Renames the live list to the original and the copy to the live list, in one step, if the
+/// copy holds exactly the lines of the live list and no original is kept yet.
+async fn swap_if_caught_up(lists: &Lists<'_>) -> Result<Swap, DynError> {
+    let script = Script::new(
+        r#"
+        if redis.call('EXISTS', KEYS[3]) == 1 then
+            return 'already_swapped'
+        end
+        local live = redis.call('LLEN', KEYS[1])
+        local copy = redis.call('LLEN', KEYS[2])
+        if copy > live then
+            return 'copy_ahead'
+        end
+        if copy < live then
+            return 'behind'
+        end
+        if live == 0 then
+            return 'nothing_stored'
+        end
+        redis.call('RENAME', KEYS[1], KEYS[3])
+        redis.call('RENAME', KEYS[2], KEYS[1])
+        return 'swapped'
+    "#,
+    );
+
+    let mut conn = get_redis_conn().await?;
+    let outcome: String = script
+        .key(list_key(lists.live).await)
+        .key(list_key(lists.copy).await)
+        .key(list_key(lists.original).await)
+        .invoke_async(&mut conn)
+        .await?;
+    match outcome.as_str() {
+        "swapped" => Ok(Swap::Swapped),
+        "behind" => Ok(Swap::Behind),
+        "already_swapped" => Ok(Swap::AlreadySwapped),
+        "nothing_stored" => Ok(Swap::NothingStored),
+        "copy_ahead" => Ok(Swap::CopyAhead),
+        other => Err(format!(
+            "EventLineHomeserverBackfill migration: unknown swap outcome {other}"
+        )
+        .into()),
+    }
+}
+
+/// What a run copied.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 struct Tally {
-    /// Lines read.
+    /// Lines copied.
     read: u64,
     /// Lines given a homeserver key.
-    rewritten: usize,
-    /// Keyless lines left as they were: no user, or a user without a homeserver.
+    keyed: usize,
+    /// Keyless lines copied as they were: no user, or a user without a homeserver.
     left: usize,
 }
 
-/// Walks `list`, a list of event lines under [`EventLine`]'s prefix, from its start to its end,
-/// a page at a time, and gives each line without a key the homeserver of its user's `HOSTED_BY`
-/// edge.
-async fn walk(list: &str) -> Result<Tally, DynError> {
-    let key = format!("{}:{list}", EventLine::prefix().await);
+impl Tally {
+    /// Counts a page that went into the copy, and logs the progress.
+    fn add(&mut self, page: &Page) {
+        self.read += page.lines.len() as u64;
+        self.keyed += page.keyed;
+        self.left += page.left;
+        info!(
+            "EventLineHomeserverBackfill migration: {} event lines copied, {} given a \
+             homeserver, {} left without one",
+            self.read, self.keyed, self.left
+        );
+    }
+}
 
-    let mut cursor: usize = 0;
+/// How a rebuild ended.
+#[derive(Debug, PartialEq)]
+enum Rebuild {
+    /// The keyed copy is the live list, and the list as it was is kept as the original.
+    Swapped(Tally),
+    /// An original is already kept: an earlier run swapped. Nothing was done.
+    AlreadySwapped,
+    /// No event line is stored. Nothing was done.
+    NothingStored,
+}
+
+impl Swap {
+    /// How a rebuild that copied `tally` ends on this outcome, or `None` when it goes on:
+    /// the live list got a line since the last page was read.
+    fn ends_rebuild(self, tally: Tally, lists: &Lists<'_>) -> Option<Result<Rebuild, DynError>> {
+        match self {
+            Swap::Behind => None,
+            Swap::Swapped => Some(Ok(Rebuild::Swapped(tally))),
+            Swap::AlreadySwapped => Some(Ok(Rebuild::AlreadySwapped)),
+            Swap::NothingStored => Some(Ok(Rebuild::NothingStored)),
+            Swap::CopyAhead => Some(Err(format!(
+                "EventLineHomeserverBackfill migration: the list {} holds more lines than {}, \
+                 so it is no copy of it. Delete it and run the migration again.",
+                lists.copy, lists.live
+            )
+            .into())),
+        }
+    }
+}
+
+/// How many lines `list` holds. A list that doesn't exist holds none.
+async fn list_length(list: &str) -> Result<usize, DynError> {
+    let mut conn = get_redis_conn().await?;
+    Ok(redis::cmd("LLEN")
+        .arg(list_key(list).await)
+        .query_async(&mut conn)
+        .await?)
+}
+
+/// The lines of the live list the copy lacks, a page of them at most, and the offset they
+/// start at: the length of the copy.
+async fn uncopied_page(lists: &Lists<'_>) -> Result<(usize, Vec<String>), DynError> {
+    let copied = list_length(lists.copy).await?;
+    let lines = EventLine::try_from_index_list(&[lists.live], Some(copied), Some(EVENT_PAGE_SIZE))
+        .await?
+        .unwrap_or_default();
+    Ok((copied, lines))
+}
+
+/// Appends `lines`, the page of the live list at offset `copied`, to the copy, each keyless
+/// line with the homeserver of its user's `HOSTED_BY` edge. `None` when the copy no longer
+/// ends at `copied`: another run appended first.
+async fn copy_page(
+    copy: &str,
+    copied: usize,
+    lines: Vec<String>,
+) -> Result<Option<Page>, DynError> {
+    let user_ids: BTreeSet<String> = lines
+        .iter()
+        .filter(|line| EventLine::split(line).1.is_none())
+        .filter_map(|line| line_user_id(line))
+        .map(|user_id| user_id.to_string())
+        .collect();
+    let homeservers = hosting_homeservers(user_ids.into_iter().collect()).await?;
+
+    let page = with_keys(lines, &homeservers);
+    let appended = append_if_length(copy, copied, &page.lines).await?;
+    Ok(appended.then_some(page))
+}
+
+/// One step of a rebuild: copies the next page of the live list, or, when the copy lacks no
+/// line, tries the swap. `Some` is how the rebuild ended.
+async fn step(lists: &Lists<'_>, tally: &mut Tally) -> Result<Option<Rebuild>, DynError> {
+    let (copied, lines) = uncopied_page(lists).await?;
+    // The copy has every line this read saw. The swap checks it again and renames in the same
+    // step, so a line appended in between sends the rebuild round once more.
+    if lines.is_empty() {
+        return swap_if_caught_up(lists)
+            .await?
+            .ends_rebuild(*tally, lists)
+            .transpose();
+    }
+
+    // No page means another run appended first: the next step reads from the copy's new end.
+    if let Some(page) = copy_page(lists.copy, copied, lines).await? {
+        tally.add(&page);
+    }
+    Ok(None)
+}
+
+/// Copies the live list into the copy, a page at a time from where the copy ends, giving each
+/// line without a key the homeserver of its user's `HOSTED_BY` edge, then swaps the copy in.
+async fn rebuild(lists: &Lists<'_>) -> Result<Rebuild, DynError> {
+    // Redis keeps no empty list, so an original that holds a line is one that exists.
+    if list_length(lists.original).await? > 0 {
+        return Ok(Rebuild::AlreadySwapped);
+    }
+
     let mut tally = Tally::default();
     loop {
-        let lines = EventLine::try_from_index_list(&[list], Some(cursor), Some(EVENT_PAGE_SIZE))
-            .await?
-            .unwrap_or_default();
-        // Only an empty page is the end: lines appended while this runs are walked too.
-        if lines.is_empty() {
-            return Ok(tally);
+        if let Some(end) = step(lists, &mut tally).await? {
+            return Ok(end);
         }
-
-        let keyless = keyless_lines(cursor as u64, &lines);
-        tally.read += lines.len() as u64;
-        cursor += lines.len();
-        if keyless.is_empty() {
-            continue;
-        }
-
-        let user_ids: BTreeSet<String> = keyless
-            .iter()
-            .filter_map(|(_, line)| line_user_id(line))
-            .map(|user_id| user_id.to_string())
-            .collect();
-        let homeservers = hosting_homeservers(user_ids.into_iter().collect()).await?;
-
-        let keyless_count = keyless.len();
-        let rewrites = rewrites(keyless, &homeservers);
-        tally.left += keyless_count - rewrites.len();
-        if !rewrites.is_empty() {
-            tally.rewritten += rewrite_lines(&key, &rewrites).await?;
-        }
-
-        info!(
-            "EventLineHomeserverBackfill migration: {} event lines read, {} given a homeserver, \
-             {} left without one",
-            tally.read, tally.rewritten, tally.left
-        );
     }
 }
 
@@ -204,15 +388,21 @@ impl Migration for EventLineHomeserverBackfill1794005092 {
     }
 
     async fn backfill(&self) -> Result<(), DynError> {
-        let Tally {
-            read,
-            rewritten,
-            left,
-        } = walk(EventLine::LIST).await?;
-        info!(
-            "EventLineHomeserverBackfill migration: complete — {read} event lines read, \
-             {rewritten} given a homeserver, {left} left without one"
-        );
+        match rebuild(&EVENT_LISTS).await? {
+            Rebuild::Swapped(Tally { read, keyed, left }) => info!(
+                "EventLineHomeserverBackfill migration: complete — {read} event lines copied, \
+                 {keyed} given a homeserver, {left} left without one. The list as it was is \
+                 kept in {}",
+                list_key(EVENT_LISTS.original).await
+            ),
+            Rebuild::AlreadySwapped => info!(
+                "EventLineHomeserverBackfill migration: {} exists, the list was rebuilt before",
+                list_key(EVENT_LISTS.original).await
+            ),
+            Rebuild::NothingStored => {
+                info!("EventLineHomeserverBackfill migration: no event line is stored")
+            }
+        }
         Ok(())
     }
 
@@ -243,35 +433,16 @@ mod tests {
         format!("PUT pubky://{user}/pub/pubky.app/posts/0032SSN7Q4EVG")
     }
 
-    /// `line` as stored with the key of [`HS`].
-    fn keyed(line: &str) -> String {
-        EventLine::new(line, &homeserver()).as_str().to_string()
+    /// `line` as stored with the key of `homeserver_id`.
+    fn keyed_by(line: &str, homeserver_id: &str) -> String {
+        EventLine::new(line, &PubkyId::try_from(homeserver_id).unwrap())
+            .as_str()
+            .to_string()
     }
 
-    /// Lines are told apart as [`EventLine::split`] reads them, and keep their index in the
-    /// list: a follow's key-shaped tail is no key, a keyed address with spaces is keyed.
-    #[test]
-    fn keyless_lines_keeps_the_lines_without_a_key_and_their_index() {
-        let follow = format!("DEL pubky://{USER}/pub/pubky.app/follows/{OTHER}");
-        let lines = vec![
-            keyed(&post_line(USER)),
-            post_line(USER),
-            follow.clone(),
-            keyed(&format!(
-                "PUT pubky://{USER}/pub/pubky.app/files/my holiday photo.jpg"
-            )),
-            "garbage".to_string(),
-        ];
-
-        assert_eq!(
-            keyless_lines(1000, &lines),
-            vec![
-                (1001, post_line(USER)),
-                (1002, follow),
-                (1004, "garbage".to_string())
-            ]
-        );
-        assert!(keyless_lines(0, &[]).is_empty());
+    /// `line` as stored with the key of [`HS`].
+    fn keyed(line: &str) -> String {
+        keyed_by(line, HS)
     }
 
     #[test]
@@ -298,28 +469,38 @@ mod tests {
         }
     }
 
-    /// A line gets its user's homeserver; a line whose user has none, or which names no user,
-    /// is left out, so the caller counts it as left without a key.
+    /// A page is copied line for line, in order: a keyless line gets its user's homeserver, a
+    /// line whose user has none or which names no user is copied as it is, and so is a line a
+    /// newer watcher already stored with a key, whatever its user's homeserver is now.
     #[test]
-    fn rewrites_keys_the_lines_of_users_with_a_homeserver() {
+    fn with_keys_copies_every_line_and_keys_those_of_hosted_users() {
         let homeservers = HashMap::from([(USER.to_string(), homeserver())]);
-        let keyless = vec![
-            (3, post_line(USER)),
-            (4, post_line(OTHER)),
-            (5, "garbage".to_string()),
-            (6, format!("DEL pubky://{USER}/pub/pubky.app/profile.json")),
-        ];
+        let follow = format!("DEL pubky://{USER}/pub/pubky.app/follows/{OTHER}");
+        let already_keyed = keyed_by(&post_line(USER), OTHER);
+        let page = with_keys(
+            vec![
+                post_line(USER),
+                post_line(OTHER),
+                "garbage".to_string(),
+                follow.clone(),
+                already_keyed.clone(),
+            ],
+            &homeservers,
+        );
 
         assert_eq!(
-            rewrites(keyless, &homeservers),
-            vec![
-                (3, post_line(USER), keyed(&post_line(USER))),
-                (
-                    6,
-                    format!("DEL pubky://{USER}/pub/pubky.app/profile.json"),
-                    keyed(&format!("DEL pubky://{USER}/pub/pubky.app/profile.json"))
-                ),
-            ]
+            page,
+            Page {
+                lines: vec![
+                    keyed(&post_line(USER)),
+                    post_line(OTHER),
+                    "garbage".to_string(),
+                    keyed(&follow),
+                    already_keyed,
+                ],
+                keyed: 2,
+                left: 2,
+            }
         );
     }
 
@@ -332,155 +513,337 @@ mod tests {
         assert!(!migration.is_multi_staged());
     }
 
-    /// Fixture ids no other test or the mock data uses.
-    const EDGE_USER: &str = "backfi11edgeyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy";
-    const NO_EDGE_USER: &str = "backfi11noedgeyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy";
-    const ABSENT_USER: &str = "backfi11absentyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy";
-    const EDGE_HS: &str = "backfi11hsyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy";
-
-    async fn delete_graph_fixture() -> Result<(), DynError> {
-        exec_single_row(
-            Query::new(
-                "event_line_homeserver_backfill_test_cleanup",
-                "MATCH (n) WHERE (n:User OR n:Homeserver) AND n.id IN $ids DETACH DELETE n",
-            )
-            .param("ids", vec![EDGE_USER, NO_EDGE_USER, EDGE_HS]),
-        )
-        .await?;
-        Ok(())
+    /// The graph and list fixture of one test, under ids no other test or the mock data uses:
+    /// a user hosted by a homeserver, a user with no homeserver, and a user absent from the
+    /// graph.
+    struct Fixture {
+        edge_user: String,
+        no_edge_user: String,
+        absent_user: String,
+        homeserver: String,
     }
 
-    /// The walk over a scratch list and the graph: a keyless line, the first of the list
-    /// included, gets the homeserver of its user's `HOSTED_BY` edge, the line of a user without
-    /// an edge or absent from the graph is left, a keyed line is not touched, and a second walk
-    /// changes nothing.
-    #[tokio_shared_rt::test(shared)]
-    async fn walk_keys_the_lines_of_hosted_users_and_leaves_the_rest() -> Result<(), DynError> {
-        StackManager::setup(&StackConfig::default()).await?;
-        for id in [EDGE_USER, NO_EDGE_USER, ABSENT_USER, EDGE_HS] {
-            PubkyId::try_from(id).expect("a valid fixture id");
+    impl Fixture {
+        /// `test` is spelled in z-base-32 characters, so the ids are valid keys.
+        fn new(test: &str) -> Self {
+            let id = |role: &str| {
+                let id = format!("{:y<52}", format!("backfi11{test}{role}"));
+                PubkyId::try_from(&id).expect("a valid fixture id");
+                id
+            };
+            Self {
+                edge_user: id("edge"),
+                no_edge_user: id("noedge"),
+                absent_user: id("absent"),
+                homeserver: id("hs"),
+            }
         }
-        delete_graph_fixture().await?;
-        exec_single_row(
-            Query::new(
-                "event_line_homeserver_backfill_test_seed",
-                "CREATE (:User {id: $edge_user, name: 'migration test', indexed_at: 1})
-                    -[:HOSTED_BY]->(:Homeserver {id: $hs})
-                 CREATE (:User {id: $no_edge_user, name: 'migration test', indexed_at: 1})",
+
+        async fn delete(&self) -> Result<(), DynError> {
+            exec_single_row(
+                Query::new(
+                    "event_line_homeserver_backfill_test_cleanup",
+                    "MATCH (n) WHERE (n:User OR n:Homeserver) AND n.id IN $ids DETACH DELETE n",
+                )
+                .param(
+                    "ids",
+                    vec![
+                        self.edge_user.as_str(),
+                        self.no_edge_user.as_str(),
+                        self.homeserver.as_str(),
+                    ],
+                ),
             )
-            .param("edge_user", EDGE_USER)
-            .param("no_edge_user", NO_EDGE_USER)
-            .param("hs", EDGE_HS),
-        )
-        .await?;
+            .await?;
+            Ok(())
+        }
 
-        let list = "MigrationTest:EventLineHomeserverBackfill:Walk";
-        let key = format!("{}:{list}", EventLine::prefix().await);
-        let lines = [
-            post_line(EDGE_USER),
-            post_line(NO_EDGE_USER),
-            post_line(ABSENT_USER),
-            keyed(&post_line(EDGE_USER)),
-        ];
-        let mut conn = get_redis_conn().await?;
-        redis::cmd("DEL")
-            .arg(&key)
-            .query_async::<()>(&mut conn)
+        async fn seed(&self) -> Result<(), DynError> {
+            self.delete().await?;
+            exec_single_row(
+                Query::new(
+                    "event_line_homeserver_backfill_test_seed",
+                    "CREATE (:User {id: $edge_user, name: 'migration test', indexed_at: 1})
+                        -[:HOSTED_BY]->(:Homeserver {id: $hs})
+                     CREATE (:User {id: $no_edge_user, name: 'migration test', indexed_at: 1})",
+                )
+                .param("edge_user", self.edge_user.as_str())
+                .param("no_edge_user", self.no_edge_user.as_str())
+                .param("hs", self.homeserver.as_str()),
+            )
             .await?;
-        redis::cmd("RPUSH")
-            .arg(&key)
-            .arg(&lines)
-            .query_async::<()>(&mut conn)
-            .await?;
+            Ok(())
+        }
 
-        let first = walk(list).await;
-        let second = walk(list).await;
-        let stored: Vec<String> = redis::cmd("LRANGE")
-            .arg(&key)
-            .arg(0)
-            .arg(-1)
-            .query_async(&mut conn)
-            .await?;
-        redis::cmd("DEL")
-            .arg(&key)
-            .query_async::<()>(&mut conn)
-            .await?;
-        delete_graph_fixture().await?;
-
-        assert_eq!(
-            stored,
-            vec![
-                EventLine::new(&lines[0], &PubkyId::try_from(EDGE_HS).unwrap())
-                    .as_str()
-                    .to_string(),
+        /// The lines the list starts with, and what the rebuilt list holds for them.
+        fn lines(&self) -> (Vec<String>, Vec<String>) {
+            let lines = vec![
+                post_line(&self.edge_user),
+                post_line(&self.no_edge_user),
+                post_line(&self.absent_user),
+                keyed(&post_line(&self.edge_user)),
+            ];
+            let rebuilt = vec![
+                keyed_by(&lines[0], &self.homeserver),
                 lines[1].clone(),
                 lines[2].clone(),
                 lines[3].clone(),
-            ]
-        );
-        assert_eq!(
-            first?,
-            Tally {
-                read: 4,
-                rewritten: 1,
-                left: 2
+            ];
+            (lines, rebuilt)
+        }
+    }
+
+    /// Three scratch lists of one test, under [`EventLine`]'s prefix.
+    struct Scratch {
+        live: String,
+        copy: String,
+        original: String,
+    }
+
+    impl Scratch {
+        fn new(test: &str) -> Self {
+            let list =
+                |role: &str| format!("MigrationTest:EventLineHomeserverBackfill:{test}:{role}");
+            Self {
+                live: list("Live"),
+                copy: list("Copy"),
+                original: list("Original"),
             }
-        );
-        assert_eq!(
-            second?,
-            Tally {
-                read: 4,
-                rewritten: 0,
-                left: 2
+        }
+
+        fn lists(&self) -> Lists<'_> {
+            Lists {
+                live: &self.live,
+                copy: &self.copy,
+                original: &self.original,
             }
-        );
+        }
+
+        async fn delete(&self) -> Result<(), DynError> {
+            let mut conn = get_redis_conn().await?;
+            for list in [&self.live, &self.copy, &self.original] {
+                redis::cmd("DEL")
+                    .arg(list_key(list).await)
+                    .query_async::<()>(&mut conn)
+                    .await?;
+            }
+            Ok(())
+        }
+    }
+
+    async fn push(list: &str, lines: &[String]) -> Result<(), DynError> {
+        let mut conn = get_redis_conn().await?;
+        redis::cmd("RPUSH")
+            .arg(list_key(list).await)
+            .arg(lines)
+            .query_async::<()>(&mut conn)
+            .await?;
         Ok(())
     }
 
-    /// Against a scratch list: an entry is rewritten only while it still holds the line that
-    /// was read, so a line changed since is left alone and the count says how many were set.
-    #[tokio_shared_rt::test(shared)]
-    async fn rewrite_lines_sets_only_the_entries_still_holding_what_was_read(
-    ) -> Result<(), DynError> {
-        StackManager::setup(&StackConfig::default()).await?;
-        let key = "MigrationTest:EventLineHomeserverBackfill:Events";
-        let lines = [post_line(USER), post_line(OTHER), "garbage".to_string()];
+    /// The lines of `list`, or `None` when the list doesn't exist.
+    async fn stored(list: &str) -> Result<Option<Vec<String>>, DynError> {
         let mut conn = get_redis_conn().await?;
-        redis::cmd("DEL")
-            .arg(key)
-            .query_async::<()>(&mut conn)
-            .await?;
-        redis::cmd("RPUSH")
-            .arg(key)
-            .arg(&lines)
-            .query_async::<()>(&mut conn)
-            .await?;
-
-        let set = rewrite_lines(
-            key,
-            &[
-                (0, lines[0].clone(), keyed(&lines[0])),
-                (1, "not what the list holds".to_string(), keyed(&lines[1])),
-                (2, lines[2].clone(), keyed(&lines[2])),
-            ],
-        )
-        .await?;
-
-        let stored: Vec<String> = redis::cmd("LRANGE")
-            .arg(key)
-            .arg(0)
-            .arg(-1)
+        let key = list_key(list).await;
+        let exists: bool = redis::cmd("EXISTS")
+            .arg(&key)
             .query_async(&mut conn)
             .await?;
-        redis::cmd("DEL")
-            .arg(key)
-            .query_async::<()>(&mut conn)
-            .await?;
-        assert_eq!(set, 2);
-        assert_eq!(
-            stored,
-            vec![keyed(&lines[0]), lines[1].clone(), keyed(&lines[2])]
+        if !exists {
+            return Ok(None);
+        }
+        Ok(Some(
+            redis::cmd("LRANGE")
+                .arg(&key)
+                .arg(0)
+                .arg(-1)
+                .query_async(&mut conn)
+                .await?,
+        ))
+    }
+
+    /// The rebuild over scratch lists and the graph. The live list ends up holding every line
+    /// at its offset, keyed where its user has a `HOSTED_BY` edge; the list as it was is kept,
+    /// untouched, as the original; the copy is gone. A second run changes nothing.
+    #[tokio_shared_rt::test(shared)]
+    async fn rebuild_swaps_in_the_keyed_list_and_keeps_the_original() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let fixture = Fixture::new("swap");
+        fixture.seed().await?;
+        let scratch = Scratch::new("Swap");
+        scratch.delete().await?;
+        let (lines, rebuilt) = fixture.lines();
+        push(&scratch.live, &lines).await?;
+
+        let first = rebuild(&scratch.lists()).await;
+        let after_first = (
+            stored(&scratch.live).await?,
+            stored(&scratch.original).await?,
+            stored(&scratch.copy).await?,
         );
+        let second = rebuild(&scratch.lists()).await;
+        let after_second = (
+            stored(&scratch.live).await?,
+            stored(&scratch.original).await?,
+            stored(&scratch.copy).await?,
+        );
+        scratch.delete().await?;
+        fixture.delete().await?;
+
+        assert_eq!(
+            first?,
+            Rebuild::Swapped(Tally {
+                read: 4,
+                keyed: 1,
+                left: 2
+            })
+        );
+        assert_eq!(after_first, (Some(rebuilt), Some(lines), None));
+        assert_eq!(second?, Rebuild::AlreadySwapped);
+        assert_eq!(after_second, after_first);
+        Ok(())
+    }
+
+    /// A run that stopped mid-copy left a partial copy behind. The next run resumes after it
+    /// and reaches the same lists.
+    #[tokio_shared_rt::test(shared)]
+    async fn rebuild_resumes_a_partial_copy() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let fixture = Fixture::new("resume");
+        fixture.seed().await?;
+        let scratch = Scratch::new("Resume");
+        scratch.delete().await?;
+        let (lines, rebuilt) = fixture.lines();
+        push(&scratch.live, &lines).await?;
+        push(&scratch.copy, &rebuilt[..2]).await?;
+
+        let outcome = rebuild(&scratch.lists()).await;
+        let after = (
+            stored(&scratch.live).await?,
+            stored(&scratch.original).await?,
+            stored(&scratch.copy).await?,
+        );
+        scratch.delete().await?;
+        fixture.delete().await?;
+
+        assert_eq!(
+            outcome?,
+            Rebuild::Swapped(Tally {
+                read: 2,
+                keyed: 0,
+                left: 1
+            })
+        );
+        assert_eq!(after, (Some(rebuilt), Some(lines), None));
+        Ok(())
+    }
+
+    /// Once an original is kept, however short, a run copies nothing: the live list is the
+    /// rebuilt one already.
+    #[tokio_shared_rt::test(shared)]
+    async fn rebuild_does_nothing_once_an_original_is_kept() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let scratch = Scratch::new("Kept");
+        scratch.delete().await?;
+        let live = vec![keyed(&post_line(USER)), post_line(OTHER)];
+        let original = vec![post_line(USER)];
+        push(&scratch.live, &live).await?;
+        push(&scratch.original, &original).await?;
+
+        let outcome = rebuild(&scratch.lists()).await;
+        let after = (
+            stored(&scratch.live).await?,
+            stored(&scratch.original).await?,
+            stored(&scratch.copy).await?,
+        );
+        scratch.delete().await?;
+
+        assert_eq!(outcome?, Rebuild::AlreadySwapped);
+        assert_eq!(after, (Some(live), Some(original), None));
+        Ok(())
+    }
+
+    /// With no event line stored there is nothing to rebuild, and no list is created.
+    #[tokio_shared_rt::test(shared)]
+    async fn rebuild_of_an_empty_list_creates_nothing() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let scratch = Scratch::new("Empty");
+        scratch.delete().await?;
+
+        let outcome = rebuild(&scratch.lists()).await;
+        let after = (
+            stored(&scratch.live).await?,
+            stored(&scratch.original).await?,
+            stored(&scratch.copy).await?,
+        );
+
+        assert_eq!(outcome?, Rebuild::NothingStored);
+        assert_eq!(after, (None, None, None));
+        Ok(())
+    }
+
+    /// The swap happens only when the copy holds as many lines as the live list, so a line the
+    /// watcher appended since the last page is never left behind, and it never replaces an
+    /// original that is already kept.
+    #[tokio_shared_rt::test(shared)]
+    async fn swap_waits_for_the_copy_and_never_replaces_a_kept_original() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let scratch = Scratch::new("SwapGuard");
+        scratch.delete().await?;
+        let lists = scratch.lists();
+        let (lines, rebuilt) = Fixture::new("guard").lines();
+        push(&scratch.live, &lines).await?;
+
+        push(&scratch.copy, &rebuilt[..3]).await?;
+        let behind = swap_if_caught_up(&lists).await;
+        let after_behind = (
+            stored(&scratch.live).await?,
+            stored(&scratch.original).await?,
+        );
+
+        push(&scratch.copy, &rebuilt[3..]).await?;
+        push(&scratch.copy, &[post_line(USER)]).await?;
+        let ahead = swap_if_caught_up(&lists).await;
+
+        scratch.delete().await?;
+        push(&scratch.live, &lines).await?;
+        push(&scratch.copy, &rebuilt).await?;
+        push(&scratch.original, &[post_line(OTHER)]).await?;
+        let kept = swap_if_caught_up(&lists).await;
+        let after_kept = (
+            stored(&scratch.live).await?,
+            stored(&scratch.original).await?,
+        );
+        scratch.delete().await?;
+
+        assert_eq!(behind?, Swap::Behind);
+        assert_eq!(after_behind, (Some(lines.clone()), None));
+        assert_eq!(ahead?, Swap::CopyAhead);
+        assert_eq!(kept?, Swap::AlreadySwapped);
+        assert_eq!(after_kept, (Some(lines), Some(vec![post_line(OTHER)])));
+        Ok(())
+    }
+
+    /// A page is appended only while the copy still has the length the page was read at, so
+    /// two runs at once, or a rerun, can't append a page twice.
+    #[tokio_shared_rt::test(shared)]
+    async fn append_if_length_appends_only_at_the_length_the_page_was_read_at(
+    ) -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let scratch = Scratch::new("Append");
+        scratch.delete().await?;
+        let (lines, _) = Fixture::new("append").lines();
+
+        let first = append_if_length(&scratch.copy, 0, &lines[..2]).await;
+        let stale = append_if_length(&scratch.copy, 0, &lines[..2]).await;
+        let next = append_if_length(&scratch.copy, 2, &lines[2..]).await;
+        let after = stored(&scratch.copy).await?;
+        scratch.delete().await?;
+
+        assert!(first?);
+        assert!(!stale?);
+        assert!(next?);
+        assert_eq!(after, Some(lines));
         Ok(())
     }
 }
