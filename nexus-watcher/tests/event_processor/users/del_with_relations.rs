@@ -365,6 +365,72 @@ async fn test_user_resurrection() -> Result<()> {
     Ok(())
 }
 
+/// Resurrection on an external homeserver, read the way the watcher reads one: the
+/// key-based processor hands the profile DEL and the PUT that follows to the real
+/// handler. The PUT is only read if the tombstoned user stays on the homeserver's
+/// read list.
+#[tokio_shared_rt::test(shared)]
+async fn test_user_resurrection_on_external_homeserver() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let profile = |name: &str, bio: &str| PubkyAppUser {
+        bio: Some(bio.to_string()),
+        image: None,
+        links: None,
+        name: name.to_string(),
+        status: None,
+    };
+
+    // The user signs up on an external homeserver, and nexus learns about them the way
+    // it does in production: a user it indexes follows them.
+    let external_hs = PubkyId::from(test.testnet.create_random_homeserver().await?.public_key());
+    let user_kp = Keypair::random();
+    let user_id = user_kp.public_key().to_z32();
+    test.register_user_in_hs(&user_kp, &external_hs.to_public_key())
+        .await?;
+
+    let follower_kp = Keypair::random();
+    let follower = profile(
+        "Watcher:UserResurrection:Follower",
+        "follows the external user",
+    );
+    test.create_user(&follower_kp, &follower).await?;
+    test.create_follow(&follower_kp, &user_id).await?;
+
+    let name = "Watcher:UserResurrection:External";
+    test.create_profile(&user_kp, &profile(name, "Lives elsewhere"))
+        .await?;
+    test.process_external_homeserver(&external_hs).await?;
+    let user_details = find_user_details(&user_id).await?;
+    assert!(!user_details.deleted);
+    assert_eq!(user_details.bio, Some("Lives elsewhere".to_string()));
+
+    // The user has a FOLLOWS and a HOSTED_BY edge, so the DEL tombstones the node
+    test.cleanup_user(&user_kp).await?;
+    test.process_external_homeserver(&external_hs).await?;
+    assert!(
+        find_user_details(&user_id).await?.deleted,
+        "User should be marked as deleted after the DEL read from the external homeserver"
+    );
+
+    test.create_profile(&user_kp, &profile(name, "Revived!"))
+        .await?;
+    test.process_external_homeserver(&external_hs).await?;
+    let user_details = find_user_details(&user_id).await?;
+    assert!(
+        !user_details.deleted,
+        "User should NOT be deleted after re-PUTting their profile on the external homeserver"
+    );
+    assert_eq!(user_details.name, name);
+    assert_eq!(user_details.bio, Some("Revived!".to_string()));
+
+    test.cleanup_user(&user_kp).await?;
+    test.process_external_homeserver(&external_hs).await?;
+    test.cleanup_user(&follower_kp).await?;
+
+    Ok(())
+}
+
 /// A tombstoned user must drop out of both search indexes, and stay out: the
 /// `deleted` filter in `put_to_index` stops a cache-miss read from re-adding them.
 #[tokio_shared_rt::test(shared)]

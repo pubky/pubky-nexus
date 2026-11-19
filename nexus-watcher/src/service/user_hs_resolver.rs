@@ -1754,6 +1754,46 @@ mod tests {
         Ok(())
     }
 
+    /// A tombstone does not take a mapping out of the counts: the user stays bound,
+    /// read and re-resolved, so the gauges keep counting them.
+    ///
+    /// Compares two reads of the global counts taken around the tombstone, so it
+    /// runs alone (see `.config/nextest.toml`): a mapping another test creates or
+    /// drops in between would move them.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_count_mappings_keep_tombstoned_users() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_id = random_pk().z32();
+        create_test_user(&user_id).await?;
+        set_user_homeserver(&user_id, &random_pubky_id()).await?;
+        set_user_homeserver_stale(&user_id, true, None).await?;
+        let before = count_mappings().await?;
+
+        exec_single_row(
+            Query::new(
+                "tombstone_counted_user",
+                "MATCH (u:User {id: $user_id}) SET u.deleted = true",
+            )
+            .param("user_id", user_id.clone()),
+        )
+        .await?;
+        let after = count_mappings().await?;
+
+        assert_eq!(
+            after.mapped, before.mapped,
+            "a tombstone took the mapping out of the count"
+        );
+        assert_eq!(
+            after.stale, before.stale,
+            "a tombstone took the mapping out of the stale count"
+        );
+
+        cleanup_test_user(&user_id).await?;
+
+        Ok(())
+    }
+
     /// Every variant maps to a bounded, intended label set.
     #[test]
     fn test_resolution_labels() {
