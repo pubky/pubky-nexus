@@ -6,6 +6,7 @@ use collected_edges_backfill_1789344000::CollectedEdgesBackfill1789344000;
 use file_details_keys_retire_1792145757::FileDetailsKeysRetire1792145757;
 use post_content_index_author_setup_1780531200::PostContentIndexAuthorSetup1780531200;
 use post_content_index_setup_1780444800::PostContentIndexSetup1780444800;
+use post_content_index_sort_setup_1795086590::PostContentIndexSortSetup1795086590;
 use post_deleted_flag_1790899200::PostDeletedFlag1790899200;
 use remove_muted_1771718400::RemoveMuted1771718400;
 use resource_node_setup_1774000000::ResourceNodeSetup1774000000;
@@ -41,6 +42,7 @@ pub fn import_migrations(migration_manager: &mut MigrationManager) {
         Box::new(ResourceTagKeysRetire1792076035),
         Box::new(FileDetailsKeysRetire1792145757),
         Box::new(UserCountsKeysRetire1792418266),
+        Box::new(PostContentIndexSortSetup1795086590),
     ];
     for migration in migrations {
         migration_manager.register(migration);
@@ -53,6 +55,7 @@ pub mod collected_edges_backfill_1789344000;
 pub mod file_details_keys_retire_1792145757;
 pub mod post_content_index_author_setup_1780531200;
 pub mod post_content_index_setup_1780444800;
+pub mod post_content_index_sort_setup_1795086590;
 pub mod post_deleted_flag_1790899200;
 pub mod remove_muted_1771718400;
 pub mod resource_node_setup_1774000000;
