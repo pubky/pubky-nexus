@@ -1,5 +1,8 @@
 use crate::utils::host_url;
 use anyhow::Result;
+use deadpool_redis::redis;
+use nexus_common::db::get_redis_conn;
+use nexus_common::utils::test_utils::random_pubky_id;
 
 /// Regression tests for overflow-safe cursor/limit handling (PR #683).
 
@@ -48,5 +51,68 @@ async fn test_events_large_cursor_with_limit() -> Result<()> {
     let body = res.text_body()?;
     assert!(body.contains("cursor:"), "response must have a cursor line");
 
+    Ok(())
+}
+
+/// The stored list mixes lines with the homeserver key and lines without one. By default every
+/// line is served as the homeserver sent it, so the output is what it was before the key was
+/// stored; with `homeserver=true` the lines are served as stored. The cursor is the same in
+/// both modes.
+#[tokio_shared_rt::test(shared)]
+async fn test_events_homeserver_key_is_opt_in() -> Result<()> {
+    let url = host_url().await;
+    let client = httpc_test::new_client("")?;
+
+    let user = random_pubky_id();
+    let other = random_pubky_id();
+    let homeserver = random_pubky_id();
+    let received = [
+        format!("PUT pubky://{user}/pub/pubky.app/posts/0032SSN7Q4EVG"),
+        // Keyless, with a key-shaped tail of its own
+        format!("DEL pubky://{user}/pub/pubky.app/follows/{other}"),
+        // Keyed, with a space in its path
+        format!("PUT pubky://{user}/pub/pubky.app/files/my holiday photo.jpg"),
+    ];
+    let stored = [
+        format!("{} {homeserver}", received[0]),
+        received[1].clone(),
+        format!("{} {homeserver}", received[2]),
+    ];
+    // RPUSH returns the length after the push, so the lines sit at [start, start + 3)
+    let mut conn = get_redis_conn().await?;
+    let length: u64 = redis::cmd("RPUSH")
+        .arg("Event:Events")
+        .arg(&stored)
+        .query_async(&mut conn)
+        .await?;
+    let start = length - stored.len() as u64;
+    let cursor_line = format!("cursor: {length}");
+
+    let body = |query: &str| {
+        let url = format!("{url}/v0/events?cursor={start}&limit=3{query}");
+        let client = &client;
+        async move {
+            let res = client.do_get(&url).await?;
+            assert_eq!(res.status(), 200, "{url}");
+            res.text_body()
+        }
+    };
+    let plain = body("").await?;
+    let stripped = body("&homeserver=false").await?;
+    let keyed = body("&homeserver=true").await?;
+
+    // Leave the shared list as it was, whatever the assertions say
+    for line in &stored {
+        redis::cmd("LREM")
+            .arg("Event:Events")
+            .arg(0)
+            .arg(line)
+            .query_async::<()>(&mut conn)
+            .await?;
+    }
+
+    assert_eq!(plain, format!("{}\n{cursor_line}", received.join("\n")));
+    assert_eq!(stripped, plain);
+    assert_eq!(keyed, format!("{}\n{cursor_line}", stored.join("\n")));
     Ok(())
 }

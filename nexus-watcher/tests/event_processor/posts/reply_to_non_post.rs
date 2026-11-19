@@ -62,7 +62,7 @@ async fn test_reply_to_a_non_post_is_rejected_and_not_retried() -> Result<()> {
             post_uri_builder(user_id.clone(), reply_id.clone())
         );
         let event_handler = test.event_processor_runner.event_handler.clone();
-        let err = retrieve_and_handle_event_line(&reply_event, event_handler)
+        let err = retrieve_and_handle_event_line(&reply_event, &test.homeserver_id, event_handler)
             .await
             .expect_err("a reply to a non-post must be rejected");
 
@@ -139,7 +139,7 @@ async fn test_reply_to_another_apps_object_is_indexed_without_a_reply_edge() -> 
             post_uri_builder(user_id.clone(), reply_id.clone())
         );
         let event_handler = test.event_processor_runner.event_handler.clone();
-        retrieve_and_handle_event_line(&reply_event, event_handler)
+        retrieve_and_handle_event_line(&reply_event, &test.homeserver_id, event_handler)
             .await
             .unwrap_or_else(|e| panic!("a reply to a {kind} must be indexed: {e}"));
 

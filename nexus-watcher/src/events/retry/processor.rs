@@ -6,6 +6,7 @@ use crate::events::{Event, ParseResult};
 use chrono::{DateTime, Utc};
 use nexus_common::config::EventRetryConfig;
 use nexus_common::WatcherConfig;
+use pubky_social_specs::PubkyId;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
@@ -14,12 +15,17 @@ use super::IndexKey;
 use super::RetryEvent;
 use super::RetryScheduler;
 use crate::events::{confirm_flip, is_flip, EventHandler};
-use crate::service::indexer::{RunOutcome, TEventProcessor};
+use crate::service::indexer::{run_on_own_task, RunError, RunOutcome};
+use crate::service::SLOW_RUN_THRESHOLD;
 
 /// Maximum number of retry events to fetch per batch to avoid memory spikes
 const RETRY_BATCH_SIZE: usize = 100;
 
-/// Processor for retrying events that failed due to missing dependencies
+/// Processor for retrying events that failed due to missing dependencies.
+///
+/// Not a [`TEventProcessor`](crate::service::indexer::TEventProcessor): one of those reads a
+/// homeserver, while this retries the entries of every homeserver, each handled as read from
+/// its own origin homeserver.
 pub struct RetryProcessor {
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
@@ -29,21 +35,23 @@ pub struct RetryProcessor {
     pub store: Arc<dyn RetryStore>,
 }
 
-#[async_trait::async_trait]
-impl TEventProcessor for RetryProcessor {
-    fn event_handler(&self) -> &Arc<dyn EventHandler> {
-        &self.event_handler
+impl RetryProcessor {
+    /// Runs [`Self::run_internal`] on its own task, and waits for it to end: see
+    /// [`run_on_own_task`]. The span names no homeserver: a run retries every homeserver's
+    /// entries.
+    pub async fn run(self: Arc<Self>) -> Result<(), RunError> {
+        run_on_own_task(
+            "RetryProcessor",
+            None,
+            SLOW_RUN_THRESHOLD,
+            self.run_internal(),
+        )
+        .await
     }
 
-    fn instance_name(&self) -> &'static str {
-        "RetryProcessor"
-    }
-
-    fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
-        None
-    }
-
-    async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {
+    /// Retries every entry that is ready, batch by batch, until none is left or shutdown is
+    /// signalled.
+    pub async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {
         let now = Utc::now().timestamp_millis();
 
         loop {
@@ -66,9 +74,7 @@ impl TEventProcessor for RetryProcessor {
             }
         }
     }
-}
 
-impl RetryProcessor {
     /// Creates a processor retrying events from the Redis queue through `event_handler`
     pub fn new(
         config: &WatcherConfig,
@@ -133,6 +139,22 @@ impl RetryProcessor {
             }
         };
 
+        // The line is stored with the key of the homeserver the event was read from, which the
+        // entry carries. One that is no public key can't be stored, so the entry is removed like
+        // any other corrupted one, conditionally on its nonce.
+        let origin_homeserver_id = match PubkyId::try_from(&retry_event.origin_homeserver_id) {
+            Ok(homeserver_id) => homeserver_id,
+            Err(e) => {
+                warn!(
+                    "Corrupted retry entry for key {index_key}, origin homeserver {:?} is no public key ({e}), removing: '{event_line}'",
+                    retry_event.origin_homeserver_id
+                );
+                return self
+                    .remove_if_current(index_key, retry_event.nonce, &retry_event.event_uri)
+                    .await;
+            }
+        };
+
         let ev_uri = &retry_event.event_uri;
         let ev_retry_count = retry_event.retry_count;
 
@@ -142,11 +164,15 @@ impl RetryProcessor {
         // blacklisted HS are blocked before they can be enqueued.
         //
         // Call event_handler directly to get the actual error (bypassing handle_event/handle_error)
-        let event_handle_res = self.event_handler().handle(&event).await.inspect_err(|e| {
-            // In case of error, log it before the error itself is classified and handled
-            // Error handling could itself throw an error. We log it here to pre-empt this possibility.
-            warn!("Retry event handling failed: {e}");
-        });
+        let event_handle_res = self
+            .event_handler
+            .handle(&event, &origin_homeserver_id)
+            .await
+            .inspect_err(|e| {
+                // In case of error, log it before the error itself is classified and handled
+                // Error handling could itself throw an error. We log it here to pre-empt this possibility.
+                warn!("Retry event handling failed: {e}");
+            });
 
         // Removals and reschedules below are conditional on the nonce of the event
         // we fetched: a live processor may have overwritten the hash(URI)-keyed
@@ -384,6 +410,8 @@ mod tests {
     /// `Event::parse_event` yields `ParseResult::Parsed` without any stack.
     const URI: &str =
         "pubky://uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko/pub/pubky.app/posts/clobberpst";
+    /// Origin homeserver of the test entries: a valid key, or the processor removes the entry.
+    const HS: &str = "8rsrmfrn1anbrzuxiffwy1174o58emf4qgbfk5h7s8a33r3bd8dy";
 
     /// Handler that simulates a live event processor enqueuing a NEW retry
     /// event (fresh nonce) for the same URI while the fetched retry is still
@@ -395,7 +423,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl EventHandler for EnqueueNewerEventHandler {
-        async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
+        async fn handle(
+            &self,
+            _event: &Event,
+            _homeserver_id: &PubkyId,
+        ) -> Result<(), EventProcessorError> {
             self.store.put(&self.newer).await?;
             Ok(())
         }
@@ -417,7 +449,7 @@ mod tests {
             event_type: EventType::Put,
             event_uri: URI.to_string(),
             next_retry_at: now - 1_000,
-            origin_homeserver_id: "test_hs".to_string(),
+            origin_homeserver_id: HS.to_string(),
             nonce: 100,
         };
         store.put(&e1).await.unwrap();
@@ -468,7 +500,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl EventHandler for FailingHandler {
-        async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
+        async fn handle(
+            &self,
+            _event: &Event,
+            _homeserver_id: &PubkyId,
+        ) -> Result<(), EventProcessorError> {
             Err(self.error.clone())
         }
     }
@@ -497,7 +533,7 @@ mod tests {
                 event_type: EventType::Put,
                 event_uri: flip_uri,
                 next_retry_at: Utc::now().timestamp_millis() - 1_000,
-                origin_homeserver_id: "test_hs".to_string(),
+                origin_homeserver_id: HS.to_string(),
                 nonce: 1,
             })
             .await?;

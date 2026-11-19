@@ -26,7 +26,12 @@ async fn handle(
         "{event_type} {}",
         post_uri_builder(user_id.to_string(), post_id.to_string())
     );
-    retrieve_and_handle_event_line(&line, test.event_processor_runner.event_handler.clone()).await
+    retrieve_and_handle_event_line(
+        &line,
+        &test.homeserver_id,
+        test.event_processor_runner.event_handler.clone(),
+    )
+    .await
 }
 
 /// The `(owner_id, post_id)` keys of the post's reply parent and repost embed, from its edges.
