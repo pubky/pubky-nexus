@@ -83,7 +83,7 @@ arm in the router.
 | `v1` | ignored (cleanup pass, delayed events, an old device) | handled as a profile edit | handled |
 
 The gate reads `coalesce(u.epoch, 'v0')` from the graph on every event, with no cache.
-`User:Details` holds a copy for the API only. Ignored events count as `reason=gated` and
+The API reads it from the graph too, with the user's details. Ignored events count as `reason=gated` and
 deferred ones as `reason=deferred`.
 
 ### The flip
@@ -108,15 +108,14 @@ On a `v0` user's `social/v1/profile.json` PUT, before any fetch:
      keeps those targets.
 2. **Write `epoch = 'v1'`.** This is a `MERGE`, so it creates a stub when the user has
    no node yet.
-3. **Refresh `User:Details`** from the graph, so the API reports `v1` before the fetch.
-4. **Fetch the profile** and index it as the ordinary `v1` profile PUT it now is.
+3. **Fetch the profile** and index it as the ordinary `v1` profile PUT it now is.
 
 The profile image is never fetched at the flip, so no homeserver request can decide a
 flip. A test asserts that the migration's addresses and tag ids match the specs crate's
 `migrate::transform` (`v0_to_v1/migrator_tests.rs`). The `migrator` feature is a
 dev-dependency only.
 
-**A flip is never lost.** Any failure in steps 1–3 is a single error, `FlipFailed`:
+**A flip is never lost.** Any failure in steps 1–2 is a single error, `FlipFailed`:
 always queued with the transient backoff, never a batch stop, and with no attempt limit
 while the user is `v0`. Its retry reruns the whole flip over any partial work. While the
 flip waits in the retry queue, the gate holds that user's `pubky.app` DELs and their
@@ -209,7 +208,6 @@ has left it.
   - A new user's writes before their first profile are ignored.
   - A hard-deleted `v1` user reads as `v0` again.
   - After an author's v1 DEL of a file, the file stays public at its `{tsid}` address.
-  - A failed `User:Details` refresh can show `v0` until the user's next profile write.
 
 ### Neutral ⚠️
 

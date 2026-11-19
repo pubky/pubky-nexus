@@ -1,5 +1,5 @@
 use super::utils::{
-    find_cached_user_details, find_user_details, find_user_epoch, find_user_uri, set_user_epoch,
+    find_api_user_details, find_user_details, find_user_epoch, find_user_uri, set_user_epoch,
 };
 use crate::event_processor::follows::utils::find_follow_relationship;
 use crate::event_processor::posts::utils::{
@@ -216,9 +216,9 @@ async fn test_v0_user_social_v1_post_del_is_ignored() -> Result<()> {
     Ok(())
 }
 
-/// The cached details without `indexed_at`, which every profile write renews.
-async fn cached_details(user_id: &str) -> Result<serde_json::Value> {
-    let mut user = serde_json::to_value(find_cached_user_details(user_id).await?)?;
+/// The details the API reads, without `indexed_at`, which every profile write renews.
+async fn api_details(user_id: &str) -> Result<serde_json::Value> {
+    let mut user = serde_json::to_value(find_api_user_details(user_id).await?)?;
     user.as_object_mut()
         .expect("details serialize as an object")
         .remove("indexed_at");
@@ -231,7 +231,7 @@ fn v1_profile_uri(user_id: &str) -> String {
 }
 
 /// A `social/v1` profile PUT of a user at `v0` flips them: the profile is indexed with its v1
-/// address, the user is at `v1` in the graph and the cache, and their `pubky.app` post stays.
+/// address, the user is at `v1` in the graph and for the API, and their `pubky.app` post stays.
 /// Writing the same profile again changes nothing.
 #[tokio_shared_rt::test(shared)]
 async fn test_v0_user_flips_on_social_v1_profile_put() -> Result<()> {
@@ -249,7 +249,7 @@ async fn test_v0_user_flips_on_social_v1_profile_put() -> Result<()> {
     let profile_path = test.put_v1_profile(&user_kp, &profile).await?;
 
     assert_eq!(find_user_epoch(&user_id).await.as_deref(), Some("v1"));
-    let user = find_cached_user_details(&user_id).await?;
+    let user = find_api_user_details(&user_id).await?;
     assert_eq!(user.epoch, Epoch::V1);
     assert_eq!(user.name, "Watcher:EpochGate:Flip:V1");
     assert_eq!(
@@ -263,9 +263,9 @@ async fn test_v0_user_flips_on_social_v1_profile_put() -> Result<()> {
     );
 
     // The same profile again: a profile edit that changes nothing
-    let before = cached_details(&user_id).await?;
+    let before = api_details(&user_id).await?;
     test.put_v1_profile(&user_kp, &profile).await?;
-    assert_eq!(cached_details(&user_id).await?, before);
+    assert_eq!(api_details(&user_id).await?, before);
     assert_eq!(find_user_epoch(&user_id).await.as_deref(), Some("v1"));
     assert_eq!(
         find_user_uri(&user_id).await,
@@ -298,7 +298,7 @@ async fn test_new_user_social_v1_profile_put_creates_the_user_at_v1() -> Result<
         .await?;
 
     assert_eq!(find_user_epoch(&user_id).await.as_deref(), Some("v1"));
-    let user = find_cached_user_details(&user_id).await?;
+    let user = find_api_user_details(&user_id).await?;
     assert_eq!(user.epoch, Epoch::V1);
     assert_eq!(user.name, "Watcher:EpochGate:NewV1");
     assert_eq!(
@@ -336,7 +336,7 @@ async fn test_flipped_user_is_read_through_social_v1() -> Result<()> {
         &v1_test_user("Watcher:EpochGate:Flipped:Edited", "epoch_gate"),
     )
     .await?;
-    let user = find_cached_user_details(&user_id).await?;
+    let user = find_api_user_details(&user_id).await?;
     assert_eq!(user.name, "Watcher:EpochGate:Flipped:Edited");
     assert_eq!(user.epoch, Epoch::V1);
     assert_eq!(find_user_epoch(&user_id).await.as_deref(), Some("v1"));
@@ -375,7 +375,7 @@ async fn test_flipped_user_is_read_through_social_v1() -> Result<()> {
 }
 
 /// A flipped user who deletes their `social/v1` profile while a post remains keeps `v1` in
-/// the tombstone and in the cache.
+/// the tombstone and for the API.
 #[tokio_shared_rt::test(shared)]
 async fn test_flipped_user_tombstone_keeps_v1() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -408,9 +408,9 @@ async fn test_flipped_user_tombstone_keeps_v1() -> Result<()> {
     let tombstone = find_user_details(&user_id).await?;
     assert!(tombstone.deleted);
     assert_eq!(tombstone.epoch, Epoch::V1);
-    let cached = find_cached_user_details(&user_id).await?;
-    assert!(cached.deleted);
-    assert_eq!(cached.epoch, Epoch::V1);
+    let served = find_api_user_details(&user_id).await?;
+    assert!(served.deleted);
+    assert_eq!(served.epoch, Epoch::V1);
 
     // Handled at `v1`
     test.del(&user_kp, &version_path).await?;

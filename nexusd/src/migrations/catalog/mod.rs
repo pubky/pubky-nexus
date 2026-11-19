@@ -4,6 +4,7 @@ use super::manager::{Migration, MigrationManager};
 
 use collected_edges_backfill_1789344000::CollectedEdgesBackfill1789344000;
 use file_details_keys_retire_1792145757::FileDetailsKeysRetire1792145757;
+use overwritten_profile_restore_1795036051::OverwrittenProfileRestore1795036051;
 use post_content_index_author_setup_1780531200::PostContentIndexAuthorSetup1780531200;
 use post_content_index_setup_1780444800::PostContentIndexSetup1780444800;
 use post_deleted_flag_1790899200::PostDeletedFlag1790899200;
@@ -14,7 +15,9 @@ use resource_tag_keys_retire_1792076035::ResourceTagKeysRetire1792076035;
 use uri_backfill_1791196997::UriBackfill1791196997;
 use user_counts_keys_retire_1792418266::UserCountsKeysRetire1792418266;
 use user_deleted_flag_1780617600::UserDeletedFlag1780617600;
+use user_details_cache_retire_1792160000::UserDetailsCacheRetire1792160000;
 use user_epoch_backfill_1791812997::UserEpochBackfill1791812997;
+use user_search_state_backfill_1792157548::UserSearchStateBackfill1792157548;
 use users_by_pk_reindex_1751635096::UsersByPkReindex1751635096;
 use users_by_tags_index_backfill_1786924800::UsersByTagsIndexBackfill1786924800;
 
@@ -41,6 +44,11 @@ pub fn import_migrations(migration_manager: &mut MigrationManager) {
         Box::new(ResourceTagKeysRetire1792076035),
         Box::new(FileDetailsKeysRetire1792145757),
         Box::new(UserCountsKeysRetire1792418266),
+        // OverwrittenProfileRestore must precede both: the search backfill indexes the
+        // names it restores, from the documents the retire migration deletes.
+        Box::new(OverwrittenProfileRestore1795036051),
+        Box::new(UserSearchStateBackfill1792157548),
+        Box::new(UserDetailsCacheRetire1792160000),
     ];
     for migration in migrations {
         migration_manager.register(migration);
@@ -51,6 +59,7 @@ pub fn import_migrations(migration_manager: &mut MigrationManager) {
 // pub mod tag_counts_reset_1739459180;
 pub mod collected_edges_backfill_1789344000;
 pub mod file_details_keys_retire_1792145757;
+pub mod overwritten_profile_restore_1795036051;
 pub mod post_content_index_author_setup_1780531200;
 pub mod post_content_index_setup_1780444800;
 pub mod post_deleted_flag_1790899200;
@@ -61,6 +70,8 @@ pub mod resource_tag_keys_retire_1792076035;
 pub mod uri_backfill_1791196997;
 pub mod user_counts_keys_retire_1792418266;
 pub mod user_deleted_flag_1780617600;
+pub mod user_details_cache_retire_1792160000;
 pub mod user_epoch_backfill_1791812997;
+pub mod user_search_state_backfill_1792157548;
 pub mod users_by_pk_reindex_1751635096;
 pub mod users_by_tags_index_backfill_1786924800;

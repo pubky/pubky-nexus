@@ -11,9 +11,8 @@ use utoipa::ToSchema;
 /// the node the flip creates for a user whose first event is their `social/v1` profile.
 ///
 /// Stored as `epoch` on the `:User` node (a node without one reads as `V0`) and
-/// carried by [`super::UserDetails`] for the API. The watcher reads it from the
-/// graph only, with [`Epoch::get_from_graph`]: the cached copy may be stale. It
-/// has no index of its own.
+/// carried by [`super::UserDetails`] for the API. The watcher reads it with
+/// [`Epoch::get_from_graph`]. It has no index of its own.
 #[derive(Serialize, Deserialize, ToSchema, Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Epoch {
@@ -68,7 +67,6 @@ mod tests {
     use super::Epoch;
     use crate::db::graph::Query;
     use crate::db::{exec_single_row, fetch_key_from_graph, queries};
-    use crate::models::traits::Collection;
     use crate::models::user::UserDetails;
     use crate::{types::DynError, utils::test_utils::random_pubky_id, StackConfig, StackManager};
 
@@ -122,8 +120,8 @@ mod tests {
         let id = user_id.to_string();
         Epoch::set_v1_in_graph(&user_id).await?;
 
-        let stub = UserDetails::get_from_graph(&[id.as_str()]).await?[0]
-            .clone()
+        let stub = UserDetails::get_by_id(&id)
+            .await?
             .expect("the write creates the node");
         assert_eq!(stub.name, id);
         assert_eq!(stub.epoch, Epoch::V1);
@@ -147,9 +145,7 @@ mod tests {
         profile.name = "Stub:Filled".to_string();
         profile.put_profile_to_graph(&uri).await?;
         assert_eq!(profile.epoch, Epoch::V1);
-        let filled = UserDetails::get_from_graph(&[id.as_str()]).await?[0]
-            .clone()
-            .expect("the node stays");
+        let filled = UserDetails::get_by_id(&id).await?.expect("the node stays");
         assert_eq!(filled.name, "Stub:Filled");
         assert_eq!(filled.epoch, Epoch::V1);
 
