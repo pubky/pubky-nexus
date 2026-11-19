@@ -324,6 +324,36 @@ async fn test_content_search_with_author_scopes_to_that_author() -> Result<()> {
     Ok(())
 }
 
+#[tokio_shared_rt::test(shared)]
+async fn test_content_search_with_author_is_newest_first() -> Result<()> {
+    // Bogota's "post" matches are long and image posts: an author-scoped search lists them
+    // as the author's timeline does, newest first, not by relevance.
+    const BOGOTA: &str = "ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny";
+    let url = format!("{SEARCH_POSTS_BY_CONTENT_ROUTE}?q=post&author={BOGOTA}&limit=100");
+    let body = get_request(&url).await?;
+    let results = body.as_array().expect("should be array");
+
+    let mut posts = Vec::new();
+    for r in results {
+        let post_key = r["post_key"].as_str().expect("post_key must be a string");
+        let (author, post_id) = post_key.split_once(':').expect("author:post_id");
+        let details = PostDetails::get_by_id(author, post_id)
+            .await?
+            .unwrap_or_else(|| panic!("post '{post_key}' not found"));
+        posts.push((details.indexed_at, details.kind.to_string()));
+    }
+
+    assert!(
+        posts.iter().any(|(_, k)| k == "long") && posts.iter().any(|(_, k)| k != "long"),
+        "expected long and other posts, got {posts:?}"
+    );
+    assert!(
+        posts.windows(2).all(|w| w[0].0 >= w[1].0),
+        "author-scoped results should be newest first, got {posts:?}"
+    );
+    Ok(())
+}
+
 // ── Content-search kind-scoping tests ─────────────────────────────────────────
 
 // Seed data: searching "post" matches content across multiple kinds:
