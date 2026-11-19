@@ -136,7 +136,7 @@ impl ImageProcessor {
             .await?;
 
         if !child_output.status.success() {
-            return Err(MediaProcessorError::command_failed(format!(
+            return Err(MediaProcessorError::UnreadableSource(format!(
                 "ImageMagick format extraction failed: {}",
                 String::from_utf8_lossy(&child_output.stderr)
             )));
@@ -350,6 +350,31 @@ mod tests {
             [r, g, b] => (r, g, b),
             _ => panic!("unexpected pixel value {pixel:?}"),
         }
+    }
+
+    // A source `identify` cannot read is the upload's fault: it must come back as
+    // `UnreadableSource` (a 422), not `CommandFailed` (a 500 logged at ERROR).
+    #[tokio_shared_rt::test(shared)]
+    async fn test_process_reports_an_undecodable_source_as_unreadable() {
+        let runner = MediaSubprocess::new(Duration::from_secs(30));
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let origin = dir.path().join("main");
+        std::fs::write(&origin, b"not an image").expect("write the source");
+        let options = ImageProcessor::get_options_for_variant(&FileVariant::Feed)
+            .expect("variant has image options");
+
+        let result = ImageProcessor::process(
+            origin.to_str().expect("utf-8 origin path"),
+            dir.path().join("feed").to_str().expect("utf-8 output path"),
+            &options,
+            runner,
+        )
+        .await;
+
+        assert!(
+            matches!(result, Err(MediaProcessorError::UnreadableSource(_))),
+            "expected UnreadableSource, got {result:?}"
+        );
     }
 
     // Regression test for the `-coalesce` before `-resize` in `process`. A frame-optimized GIF

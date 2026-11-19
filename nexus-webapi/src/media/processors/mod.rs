@@ -23,6 +23,10 @@ pub enum MediaProcessorError {
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+    /// ImageMagick could not read the source: an undecodable file, or one its security policy
+    /// refuses. The upload is at fault, not the server.
+    #[error("UnreadableSource: {0}")]
+    UnreadableSource(String),
     #[error("NotImplemented")]
     NotImplemented,
     #[error("UnsupportedContentType: {0}")]
