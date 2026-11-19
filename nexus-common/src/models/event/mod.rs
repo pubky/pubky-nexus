@@ -40,6 +40,9 @@ use tracing::error;
 pub struct EventLine(String);
 
 impl EventLine {
+    /// The list event lines are stored in, under this type's prefix: `Event:Events`.
+    pub const LIST: &'static str = "Events";
+
     /// The line stored for `line`, as the homeserver sent it, read from `homeserver_id`.
     pub fn new(line: &str, homeserver_id: &PubkyId) -> Self {
         Self(format!("{line} {homeserver_id}"))
@@ -77,7 +80,7 @@ impl AsRef<[String]> for EventLine {
 impl EventLine {
     #[tracing::instrument(name = "event.index.write", skip_all)]
     pub async fn store(&self) -> RedisResult<()> {
-        self.put_index_list(&["Events"]).await
+        self.put_index_list(&[Self::LIST]).await
     }
 
     pub async fn get_from_index(
@@ -86,7 +89,8 @@ impl EventLine {
     ) -> RedisResult<(Vec<String>, u64)> {
         let start = cursor.unwrap_or(0);
         let start_u = usize::try_from(start).unwrap_or(usize::MAX);
-        let result = EventLine::try_from_index_list(&["Events"], Some(start_u), Some(limit)).await;
+        let result =
+            EventLine::try_from_index_list(&[Self::LIST], Some(start_u), Some(limit)).await;
 
         let events = match result {
             Ok(r) => r.unwrap_or_default(),

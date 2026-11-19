@@ -132,6 +132,63 @@ async fn rewrite_lines(key: &str, lines: &[(u64, String, String)]) -> Result<usi
     Ok(invocation.invoke_async(&mut conn).await?)
 }
 
+/// What a walk of the list did.
+#[derive(Debug, Default, PartialEq)]
+struct Tally {
+    /// Lines read.
+    read: u64,
+    /// Lines given a homeserver key.
+    rewritten: usize,
+    /// Keyless lines left as they were: no user, or a user without a homeserver.
+    left: usize,
+}
+
+/// Walks `list`, a list of event lines under [`EventLine`]'s prefix, from its start to its end,
+/// a page at a time, and gives each line without a key the homeserver of its user's `HOSTED_BY`
+/// edge.
+async fn walk(list: &str) -> Result<Tally, DynError> {
+    let key = format!("{}:{list}", EventLine::prefix().await);
+
+    let mut cursor: usize = 0;
+    let mut tally = Tally::default();
+    loop {
+        let lines = EventLine::try_from_index_list(&[list], Some(cursor), Some(EVENT_PAGE_SIZE))
+            .await?
+            .unwrap_or_default();
+        // Only an empty page is the end: lines appended while this runs are walked too.
+        if lines.is_empty() {
+            return Ok(tally);
+        }
+
+        let keyless = keyless_lines(cursor as u64, &lines);
+        tally.read += lines.len() as u64;
+        cursor += lines.len();
+        if keyless.is_empty() {
+            continue;
+        }
+
+        let user_ids: BTreeSet<String> = keyless
+            .iter()
+            .filter_map(|(_, line)| line_user_id(line))
+            .map(|user_id| user_id.to_string())
+            .collect();
+        let homeservers = hosting_homeservers(user_ids.into_iter().collect()).await?;
+
+        let keyless_count = keyless.len();
+        let rewrites = rewrites(keyless, &homeservers);
+        tally.left += keyless_count - rewrites.len();
+        if !rewrites.is_empty() {
+            tally.rewritten += rewrite_lines(&key, &rewrites).await?;
+        }
+
+        info!(
+            "EventLineHomeserverBackfill migration: {} event lines read, {} given a homeserver, \
+             {} left without one",
+            tally.read, tally.rewritten, tally.left
+        );
+    }
+}
+
 #[async_trait]
 impl Migration for EventLineHomeserverBackfill1794005092 {
     fn id(&self) -> &'static str {
@@ -147,50 +204,14 @@ impl Migration for EventLineHomeserverBackfill1794005092 {
     }
 
     async fn backfill(&self) -> Result<(), DynError> {
-        let key = format!("{}:Events", EventLine::prefix().await);
-
-        let mut cursor: u64 = 0;
-        let mut lines_read: u64 = 0;
-        let mut lines_rewritten: usize = 0;
-        let mut lines_left: usize = 0;
-        loop {
-            let (lines, next_cursor) =
-                EventLine::get_from_index(Some(cursor), EVENT_PAGE_SIZE).await?;
-            // Only an empty page is the end: lines appended while this runs are walked too.
-            if lines.is_empty() {
-                break;
-            }
-
-            let keyless = keyless_lines(cursor, &lines);
-            lines_read += lines.len() as u64;
-            cursor = next_cursor;
-            if keyless.is_empty() {
-                continue;
-            }
-
-            let user_ids: BTreeSet<String> = keyless
-                .iter()
-                .filter_map(|(_, line)| line_user_id(line))
-                .map(|user_id| user_id.to_string())
-                .collect();
-            let homeservers = hosting_homeservers(user_ids.into_iter().collect()).await?;
-
-            let keyless_count = keyless.len();
-            let rewrites = rewrites(keyless, &homeservers);
-            lines_left += keyless_count - rewrites.len();
-            if !rewrites.is_empty() {
-                lines_rewritten += rewrite_lines(&key, &rewrites).await?;
-            }
-
-            info!(
-                "EventLineHomeserverBackfill migration: {lines_read} event lines read, \
-                 {lines_rewritten} given a homeserver, {lines_left} left without one"
-            );
-        }
-
+        let Tally {
+            read,
+            rewritten,
+            left,
+        } = walk(EventLine::LIST).await?;
         info!(
-            "EventLineHomeserverBackfill migration: complete — {lines_read} event lines read, \
-             {lines_rewritten} given a homeserver, {lines_left} left without one"
+            "EventLineHomeserverBackfill migration: complete — {read} event lines read, \
+             {rewritten} given a homeserver, {left} left without one"
         );
         Ok(())
     }
@@ -207,6 +228,7 @@ impl Migration for EventLineHomeserverBackfill1794005092 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nexus_common::db::exec_single_row;
     use nexus_common::{StackConfig, StackManager};
 
     const USER: &str = "uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko";
@@ -298,6 +320,118 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    /// The id is what the manager records as Done, and a single stage is why a line left
+    /// without a key keeps none.
+    #[test]
+    fn the_migration_keeps_its_id_and_its_single_stage() {
+        let migration = EventLineHomeserverBackfill1794005092;
+        assert_eq!(migration.id(), "EventLineHomeserverBackfill1794005092");
+        assert!(!migration.is_multi_staged());
+    }
+
+    /// Fixture ids no other test or the mock data uses.
+    const EDGE_USER: &str = "backfi11edgeyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy";
+    const NO_EDGE_USER: &str = "backfi11noedgeyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy";
+    const ABSENT_USER: &str = "backfi11absentyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy";
+    const EDGE_HS: &str = "backfi11hsyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy";
+
+    async fn delete_graph_fixture() -> Result<(), DynError> {
+        exec_single_row(
+            Query::new(
+                "event_line_homeserver_backfill_test_cleanup",
+                "MATCH (n) WHERE (n:User OR n:Homeserver) AND n.id IN $ids DETACH DELETE n",
+            )
+            .param("ids", vec![EDGE_USER, NO_EDGE_USER, EDGE_HS]),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// The walk over a scratch list and the graph: a keyless line, the first of the list
+    /// included, gets the homeserver of its user's `HOSTED_BY` edge, the line of a user without
+    /// an edge or absent from the graph is left, a keyed line is not touched, and a second walk
+    /// changes nothing.
+    #[tokio_shared_rt::test(shared)]
+    async fn walk_keys_the_lines_of_hosted_users_and_leaves_the_rest() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        for id in [EDGE_USER, NO_EDGE_USER, ABSENT_USER, EDGE_HS] {
+            PubkyId::try_from(id).expect("a valid fixture id");
+        }
+        delete_graph_fixture().await?;
+        exec_single_row(
+            Query::new(
+                "event_line_homeserver_backfill_test_seed",
+                "CREATE (:User {id: $edge_user, name: 'migration test', indexed_at: 1})
+                    -[:HOSTED_BY]->(:Homeserver {id: $hs})
+                 CREATE (:User {id: $no_edge_user, name: 'migration test', indexed_at: 1})",
+            )
+            .param("edge_user", EDGE_USER)
+            .param("no_edge_user", NO_EDGE_USER)
+            .param("hs", EDGE_HS),
+        )
+        .await?;
+
+        let list = "MigrationTest:EventLineHomeserverBackfill:Walk";
+        let key = format!("Event:{list}");
+        let lines = [
+            post_line(EDGE_USER),
+            post_line(NO_EDGE_USER),
+            post_line(ABSENT_USER),
+            keyed(&post_line(EDGE_USER)),
+        ];
+        let mut conn = get_redis_conn().await?;
+        redis::cmd("DEL")
+            .arg(&key)
+            .query_async::<()>(&mut conn)
+            .await?;
+        redis::cmd("RPUSH")
+            .arg(&key)
+            .arg(&lines)
+            .query_async::<()>(&mut conn)
+            .await?;
+
+        let first = walk(list).await;
+        let second = walk(list).await;
+        let stored: Vec<String> = redis::cmd("LRANGE")
+            .arg(&key)
+            .arg(0)
+            .arg(-1)
+            .query_async(&mut conn)
+            .await?;
+        redis::cmd("DEL")
+            .arg(&key)
+            .query_async::<()>(&mut conn)
+            .await?;
+        delete_graph_fixture().await?;
+
+        assert_eq!(
+            stored,
+            vec![
+                format!("{} {EDGE_HS}", lines[0]),
+                lines[1].clone(),
+                lines[2].clone(),
+                lines[3].clone(),
+            ]
+        );
+        assert_eq!(
+            first?,
+            Tally {
+                read: 4,
+                rewritten: 1,
+                left: 2
+            }
+        );
+        assert_eq!(
+            second?,
+            Tally {
+                read: 4,
+                rewritten: 0,
+                left: 2
+            }
+        );
+        Ok(())
     }
 
     /// Against a scratch list: an entry is rewritten only while it still holds the line that
