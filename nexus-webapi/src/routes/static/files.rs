@@ -64,6 +64,7 @@ pub struct V1FilePath {
         (status = 200, description = "File's raw data"),
         (status = 400, description = "Invalid parameters, or variant not valid for the file's content type"),
         (status = 404, description = "File not found"),
+        (status = 422, description = "The stored file cannot be read as an image, so no variant can be made"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error"),
         (status = 503, description = "Service temporarily unavailable; retry later")
@@ -117,6 +118,7 @@ pub async fn static_files_handler(
         (status = 200, description = "File's raw data"),
         (status = 400, description = "Invalid parameters, a file id of neither form, or variant not valid for the file's content type"),
         (status = 404, description = "File not found"),
+        (status = 422, description = "The stored file cannot be read as an image, so no variant can be made"),
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error"),
         (status = 503, description = "Service temporarily unavailable; retry later")

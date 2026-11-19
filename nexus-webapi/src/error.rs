@@ -35,6 +35,10 @@ pub enum Error {
     Forbidden { message: String },
     #[error("Service unavailable: {message}")]
     ServiceUnavailable { message: String },
+    /// A stored file that cannot be turned into the variant asked for. The cause is kept for
+    /// the log only: it carries ImageMagick's stderr, which names the file's path on disk.
+    #[error("Unprocessable media")]
+    UnprocessableMedia { source: DynError },
     // Add other custom errors here
 }
 
@@ -110,6 +114,11 @@ impl From<MediaProcessorError> for Error {
         if source.is_load_shed() {
             return Error::service_unavailable("service temporarily unavailable");
         }
+        if matches!(source, MediaProcessorError::UnreadableSource(_)) {
+            return Error::UnprocessableMedia {
+                source: Box::new(RedactedMediaError(source)),
+            };
+        }
         Error::InternalServerError {
             source: Box::new(RedactedMediaError(source)),
         }
@@ -168,6 +177,7 @@ impl IntoResponse for Error {
             Error::ResourceNotFound { .. } => StatusCode::NOT_FOUND,
             Error::Forbidden { .. } => StatusCode::FORBIDDEN,
             Error::ServiceUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            Error::UnprocessableMedia { .. } => StatusCode::UNPROCESSABLE_ENTITY,
             // Map other errors to appropriate status codes
         };
 
@@ -198,6 +208,7 @@ impl IntoResponse for Error {
                 warn!("Forbidden: {}", message)
             }
             Error::ServiceUnavailable { message } => warn!("Service unavailable: {}", message),
+            Error::UnprocessableMedia { source } => debug!("Unprocessable media: {:?}", source),
             Error::InternalServerError { source } => error!("Internal server error: {:?}", source),
         };
 
@@ -237,6 +248,23 @@ mod tests {
                 StatusCode::SERVICE_UNAVAILABLE
             );
         }
+    }
+
+    // A source ImageMagick cannot read is a bad upload, not a server fault: 422, and the
+    // stderr, which names the file's path, stays out of the response.
+    #[test]
+    fn test_unreadable_source_maps_to_422_without_leaking_the_converter_message() {
+        let error = Error::from(MediaProcessorError::UnreadableSource(String::from(
+            "ImageMagick format extraction failed: identify-im6.q16: no decode delegate for this \
+             image format `/srv/nexus/static/files/o4dksqu3/0034A0X7NJ52G/main'",
+        )));
+
+        assert_eq!(error.to_string(), "Unprocessable media");
+        assert!(format!("{error:?}").contains("no decode delegate"));
+        assert_eq!(
+            error.into_response().status(),
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
     }
 
     // A genuine processing failure is still a server fault, not a shed -- and the converter's
