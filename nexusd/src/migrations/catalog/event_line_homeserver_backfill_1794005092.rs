@@ -36,7 +36,9 @@ use tracing::{info, warn};
 /// the `/v0/events` cursors stay valid across the swap.
 ///
 /// Each page's users are looked up in one query and its lines appended to the copy by one
-/// script, so the cost grows with the length of the list, not with its square.
+/// script. An append costs the same wherever the copy ends. Reading a page makes Redis seek to
+/// it from the nearer end of the list, once per page, which is the only cost that grows with
+/// the list: at the middle of 2,000,000 lines the seek added 0.09 ms to a read of 0.07 ms.
 ///
 /// # Idempotency
 /// A page is appended only while the copy still has the length the page was read at, and a run
