@@ -481,7 +481,7 @@ mod tests {
         assert!(message.contains("HTTP 502: bad gateway"), "{message}");
     }
 
-    /// A fetch error the retry queue takes (a 5xx, a 429, a rejected status, a timeout, a PKARR
+    /// A fetch error the retry queue takes (a 5xx, a 429, a 408, a timeout, a PKARR
     /// failure or a client not yet initialised) is retried with the transient class and never
     /// stops the batch; a 404 is dropped. After the flip step a fetch error on a `social/v1`
     /// profile PUT is a `v1` user's, so none of these lifts the retry limit.
@@ -490,7 +490,7 @@ mod tests {
         for err in [
             hs_error(HsOp::GetResource, HsErrorKind::ServerError(500, "".into())),
             hs_error(HsOp::GetResource, HsErrorKind::RateLimited("".into())),
-            hs_error(HsOp::GetResource, HsErrorKind::Rejected(403, "".into())),
+            hs_error(HsOp::GetResource, HsErrorKind::Rejected(408, "".into())),
             hs_error(HsOp::GetResource, HsErrorKind::Timeout),
             hs_error(
                 HsOp::GetResource,
