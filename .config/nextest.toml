@@ -82,3 +82,11 @@ threads-required = 'num-test-threads'
 [[profile.default.overrides]]
 filter = 'package(nexusd) and test(/^migrations::catalog::user_epoch_backfill_1791812997::tests::/)'
 threads-required = 'num-test-threads'
+
+# Reads the global HOSTED_BY mapping counts twice, around tombstoning one bound
+# user, and compares the reads, so no other test may create or drop a mapping in
+# between; every watcher test that creates a user does.
+
+[[profile.default.overrides]]
+filter = 'package(nexus-watcher) and test(=service::user_hs_resolver::tests::test_count_mappings_keep_tombstoned_users)'
+threads-required = 'num-test-threads'

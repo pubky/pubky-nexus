@@ -59,6 +59,33 @@ async fn key_based_processor_skips_unrecognized_events() -> Result<(), DynError>
     Ok(())
 }
 
+/// The per-user read keeps tombstoned users: the profile write that clears a
+/// tombstone can only be seen by reading them, so dropping them here would
+/// make tombstoning a one-way door.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_reads_tombstoned_users() -> Result<(), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+    UserDetails::tombstone(&PubkyId::try_from(user_id.as_str())?)
+        .put_to_graph()
+        .await?;
+
+    let source = Arc::new(MockHomeserverClient::default());
+    let processor = processor(
+        homeserver,
+        create_mock_handler(Ok(()), None),
+        source.clone(),
+    );
+
+    processor.run().await?;
+
+    assert_eq!(source.calls().await, vec![user_id]);
+
+    Ok(())
+}
+
 #[tokio_shared_rt::test(shared)]
 async fn key_based_processor_rejects_unrecognized_event_for_mismatched_user() -> Result<(), DynError>
 {

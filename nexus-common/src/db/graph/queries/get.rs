@@ -888,12 +888,17 @@ pub fn get_homeserver_by_id(id: &str) -> Query {
 /// falls through to `active_users` — exactly today's behaviour. The trust term
 /// only starts doing work once an operator configures a seed set.
 ///
+/// Deleted users count: they stay on their homeserver's read list (see
+/// [`get_active_users_by_homeserver`]), and a homeserver whose users are all
+/// tombstoned has to stay listed or nothing would ever read the profile write
+/// that clears a tombstone.
+///
 /// Returns a single `homeservers_list` column containing the collected IDs.
 pub fn get_all_homeservers_with_active_users() -> Query {
     Query::new(
         "get_all_homeservers_with_active_users",
         "MATCH (u:User)-[r:HOSTED_BY]->(hs:Homeserver)
-        WHERE NOT coalesce(u.deleted, false) AND NOT coalesce(r.stale, false)
+        WHERE NOT coalesce(r.stale, false)
         WITH hs.id AS id,
              sum(coalesce(u.trust, 0.0)) AS hosted_trust,
              count(u) AS active_users
@@ -904,11 +909,14 @@ pub fn get_all_homeservers_with_active_users() -> Query {
 
 /// Retrieves user IDs whose homeserver mapping is stale
 /// (`resolved_at` is older than `ttl_ms`) or missing (no `HOSTED_BY` edge).
+///
+/// Deleted users are included: their record keeps being re-resolved, so a
+/// record that stops naming the homeserver still marks the mapping stale and
+/// takes them off its read list.
 pub fn get_users_needing_hs_resolution(ttl_ms: u64) -> Query {
     Query::new(
         "get_users_needing_hs_resolution",
         "MATCH (u:User)
-         WHERE NOT coalesce(u.deleted, false)
          OPTIONAL MATCH (u)-[r:HOSTED_BY]->(:Homeserver)
          WITH u, r
          WHERE r IS NULL
@@ -945,12 +953,12 @@ pub fn get_user_epoch(user_id: &str) -> Query {
 }
 
 /// Counts users with a `HOSTED_BY` mapping, and how many of those mappings are
-/// marked `stale`. Deleted users are excluded from both counts.
+/// marked `stale`. Deleted users count like any other: they stay bound, read
+/// and re-resolved, so they belong in the denominator.
 pub fn count_user_homeserver_mappings() -> Query {
     Query::new(
         "count_user_homeserver_mappings",
         "MATCH (u:User)-[r:HOSTED_BY]->(:Homeserver)
-         WHERE NOT coalesce(u.deleted, false)
          RETURN count(r) AS mapped_users,
                 count(CASE WHEN r.stale = true THEN 1 END) AS stale_users",
     )
@@ -961,11 +969,18 @@ pub fn count_user_homeserver_mappings() -> Query {
 /// Excludes users whose mapping is marked `stale` — i.e. whose published
 /// homeserver has diverged from the stored one — so the watcher stops
 /// indexing them until the mapping realigns.
+///
+/// Deleted users are NOT excluded. The tombstone hides a user from user
+/// listings and user search (post streams and post search do not check the
+/// author's flag, so a tombstoned user's posts are served), but only their
+/// signed record stops the watcher: a profile write is the one thing that clears a
+/// tombstone, and this read list is the one thing that would see it. Filtering
+/// them here made tombstoning a one-way door.
 pub fn get_active_users_by_homeserver(hs_id: &str) -> Query {
     Query::new(
         "get_active_users_by_homeserver",
         "MATCH (u:User)-[r:HOSTED_BY]->(:Homeserver {id: $hs_id})
-         WHERE NOT coalesce(u.deleted, false) AND NOT coalesce(r.stale, false)
+         WHERE NOT coalesce(r.stale, false)
          RETURN collect(u.id) AS user_ids",
     )
     .param("hs_id", hs_id.to_string())
