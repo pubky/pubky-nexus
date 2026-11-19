@@ -28,13 +28,14 @@ use pubky_social_specs::legacy_v0::{
     post_uri_builder as v0_post_uri_builder, user_uri_builder as v0_user_uri_builder, PubkyAppTag,
 };
 use pubky_social_specs::post_uri_builder as v1_post_uri_builder;
+use pubky_social_specs::PubkyId;
 
 /// Whether the shared event log holds `line`.
-async fn event_line_stored(line: &str, homeserver_id: &str) -> Result<bool> {
+async fn event_line_stored(line: &str, homeserver_id: &PubkyId) -> Result<bool> {
     let (lines, _) = EventLine::get_from_index(None, usize::MAX).await?;
     // Stored with the key of the homeserver the event was read from
-    let stored_line = format!("{line} {homeserver_id}");
-    Ok(lines.contains(&stored_line))
+    let stored_line = EventLine::new(line, homeserver_id);
+    Ok(lines.iter().any(|stored| stored == stored_line.as_str()))
 }
 
 /// Drops a post's `attachments` list, as a post indexed before the list was stored has none.

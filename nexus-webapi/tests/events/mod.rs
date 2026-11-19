@@ -75,9 +75,13 @@ async fn test_events_homeserver_key_is_opt_in() -> Result<()> {
         format!("PUT pubky://{user}/pub/pubky.app/files/my holiday photo.jpg"),
     ];
     let stored = [
-        format!("{} {homeserver}", received[0]),
+        EventLine::new(&received[0], &homeserver)
+            .as_str()
+            .to_string(),
         received[1].clone(),
-        format!("{} {homeserver}", received[2]),
+        EventLine::new(&received[2], &homeserver)
+            .as_str()
+            .to_string(),
     ];
     let events_key = format!("{}:{}", EventLine::prefix().await, EventLine::LIST);
     // RPUSH returns the length after the push, so the lines sit at [start, start + 3) whatever

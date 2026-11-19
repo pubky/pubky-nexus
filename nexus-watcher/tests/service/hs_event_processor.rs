@@ -1079,8 +1079,9 @@ async fn test_run_polls_and_fetches_through_the_client() -> Result<()> {
     let (event_lines, _) = EventLine::get_from_index(None, usize::MAX).await?;
     retrieve_and_handle_event_line(&format!("DEL {profile_uri}"), &hs_id, event_handler).await?;
 
+    let stored_line = EventLine::new(&format!("PUT {profile_uri}"), &hs_id);
     assert!(
-        event_lines.contains(&format!("PUT {profile_uri} {hs_id}")),
+        event_lines.iter().any(|line| line == stored_line.as_str()),
         "the event line should be stored with the homeserver it was read from"
     );
 

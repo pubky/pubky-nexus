@@ -15,15 +15,15 @@ use nexus_common::models::user::Epoch;
 use nexus_watcher::events::retry::{IndexKey, RetryEvent};
 use pubky::{Keypair, ResourcePath};
 use pubky_social_specs::legacy_v0::post_uri_builder;
-use pubky_social_specs::{post_uri_builder as v1_post_uri_builder, PubkySocialTag};
+use pubky_social_specs::{post_uri_builder as v1_post_uri_builder, PubkyId, PubkySocialTag};
 
 /// Whether the shared event log holds `line`.
-async fn event_line_stored(line: &str, homeserver_id: &str) -> Result<bool> {
+async fn event_line_stored(line: &str, homeserver_id: &PubkyId) -> Result<bool> {
     // Uncapped: the shared event log is append-only and unbounded.
     let (lines, _) = EventLine::get_from_index(None, usize::MAX).await?;
     // Stored with the key of the homeserver the event was read from
-    let stored_line = format!("{line} {homeserver_id}");
-    Ok(lines.contains(&stored_line))
+    let stored_line = EventLine::new(line, homeserver_id);
+    Ok(lines.iter().any(|stored| stored == stored_line.as_str()))
 }
 
 /// The event line of `kind` on `user_id`'s `path`.

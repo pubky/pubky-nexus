@@ -243,8 +243,9 @@ mod tests {
         format!("PUT pubky://{user}/pub/pubky.app/posts/0032SSN7Q4EVG")
     }
 
+    /// `line` as stored with the key of [`HS`].
     fn keyed(line: &str) -> String {
-        format!("{line} {HS}")
+        EventLine::new(line, &homeserver()).as_str().to_string()
     }
 
     /// Lines are told apart as [`EventLine::split`] reads them, and keep their index in the
@@ -409,7 +410,9 @@ mod tests {
         assert_eq!(
             stored,
             vec![
-                format!("{} {EDGE_HS}", lines[0]),
+                EventLine::new(&lines[0], &PubkyId::try_from(EDGE_HS).unwrap())
+                    .as_str()
+                    .to_string(),
                 lines[1].clone(),
                 lines[2].clone(),
                 lines[3].clone(),

@@ -124,12 +124,12 @@ pub(super) async fn cleanup_v1_user(
 }
 
 /// Whether the shared event log holds `line`.
-async fn event_line_stored(line: &str, homeserver_id: &str) -> Result<bool> {
+async fn event_line_stored(line: &str, homeserver_id: &PubkyId) -> Result<bool> {
     // Uncapped: the shared event log is append-only and unbounded.
     let (lines, _) = EventLine::get_from_index(None, usize::MAX).await?;
     // Stored with the key of the homeserver the event was read from
-    let stored_line = format!("{line} {homeserver_id}");
-    Ok(lines.contains(&stored_line))
+    let stored_line = EventLine::new(line, homeserver_id);
+    Ok(lines.iter().any(|stored| stored == stored_line.as_str()))
 }
 
 /// Whether the retry queue holds an entry for `uri`.
