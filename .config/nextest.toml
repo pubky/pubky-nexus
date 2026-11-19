@@ -29,10 +29,9 @@ test-group = 'influencers-sorted-set'
 filter = 'test(=stream::user::score::test_stream_most_followed) | test(=stream::user::score::test_stream_most_followed_rebuilds_a_missing_ranking) | test(=stream::user::score::test_stream_most_followed_serves_an_empty_window_without_a_rebuild) | test(=stream::user::score::test_stream_most_followed_filters_deleted_users) | test(=stream::user::ids::test_stream_user_ids_most_followed_align) | test(=event_processor::users::raw::test_homeserver_user_put_event) | test(=event_processor::follows::put::test_homeserver_put_follow) | test(=event_processor::follows::del::test_homeserver_unfollow)'
 test-group = 'most-followed-sorted-set'
 
-# test_events_homeserver_key_is_opt_in pushes three lines onto the shared Event:Events
-# list and removes them again. test_events_endpoint reads that list twice, whole and
-# then in pages, and asserts every paged line is in the whole read, so a push landing
-# between its reads breaks it.
+# test_events_homeserver_key_is_opt_in appends three lines to the shared Event:Events
+# list. test_events_endpoint reads that list twice, whole and then in pages, and asserts
+# every paged line is in the whole read, so an append landing between its reads breaks it.
 [[profile.default.overrides]]
 filter = 'test(=events::test_events_homeserver_key_is_opt_in) | test(=endpoints::test_events_endpoint)'
 test-group = 'event-lines'

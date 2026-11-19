@@ -78,7 +78,8 @@ async fn test_events_homeserver_key_is_opt_in() -> Result<()> {
         received[1].clone(),
         format!("{} {homeserver}", received[2]),
     ];
-    // RPUSH returns the length after the push, so the lines sit at [start, start + 3)
+    // RPUSH returns the length after the push, so the lines sit at [start, start + 3) whatever
+    // is appended after them
     let mut conn = get_redis_conn().await?;
     let length: u64 = redis::cmd("RPUSH")
         .arg("Event:Events")
@@ -101,16 +102,8 @@ async fn test_events_homeserver_key_is_opt_in() -> Result<()> {
     let stripped = body("&homeserver=false").await?;
     let keyed = body("&homeserver=true").await?;
 
-    // Leave the shared list as it was, whatever the assertions say
-    for line in &stored {
-        redis::cmd("LREM")
-            .arg("Event:Events")
-            .arg(0)
-            .arg(line)
-            .query_async::<()>(&mut conn)
-            .await?;
-    }
-
+    // The lines stay in the list: it is append-only, and removing them would shift the index
+    // of every later line under the cursors of whoever reads it.
     assert_eq!(plain, format!("{}\n{cursor_line}", received.join("\n")));
     assert_eq!(stripped, plain);
     assert_eq!(keyed, format!("{}\n{cursor_line}", stored.join("\n")));
