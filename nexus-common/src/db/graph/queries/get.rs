@@ -403,6 +403,13 @@ fn ranked_user(var: &str) -> String {
     format!("{var}.trust > 0 AND NOT coalesce({var}.deleted, false)")
 }
 
+/// Whether the user bound to `var` is a key-discovery stub: no profile write
+/// reached the node, as only one stores a `uri`, and it is named after its key.
+/// A profile with a `uri` is never one, whatever its name.
+fn discovery_stub(var: &str) -> String {
+    format!("({var}.uri IS NULL AND {var}.name = {var}.id)")
+}
+
 /// One keyset page of the most-followed ranking, ordered by `id`, strictly after
 /// `after_id` (`""` for the first page). It holds every user who is neither
 /// tombstoned nor a discovery stub, scored by the [`user_counts_by_ids`] follower count,
@@ -413,12 +420,12 @@ pub fn get_most_followed_users(after_id: &str, limit: usize) -> Query {
         MATCH (u:User)
         WHERE u.id > $after_id
           AND NOT coalesce(u.deleted, false)
-          // A discovery stub is named after its id, which no profile name can be.
-          AND u.name <> u.id
+          AND NOT {stub}
         RETURN u.id AS id, {FOLLOWERS_COUNT} AS followers
         ORDER BY u.id
         LIMIT $limit
-        "
+        ",
+        stub = discovery_stub("u")
     );
     Query::new("get_most_followed_users", &cypher)
         .param("after_id", after_id)
@@ -485,6 +492,27 @@ pub fn get_user_ids_page(after_id: &str, limit: usize) -> Query {
     )
     .param("after_id", after_id.to_string())
     .param("limit", limit.min(MAX_QUERY_LIMIT) as i64)
+}
+
+/// One keyset page of `:User` nodes as `record`, with their `id`, ordered by
+/// `id`, strictly after `after_id` (`""` for the first page); an empty page
+/// means the end. Tombstoned users and stubs are included; `is_stub` marks a
+/// discovery stub: no `uri`, which only a profile write stores, and named after
+/// its key.
+pub fn get_users_page(after_id: &str, limit: usize) -> Query {
+    let cypher = format!(
+        "
+        MATCH (record:User)
+        WHERE record.id > $after_id
+        RETURN record.id AS id, record, {} AS is_stub
+        ORDER BY id ASC
+        LIMIT $limit
+        ",
+        discovery_stub("record")
+    );
+    Query::new("get_users_page", &cypher)
+        .param("after_id", after_id.to_string())
+        .param("limit", limit.min(MAX_QUERY_LIMIT) as i64)
 }
 
 /// Users whose profile carries any of the given tag labels, scored by distinct
@@ -1435,12 +1463,12 @@ pub fn get_all_time_influencers(after_id: &str, limit: usize) -> Query {
         MATCH (u:User)
         WHERE u.id > $after_id
           AND NOT coalesce(u.deleted, false)
-          // A discovery stub is named after its id, which no profile name can be.
-          AND u.name <> u.id
+          AND NOT {stub}
         RETURN u.id AS id, ({TAGGED_COUNT} + {POSTS_COUNT}) * sqrt({FOLLOWERS_COUNT}) AS score
         ORDER BY u.id
         LIMIT $limit
-        "
+        ",
+        stub = discovery_stub("u")
     );
     Query::new("get_all_time_influencers", &cypher)
         .param("after_id", after_id)
@@ -1448,41 +1476,42 @@ pub fn get_all_time_influencers(after_id: &str, limit: usize) -> Query {
 }
 
 /// The top `limit` users after `skip` for a ranged timeframe, which only counts
-/// tags on posts. AllTime is ranked in full by [`get_all_time_influencers`].
+/// tags on posts. AllTime is ranked in full by [`get_all_time_influencers`]. Like it, this
+/// ranks every user who is neither tombstoned nor a discovery stub: a quiet timeframe is
+/// padded with users scoring zero, and a stub has no profile to list.
 pub fn get_global_influencers(skip: usize, limit: usize, timeframe: CacheTimeframe) -> Query {
     let (from, to) = timeframe.timeframe().to_timestamp_range();
-    Query::new(
-        "get_global_influencers",
+    let cypher = format!(
         "
         MATCH (user:User)
-        WHERE NOT coalesce(user.deleted, false)
+        WHERE NOT coalesce(user.deleted, false) AND NOT {stub}
         WITH DISTINCT user
 
-        // Each count is a scoped CALL(user){} subquery so it stays per-user
+        // Each count is a scoped CALL(user){{}} subquery so it stays per-user
         // instead of multiplying into a cartesian product. Mirrors
         // get_influencers_by_reach.
-        CALL (user) {
+        CALL (user) {{
             MATCH (others:User)-[follow:FOLLOWS]->(user)
             WHERE follow.indexed_at >= $from AND follow.indexed_at < $to
             RETURN count(DISTINCT follow) AS followers_count
-        }
-        CALL (user) {
+        }}
+        CALL (user) {{
             MATCH (user)-[tag:TAGGED]->(:Post)
             WHERE tag.indexed_at >= $from AND tag.indexed_at < $to
             RETURN count(DISTINCT tag) AS tags_count
-        }
-        CALL (user) {
+        }}
+        CALL (user) {{
             // Filter on the Post node's indexed_at, like get_influencers_by_reach does.
             // The AUTHORED edge carries no indexed_at property (create_post never sets
             // one), so filtering on the edge would always yield posts_count = 0.
             MATCH (user)-[:AUTHORED]->(post:Post)
             WHERE post.indexed_at >= $from AND post.indexed_at < $to
             RETURN count(DISTINCT post) AS posts_count
-        }
-        WITH {
+        }}
+        WITH {{
             id: user.id,
             score: (tags_count + posts_count) * sqrt(followers_count)
-        } AS influencer
+        }} AS influencer
         WHERE influencer.id IS NOT NULL
 
         ORDER BY influencer.score DESC, influencer.id ASC
@@ -1490,11 +1519,13 @@ pub fn get_global_influencers(skip: usize, limit: usize, timeframe: CacheTimefra
         LIMIT $limit
         RETURN COLLECT([influencer.id, influencer.score]) as influencers
     ",
-    )
-    .param("skip", skip as i64)
-    .param("limit", limit as i64)
-    .param("from", from)
-    .param("to", to)
+        stub = discovery_stub("user")
+    );
+    Query::new("get_global_influencers", &cypher)
+        .param("skip", skip as i64)
+        .param("limit", limit as i64)
+        .param("from", from)
+        .param("to", to)
 }
 
 /// Every Collection post key, for backfills.

@@ -111,10 +111,10 @@ async fn main() -> Result<(), DynError> {
 
 ### Data Models & Caching
 
-Demonstrates cache-first retrieval of domain entities, attempting to load from Redis and falling back to Neo4j if not found
+Demonstrates cache-first retrieval of domain entities, attempting to load from Redis and falling back to Neo4j if not found. User details are the exception: they are read from Neo4j directly.
 
 ```rust
-use nexus_common::models::user::UserDetails;
+use nexus_common::models::post::PostDetails;
 use nexus_common::types::DynError;
 use nexus_common::{StackManager, StackConfig};
 
@@ -122,8 +122,8 @@ use nexus_common::{StackManager, StackConfig};
 async fn main() -> Result<(), DynError> {
     StackManager::setup(&StackConfig::default()).await?;
     // Cache-first: Redis -> Neo4j fallback
-    if let Some(user) = UserDetails::get_by_id("some_user_id").await? {
-        println!("User: {}", user.name);
+    if let Some(post) = PostDetails::get_by_id("some_author_id", "some_post_id").await? {
+        println!("Post: {}", post.content);
     }
     Ok(())
 }

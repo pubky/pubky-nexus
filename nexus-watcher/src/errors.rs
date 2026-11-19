@@ -60,8 +60,8 @@ pub enum EventProcessorError {
     #[error("DataAnomaly: {0}")]
     DataAnomaly(String),
 
-    /// A step of the flip failed, between the gate's `Flip` decision and the end of the details
-    /// cache refresh: the internal migration, the epoch write or the cache refresh after it.
+    /// A step of the flip failed, between the gate's `Flip` decision and the epoch write: the
+    /// internal migration or the epoch write after it.
     /// `step` names the step and `source` keeps the cause, so one line shows what failed and why.
     ///
     /// Its retry class is its own, whatever the source's, so a new migration step cannot pick

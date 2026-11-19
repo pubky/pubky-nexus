@@ -147,7 +147,7 @@ pub struct UserInput {
 }
 
 impl UserInput {
-    /// The details cached for the profile; [`UserInput::uri`] goes to the graph only.
+    /// The details of the profile; [`UserInput::uri`] is stored beside them on the node.
     pub fn into_details(self, user_id: &PubkyId) -> UserDetails {
         UserDetails {
             name: self.name,

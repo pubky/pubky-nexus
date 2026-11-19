@@ -4,7 +4,6 @@ use crate::service::utils::common::create_mock_handler;
 use crate::service::utils::{MockEventProcessorResult, HS_IDS};
 use chrono::Utc;
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{set_user_homeserver, Epoch, UserDetails};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::RetryScheduler;
