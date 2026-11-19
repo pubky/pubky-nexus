@@ -498,8 +498,8 @@ impl ApiVersion for V1 {
         axum::routing::get(stream::resources::stream_resource_ids_handler_v1)
     }
 
-    /// The details-only user lookups, by ids and for a user's follows. Both are Redis reads, so
-    /// they sit in the default bucket. `/v1` has no bookmark or file details route at all.
+    /// The details-only user lookups, by ids and for a user's follows. Both are one indexed graph
+    /// read, like `/user/{user_id}/details`, so they sit in the default bucket. `/v1` has no bookmark or file details route at all.
     fn own_routes() -> (Router<AppState>, Router<AppState>) {
         let default = Router::new()
             .route(

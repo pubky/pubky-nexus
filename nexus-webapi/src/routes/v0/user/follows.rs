@@ -6,7 +6,6 @@ use crate::routes::Path;
 use crate::routes::Query;
 use crate::{Error, Result};
 use axum::Json;
-use nexus_common::db::RedisOps;
 use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
 use nexus_common::models::user::UserDetails;
 use serde::Deserialize;
@@ -114,7 +113,7 @@ pub async fn user_following_details_handler(
     else {
         return Err(Error::user_not_found(user_id));
     };
-    let details = UserDetails::mget(&following.0).await?;
+    let details = UserDetails::get_by_ids(&following.0).await?;
 
     Ok(Json(details.into_iter().flatten().collect()))
 }

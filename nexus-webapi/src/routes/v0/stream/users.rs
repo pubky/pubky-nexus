@@ -12,7 +12,6 @@ use crate::routes::Query;
 use crate::{Error, Result};
 use axum::Json;
 use nexus_common::config::watcher::MODERATED_TAGS;
-use nexus_common::db::RedisOps;
 use nexus_common::models::user::{
     UserDetails, UserIdStream, UserStream, UserStreamInput, UserStreamSource,
     GLOBAL_INFLUENCERS_CACHE_SIZE, STARTER_PACK_MAX_SKIP,
@@ -288,7 +287,7 @@ pub async fn stream_users_details_by_ids_handler(
     );
 
     let user_ids = request.user_ids.to_string_vec();
-    let details = UserDetails::mget(&user_ids).await?;
+    let details = UserDetails::get_by_ids(&user_ids).await?;
 
     Ok(Json(details.into_iter().flatten().collect()))
 }
