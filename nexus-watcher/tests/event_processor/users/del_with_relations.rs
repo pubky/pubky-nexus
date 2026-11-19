@@ -407,7 +407,9 @@ async fn test_user_resurrection_on_external_homeserver() -> Result<()> {
     assert!(!user_details.deleted);
     assert_eq!(user_details.bio, Some("Lives elsewhere".to_string()));
 
-    // The user has a FOLLOWS and a HOSTED_BY edge, so the DEL tombstones the node
+    // The ingest bound the user (HOSTED_BY), so the DEL tombstones the node rather than
+    // deleting it; the follow itself waits in the retry queue, as its first attempt
+    // found no followee.
     test.cleanup_user(&user_kp).await?;
     test.process_external_homeserver(&external_hs).await?;
     assert!(
