@@ -70,7 +70,7 @@ struct PageUris {
 /// watcher's current router: that one skips another app's tag file (`/pub/mapky/tags/…`), whose
 /// edges indexed before still need their file's address.
 ///
-/// A line stored since the watcher keeps the homeserver key ends with it ([`EventLine`]); the
+/// A line stored since the watcher keeps the homeserver key starts with it ([`EventLine`]); the
 /// address is read from the line as the homeserver sent it.
 fn fold_page(lines: &[String]) -> PageUris {
     let mut page = PageUris::default();

@@ -14,8 +14,8 @@ use tracing::{info, warn};
 ///
 /// # What this does
 /// Walks the `Events` list one page at a time. For each line without a key, read as
-/// [`EventLine::split`] reads it, it takes the user from the line's address and appends the key
-/// of the homeserver the user's `HOSTED_BY` edge points to. A line whose user has no edge, or
+/// [`EventLine::split`] reads it, it takes the user from the line's address and puts the key of
+/// the homeserver the user's `HOSTED_BY` edge points to in front of the line. A line whose user has no edge, or
 /// whose user can't be read, is left as it is, without a key.
 ///
 /// The edge names the homeserver the user was bound to, not the one an old event was read
@@ -29,7 +29,7 @@ use tracing::{info, warn};
 /// it, stay valid while this runs.
 ///
 /// # Idempotency
-/// A line that already ends with a key is left alone, and the script writes a line only while
+/// A line that already starts with a key is left alone, and the script writes a line only while
 /// it still holds what was read, so a failed run is safe to repeat. `is_multi_staged()` is
 /// `false`, so the manager marks this Done after one successful backfill: a line left without a
 /// key keeps none after its user gains an edge.

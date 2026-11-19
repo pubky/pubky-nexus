@@ -57,7 +57,7 @@ use translation::{
 #[async_trait::async_trait]
 pub trait EventHandler: Send + Sync {
     /// Handles `event`, read from the homeserver `homeserver_id`, whose key the stored event
-    /// line ends with.
+    /// line starts with.
     async fn handle(
         &self,
         event: &Event,

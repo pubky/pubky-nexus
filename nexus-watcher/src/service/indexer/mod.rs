@@ -79,7 +79,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
         None
     }
 
-    /// The homeserver this processor reads events from. Every event line it stores ends with
+    /// The homeserver this processor reads events from. Every event line it stores starts with
     /// this key ([`EventLine`](nexus_common::models::event::EventLine)), and every retry entry
     /// it queues carries it as the origin homeserver.
     fn homeserver_id(&self) -> &PubkyId;

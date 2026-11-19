@@ -61,7 +61,7 @@ async fn test_homeserver_epochless_social_tag_is_not_indexed() -> Result<()> {
     );
     let (new_lines, _) = EventLine::get_from_index(Some(log_cursor_before), usize::MAX).await?;
     assert!(
-        !new_lines.iter().any(|line| line.contains(&tag_uri)),
+        !new_lines.iter().any(|line| line.ends_with(&tag_uri)),
         "a skipped event must not be stored in the event log"
     );
 

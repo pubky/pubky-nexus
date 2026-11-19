@@ -163,7 +163,7 @@ impl Event {
     }
 
     /// The line Nexus stores for this event, read from `homeserver_id`. The key is typed, so
-    /// every stored line ends with a valid one: see [`EventLine`]'s invariant.
+    /// every stored line starts with a valid one: see [`EventLine`].
     pub fn to_event_line(&self, homeserver_id: &PubkyId) -> EventLine {
         EventLine::new(&self.event_line, homeserver_id)
     }
@@ -516,11 +516,11 @@ mod tests {
         }
     }
 
-    /// Whatever the watcher stores for an address with a space ends with a valid key: the line
-    /// is built from a [`PubkyId`], so a reader taking the key after the last space can't be
-    /// handed a file name that looks like one. Pins the invariant [`EventLine`] rests on.
+    /// Whatever the watcher stores, an address with spaces or key-shaped words included,
+    /// starts with the homeserver's key and reads back as the line received: the key is the
+    /// first field, where no file name can stand in for it. See [`EventLine`].
     #[test]
-    fn a_stored_line_for_a_path_with_spaces_ends_with_the_homeserver_key() {
+    fn a_stored_line_starts_with_the_homeserver_key_whatever_its_path_holds() {
         const HS: &str = "8rsrmfrn1anbrzuxiffwy1174o58emf4qgbfk5h7s8a33r3bd8dy";
         let homeserver = PubkyId::try_from(HS).unwrap();
         let Ok(ParseResult::Parsed(parsed)) = Event::parse_event(&format!(

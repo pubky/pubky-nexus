@@ -3,31 +3,27 @@ use pubky_social_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 
-/// An event line as Nexus stores it in the `Event:Events` list: the line the homeserver sent,
-/// then the public key of the homeserver the event was read from, after a space.
+/// An event line as Nexus stores it in the `Event:Events` list: the public key of the
+/// homeserver the event was read from, then the line the homeserver sent, after a space.
 ///
 /// ```text
-/// PUT pubky://<pk>/<path> <hs_pk>
+/// <hs_pk> PUT pubky://<pk>/<path>
 /// ```
 ///
 /// # Reading a line
-/// [`EventLine::split`] is the one reader. A line is keyed only when the text after its last
-/// space is a valid [`PubkyId`] and what precedes it still contains a space: the event type and
-/// the address. Homeservers write file names unencoded, so the address may contain spaces. The
-/// key is after the last space, not the second.
+/// [`EventLine::split`] is the one reader. A line is keyed when its first field is a valid
+/// [`PubkyId`]; the rest, after one space, is the line as the homeserver sent it.
 ///
-/// # Invariant
-/// The format is unambiguous only while **a line without a key never has a space in its
-/// address**. Lines stored before Nexus kept the key have none, and some keep none for good:
-/// those whose user had no `HOSTED_BY` edge when `EventLineHomeserverBackfill1794005092` ran.
-/// Every one of them has exactly one space, because the watcher of its day skipped an address
-/// with spaces as unrecognized. Every line stored since carries a key: [`EventLine::new`] takes
-/// a [`PubkyId`], so no line can be built with an empty or malformed one.
+/// The key comes first so that nothing a user controls can pass for it. A line without a key
+/// starts with its event type, `PUT` or `DEL`, which is no public key, and everything a user
+/// chooses comes after: homeservers write file names unencoded, so an address may hold spaces
+/// and key-shaped words, and none of them is ever the first field.
 ///
-/// Were a keyless line with a space in its address ever stored, a user could name a file
-/// `x <some_hs_pk>` and readers would attribute the event to a homeserver of the user's
-/// choosing. **Any build that stores addresses containing spaces must include this type**, so
-/// those lines are keyed from the first.
+/// # Lines without a key
+/// Lines stored before Nexus kept the key have none, and some keep none for good: those whose
+/// user had no `HOSTED_BY` edge when `EventLineHomeserverBackfill1794005092` ran. Every line
+/// stored since carries one: [`EventLine::new`] takes a [`PubkyId`], so no line can be built
+/// with an empty or malformed key.
 ///
 /// # What the key means
 /// The homeserver Nexus read the event from. It is not proof of where the user is hosted: a
@@ -45,7 +41,7 @@ impl EventLine {
 
     /// The line stored for `line`, as the homeserver sent it, read from `homeserver_id`.
     pub fn new(line: &str, homeserver_id: &PubkyId) -> Self {
-        Self(format!("{line} {homeserver_id}"))
+        Self(format!("{homeserver_id} {line}"))
     }
 
     pub fn as_str(&self) -> &str {
@@ -55,10 +51,8 @@ impl EventLine {
     /// Splits a stored `line` into the line as the homeserver sent it and the key of the
     /// homeserver it was read from, if it has one: the reader rule of [`EventLine`].
     pub fn split(line: &str) -> (&str, Option<&str>) {
-        match line.rsplit_once(' ') {
-            Some((received, key)) if received.contains(' ') && PubkyId::try_from(key).is_ok() => {
-                (received, Some(key))
-            }
+        match line.split_once(' ') {
+            Some((key, received)) if PubkyId::try_from(key).is_ok() => (received, Some(key)),
             _ => (line, None),
         }
     }
@@ -122,6 +116,15 @@ mod tests {
     }
 
     #[test]
+    fn a_stored_line_starts_with_the_key() {
+        let received = line("pubky.app/posts/0032SSN7Q4EVG");
+        assert_eq!(
+            EventLine::new(&received, &homeserver()).as_str(),
+            format!("{HS} {received}")
+        );
+    }
+
+    #[test]
     fn a_keyless_line_is_returned_whole_without_a_key() {
         let line = line("pubky.app/posts/0032SSN7Q4EVG");
         assert_eq!(EventLine::split(&line), (line.as_str(), None));
@@ -130,44 +133,55 @@ mod tests {
     #[test]
     fn a_keyed_line_splits_into_the_received_line_and_its_key() {
         let received = line("pubky.app/posts/0032SSN7Q4EVG");
-        let stored = format!("{received} {HS}");
+        let stored = format!("{HS} {received}");
         assert_eq!(EventLine::split(&stored), (received.as_str(), Some(HS)));
     }
 
-    /// A follow's address ends in a key, and a keyless line's last field is its whole address:
-    /// neither is a homeserver key.
+    /// A keyless line starts with its event type, so nothing in its address can pass for a
+    /// key: not a follow's key-shaped tail, and not a file named like a key after a space,
+    /// with or without a trailing space.
     #[test]
-    fn a_key_shaped_path_tail_on_a_keyless_line_is_no_key() {
-        let line = format!("DEL pubky://{USER}/pub/pubky.app/follows/{OTHER}");
-        assert_eq!(EventLine::split(&line), (line.as_str(), None));
+    fn nothing_in_the_address_of_a_keyless_line_is_a_key() {
+        for line in [
+            format!("DEL pubky://{USER}/pub/pubky.app/follows/{OTHER}"),
+            line(&format!("pubky.app/files/photo {HS}")),
+            line(&format!("pubky.app/files/{HS} photo.jpg")),
+            format!("{} ", line("pubky.app/posts/0032SSN7Q4EVG")),
+        ] {
+            assert_eq!(EventLine::split(&line), (line.as_str(), None), "{line:?}");
+        }
     }
 
+    /// Only the first field is the key: spaces and key-shaped tokens after it stay in the
+    /// received line.
     #[test]
-    fn a_path_with_spaces_keeps_them_and_gives_up_only_the_key() {
-        let received = line("pubky.app/files/my holiday photo.jpg");
-        let stored = format!("{received} {HS}");
-        assert_eq!(EventLine::split(&stored), (received.as_str(), Some(HS)));
+    fn a_keyed_line_keeps_its_received_line_whole() {
+        for received in [
+            line("pubky.app/files/my holiday photo.jpg"),
+            line(&format!("pubky.app/files/photo {OTHER}")),
+            format!("DEL pubky://{USER}/pub/pubky.app/follows/{OTHER}"),
+            format!("{} ", line("pubky.app/posts/0032SSN7Q4EVG")),
+        ] {
+            let stored = format!("{HS} {received}");
+            assert_eq!(
+                EventLine::split(&stored),
+                (received.as_str(), Some(HS)),
+                "{received:?}"
+            );
+        }
     }
 
-    /// Only the last field is the key: a file named like one stays in the address.
+    /// A key is a first field with a line after it: a bare key, a line that doesn't split and
+    /// an empty line are returned as they are.
     #[test]
-    fn a_path_ending_in_a_key_shaped_token_gives_the_real_key() {
-        let received = line(&format!("pubky.app/files/photo {OTHER}"));
-        let stored = format!("{received} {HS}");
-        assert_eq!(EventLine::split(&stored), (received.as_str(), Some(HS)));
-    }
-
-    #[test]
-    fn a_trailing_space_is_no_key() {
-        let line = format!("{} ", line("pubky.app/posts/0032SSN7Q4EVG"));
-        assert_eq!(EventLine::split(&line), (line.as_str(), None));
-    }
-
-    /// A key needs an event type and an address before it: a line of two fields is not keyed,
-    /// and a line that doesn't split at all is returned as it is.
-    #[test]
-    fn a_line_without_an_address_before_the_key_is_not_keyed() {
-        for line in [format!("PUT {HS}"), "garbage".to_string(), String::new()] {
+    fn a_line_without_a_first_field_that_is_a_key_is_not_keyed() {
+        for line in [
+            HS.to_string(),
+            format!(" {HS}"),
+            "garbage".to_string(),
+            "not-a-key PUT pubky://x/pub/a".to_string(),
+            String::new(),
+        ] {
             assert_eq!(EventLine::split(&line), (line.as_str(), None), "{line:?}");
         }
     }
@@ -181,7 +195,6 @@ mod tests {
             format!("DEL pubky://{USER}/pub/pubky.app/follows/{OTHER}"),
         ] {
             let stored = EventLine::new(&received, &homeserver());
-            assert_eq!(stored.as_str(), format!("{received} {HS}"));
             assert_eq!(
                 EventLine::split(stored.as_str()),
                 (received.as_str(), Some(HS)),
