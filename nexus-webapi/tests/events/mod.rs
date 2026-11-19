@@ -1,7 +1,8 @@
 use crate::utils::host_url;
 use anyhow::Result;
 use deadpool_redis::redis;
-use nexus_common::db::get_redis_conn;
+use nexus_common::db::{get_redis_conn, RedisOps};
+use nexus_common::models::event::EventLine;
 use nexus_common::utils::test_utils::random_pubky_id;
 
 /// Regression tests for overflow-safe cursor/limit handling (PR #683).
@@ -78,11 +79,12 @@ async fn test_events_homeserver_key_is_opt_in() -> Result<()> {
         received[1].clone(),
         format!("{} {homeserver}", received[2]),
     ];
+    let events_key = format!("{}:{}", EventLine::prefix().await, EventLine::LIST);
     // RPUSH returns the length after the push, so the lines sit at [start, start + 3) whatever
     // is appended after them
     let mut conn = get_redis_conn().await?;
     let length: u64 = redis::cmd("RPUSH")
-        .arg("Event:Events")
+        .arg(&events_key)
         .arg(&stored)
         .query_async(&mut conn)
         .await?;
@@ -103,7 +105,7 @@ async fn test_events_homeserver_key_is_opt_in() -> Result<()> {
     let keyed = body("&homeserver=true").await?;
 
     let first_stored: String = redis::cmd("LINDEX")
-        .arg("Event:Events")
+        .arg(&events_key)
         .arg(0)
         .query_async(&mut conn)
         .await?;

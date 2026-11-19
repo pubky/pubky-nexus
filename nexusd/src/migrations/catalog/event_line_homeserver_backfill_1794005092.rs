@@ -374,7 +374,7 @@ mod tests {
         .await?;
 
         let list = "MigrationTest:EventLineHomeserverBackfill:Walk";
-        let key = format!("Event:{list}");
+        let key = format!("{}:{list}", EventLine::prefix().await);
         let lines = [
             post_line(EDGE_USER),
             post_line(NO_EDGE_USER),
