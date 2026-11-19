@@ -31,10 +31,11 @@ use tracing::error;
 ///
 /// # What the key means
 /// The homeserver Nexus read the event from. It is not proof of where the user is hosted: a
-/// user with no `HOSTED_BY` edge is processed from any homeserver that lists them. On a line
-/// stored before Nexus kept the key it is inferred, not observed: the backfill gave the line
-/// the homeserver of its user's `HOSTED_BY` edge at the time it ran. Consumers treat it as a
-/// hint.
+/// user with no `HOSTED_BY` edge is read from the primary homeserver whenever its feed lists
+/// them and their published record names no other homeserver, a failed lookup included. On a
+/// line stored before Nexus kept the key it is inferred, not observed: the backfill gave the
+/// line the homeserver of its user's `HOSTED_BY` edge at the time it ran. Consumers treat it
+/// as a hint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventLine(String);
 
