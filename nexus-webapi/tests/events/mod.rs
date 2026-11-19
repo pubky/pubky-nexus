@@ -57,7 +57,7 @@ async fn test_events_large_cursor_with_limit() -> Result<()> {
 /// The stored list mixes lines with the homeserver key and lines without one. By default every
 /// line is served as the homeserver sent it, so the output is what it was before the key was
 /// stored; with `homeserver=true` the lines are served as stored. The cursor is the same in
-/// both modes.
+/// both modes, and a read without one starts at the list's first line.
 #[tokio_shared_rt::test(shared)]
 async fn test_events_homeserver_key_is_opt_in() -> Result<()> {
     let url = host_url().await;
@@ -102,10 +102,21 @@ async fn test_events_homeserver_key_is_opt_in() -> Result<()> {
     let stripped = body("&homeserver=false").await?;
     let keyed = body("&homeserver=true").await?;
 
+    let first_stored: String = redis::cmd("LINDEX")
+        .arg("Event:Events")
+        .arg(0)
+        .query_async(&mut conn)
+        .await?;
+    let from_the_start = client
+        .do_get(&format!("{url}/v0/events?limit=1&homeserver=true"))
+        .await?
+        .text_body()?;
+
     // The lines stay in the list: it is append-only, and removing them would shift the index
     // of every later line under the cursors of whoever reads it.
     assert_eq!(plain, format!("{}\n{cursor_line}", received.join("\n")));
     assert_eq!(stripped, plain);
     assert_eq!(keyed, format!("{}\n{cursor_line}", stored.join("\n")));
+    assert_eq!(from_the_start, format!("{first_stored}\ncursor: 1"));
     Ok(())
 }
