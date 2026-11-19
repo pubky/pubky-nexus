@@ -4,14 +4,13 @@ use crate::service::utils::common::create_mock_handler;
 use crate::service::utils::{MockEventProcessorResult, HS_IDS};
 use chrono::Utc;
 use nexus_common::models::homeserver::Homeserver;
-use nexus_common::models::traits::Collection;
 use nexus_common::models::user::{set_user_homeserver, Epoch, UserDetails};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::RetryScheduler;
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::service::{RunOutcome, TEventProcessor};
 use pubky::Keypair;
-use pubky_app_specs::PubkyId;
+use pubky_social_specs::PubkyId;
 use tokio::sync::watch::Receiver;
 use tokio::time::Duration;
 
@@ -99,7 +98,7 @@ pub async fn create_random_homeservers_and_persist(
                 name: "test-user".to_string(),
                 bio: None,
                 status: None,
-                links: None,
+                links: Vec::new(),
                 image: None,
                 indexed_at: Utc::now().timestamp_millis(),
                 deleted: false,

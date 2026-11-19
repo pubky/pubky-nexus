@@ -112,23 +112,6 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         json::get_multiple(&prefix, &keys, None).await
     }
 
-    /// Retrieves multiple JSON objects from Redis using direct keys (mget operation).
-    ///
-    /// This method provides a convenient way to batch retrieve multiple objects by their direct keys
-    /// in a single Redis call, improving performance over individual get operations.
-    ///
-    /// # Arguments
-    ///
-    /// * `keys` - A slice of strings representing the direct keys to retrieve from Redis.
-    ///
-    /// # Returns
-    ///
-    /// A `Vec<Option<Self>>` containing the deserialized data if found, or `None` if a key does not exist.
-    async fn mget(keys: &[impl AsRef<str> + Send + Sync]) -> RedisResult<Vec<Option<Self>>> {
-        let prefix = Self::prefix().await;
-        json::get_multiple(&prefix, keys, None).await
-    }
-
     /// Stores multiple key-value pairs in Redis, where each key is constructed from the provided key parts
     /// and each value is an item from the given collection.
     ///
@@ -660,9 +643,8 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
     /// * `source_set_key_parts` - Key parts of the source set whose cardinality becomes the score.
     /// * `sorted_set_key_parts` - Key parts of the destination sorted set (under the `Sorted` prefix).
     /// * `member` - The sorted-set member to write or remove.
-    /// * `removal_guard` - Optional `(json_key, json_path, value)` that forces
-    ///   removal when the JSON document holds `value` at that path, compared by
-    ///   text form (`"true"` for a boolean flag), checked atomically with the write.
+    /// * `removal_guard` - Optional `(set_key, member)`, a full key, that forces
+    ///   removal while that set holds `member`, checked atomically with the write.
     ///
     /// # Errors
     ///
@@ -672,7 +654,7 @@ pub trait RedisOps: Serialize + DeserializeOwned + Send + Sync {
         source_set_key_parts: &[&str],
         sorted_set_key_parts: &[&str],
         member: &str,
-        removal_guard: Option<(&str, &str, &str)>,
+        removal_guard: Option<(&str, &str)>,
     ) -> RedisResult<()> {
         sorted_sets::sync_score_from_set_cardinality(
             source_set_prefix,

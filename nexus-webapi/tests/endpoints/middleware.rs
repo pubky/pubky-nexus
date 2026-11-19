@@ -1,16 +1,18 @@
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use anyhow::Result;
 use axum::body::Body;
-use axum::extract::Path;
+use axum::extract::{ConnectInfo, Path};
 use axum::http::header::{ACCESS_CONTROL_ALLOW_ORIGIN, CONTENT_LENGTH, ORIGIN};
 use axum::http::{Method, Request, StatusCode};
 use axum::routing::{get, post};
 use axum::Router;
 use nexus_common::utils::test_utils::default_ingestor_tests;
-use nexus_common::RateLimitConfig;
+use nexus_common::{RateLimitBucketConfig, RateLimitConfig};
 use nexus_webapi::media::test_utils::default_subprocess_tests;
 use nexus_webapi::media::MediaPermits;
+use nexus_webapi::routes::v0::endpoints::VERSION_PREFIXES;
 use nexus_webapi::routes::{app_routes, build_app, AppState};
 use tempfile::TempDir;
 use tokio::sync::watch;
@@ -35,17 +37,82 @@ async fn test_request_body_size_limit() -> Result<()> {
     // 10-byte limit; body well over it.
     let app = build_app(routes, state, 30, 10);
 
-    let body = vec![0u8; 1000];
+    // The limit sits on the outer router, so every version's mount is behind it; the route is
+    // one both versions serve, so each 413 is answered through a mounted route.
+    for prefix in VERSION_PREFIXES {
+        let body = vec![0u8; 1000];
 
-    let req = Request::builder()
-        .method(Method::POST)
-        .uri("/v0/files/by_ids")
-        .header(CONTENT_LENGTH, body.len().to_string())
-        .body(Body::from(body))?;
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri(format!("{prefix}/stream/posts/by_ids"))
+            .header(CONTENT_LENGTH, body.len().to_string())
+            .body(Body::from(body))?;
 
-    let response = app.oneshot(req).await?;
+        let response = app.clone().oneshot(req).await?;
 
-    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE, "{prefix}");
+    }
+
+    Ok(())
+}
+
+// =============================================
+// Rate-limit buckets across the version mounts
+// =============================================
+
+/// The `/v0` and `/v1` mounts of an expensive route spend one bucket, and the default
+/// bucket is another. Every request here is refused by its extractor with a 400 before any
+/// store is read; what counts is that each one costs a token.
+#[tokio::test]
+async fn test_both_versions_share_the_expensive_bucket() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let state = AppState::new(
+        temp_dir.path().to_path_buf(),
+        default_ingestor_tests(),
+        MediaPermits::new(1),
+        default_subprocess_tests(),
+    );
+    let rate_limit_config = RateLimitConfig {
+        enabled: true,
+        // Key the bucket on the peer address the request carries below.
+        trust_proxy_headers: false,
+        expensive_bucket: RateLimitBucketConfig { rate: 20, burst: 3 },
+        default_bucket: RateLimitBucketConfig { rate: 20, burst: 3 },
+    };
+    let (_tx, rx) = watch::channel(false);
+    let routes = app_routes(state.clone(), &rate_limit_config, rx);
+    let app = build_app(routes, state, 30, 1024);
+
+    let peer: SocketAddr = "127.0.0.1:4242".parse()?;
+    let request = |uri: &str| {
+        let mut request = Request::builder().uri(uri).body(Body::empty()).unwrap();
+        request
+            .extensions_mut()
+            .insert(ConnectInfo::<SocketAddr>(peer));
+        request
+    };
+
+    // Three requests, across both versions, spend the expensive burst: the content search
+    // without its `q` is a 400 from the query extractor.
+    for uri in [
+        "/v0/search/posts/by_content",
+        "/v1/search/posts/by_content",
+        "/v0/search/posts/by_content",
+    ] {
+        let response = app.clone().oneshot(request(uri)).await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{uri}");
+    }
+
+    // The fourth, on the version that spent only one token, finds the bucket empty.
+    let response = app
+        .clone()
+        .oneshot(request("/v1/search/posts/by_content"))
+        .await?;
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    // The default bucket has not been touched: a bad `limit` is still a 400, not a 429.
+    let response = app.clone().oneshot(request("/v1/events?limit=abc")).await?;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     Ok(())
 }

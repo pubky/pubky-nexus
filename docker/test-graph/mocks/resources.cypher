@@ -8,38 +8,40 @@
 // pubky://somepk/pub/eventky.app/events/E001 -> fb4155a2295ff3a8a8fe02e28229c021
 // https://example.com/video -> e23f778c4f2a84606f350e4df1a918e9
 
-// Resource 1: External HTTPS article tagged by 2 users from mapky
+// Resource 1: External HTTPS article tagged by 2 users from mapky's folder
 MERGE (r1:Resource {id: "450a72e3da164bfc3ac5f4056f9e5c7c"})
 SET r1.uri = "https://example.com/article", r1.scheme = "https", r1.indexed_at = 1724134095000;
 
-// Resource 2: Internal-unknown eventky event tagged by 1 user from eventky
+// Resource 2: Internal-unknown eventky event tagged by 1 user from eventky's folder
 MERGE (r2:Resource {id: "fb4155a2295ff3a8a8fe02e28229c021"})
 SET r2.uri = "pubky://somepk/pub/eventky.app/events/E001", r2.scheme = "pubky", r2.indexed_at = 1724234095000;
 
-// Resource 3: External HTTPS video tagged by 1 user from mapky
+// Resource 3: External HTTPS video tagged by 1 user from mapky's folder
 MERGE (r3:Resource {id: "e23f778c4f2a84606f350e4df1a918e9"})
 SET r3.uri = "https://example.com/video", r3.scheme = "https", r3.indexed_at = 1724334095000;
 
-// Tags on Resource 1 (article): 2 users tag "bitcoin" from mapky, 1 tags "interesting" from eventky
+// Tags on Resource 1 (article): 2 users tag "bitcoin" from mapky's folder, 1 tags "interesting" from eventky's
 MATCH (u:User {id: $amsterdam}), (r:Resource {id: "450a72e3da164bfc3ac5f4056f9e5c7c"})
-MERGE (u)-[rel:TAGGED {label: "bitcoin", id: "RES_TAG_001", indexed_at: 1724544095000, app: "mapky"}]->(r) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/mapky/tags/RES_TAG_001";
+MERGE (u)-[rel:TAGGED {label: "bitcoin", id: "RES_TAG_001", indexed_at: 1724544095000}]->(r) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/mapky/tags/RES_TAG_001";
 
 MATCH (u:User {id: $bogota}), (r:Resource {id: "450a72e3da164bfc3ac5f4056f9e5c7c"})
-MERGE (u)-[rel:TAGGED {label: "bitcoin", id: "RES_TAG_002", indexed_at: 1724544095001, app: "mapky"}]->(r) SET rel.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/mapky/tags/RES_TAG_002";
+MERGE (u)-[rel:TAGGED {label: "bitcoin", id: "RES_TAG_002", indexed_at: 1724544095001}]->(r) SET rel.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/mapky/tags/RES_TAG_002";
 
 MATCH (u:User {id: $amsterdam}), (r:Resource {id: "450a72e3da164bfc3ac5f4056f9e5c7c"})
-MERGE (u)-[rel:TAGGED {label: "interesting", id: "RES_TAG_003", indexed_at: 1724544095002, app: "eventky"}]->(r) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/eventky/tags/RES_TAG_003";
+MERGE (u)-[rel:TAGGED {label: "interesting", id: "RES_TAG_003", indexed_at: 1724544095002}]->(r) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/eventky/tags/RES_TAG_003";
 
-// Tags on Resource 2 (eventky event): 1 user tags "calendar" from eventky
+// Tags on Resource 2 (eventky event): 1 user tags "calendar" from eventky's folder.
+// The one edge that keeps `app`: it stands in for production's old resource tag edges, written
+// before a tag became one edge per tagger, target and label. No other resource tag edge has it.
 MATCH (u:User {id: $bogota}), (r:Resource {id: "fb4155a2295ff3a8a8fe02e28229c021"})
 MERGE (u)-[rel:TAGGED {label: "calendar", id: "RES_TAG_004", indexed_at: 1724544095003, app: "eventky"}]->(r) SET rel.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/eventky/tags/RES_TAG_004";
 
-// Tags on Resource 3 (video): 1 user tags "bitcoin" from mapky
+// Tags on Resource 3 (video): 1 user tags "bitcoin" from mapky's folder
 MATCH (u:User {id: $amsterdam}), (r:Resource {id: "e23f778c4f2a84606f350e4df1a918e9"})
-MERGE (u)-[rel:TAGGED {label: "bitcoin", id: "RES_TAG_005", indexed_at: 1724544095004, app: "mapky"}]->(r) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/mapky/tags/RES_TAG_005";
+MERGE (u)-[rel:TAGGED {label: "bitcoin", id: "RES_TAG_005", indexed_at: 1724544095004}]->(r) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/mapky/tags/RES_TAG_005";
 
 // Timeline tie group: two resources whose only tags share one indexed_at,
-// under a dedicated app so no other stream assertion sees them as a pair
+// under a dedicated label so no other stream assertion sees them as a pair
 // https://example.com/tie-a -> f3ea0c8e7e7f84365e2a7da7e282c992
 // https://example.com/tie-b -> b8fd38694cfe853c7aed179c9912618d
 MERGE (r4:Resource {id: "f3ea0c8e7e7f84365e2a7da7e282c992"})
@@ -49,7 +51,7 @@ MERGE (r5:Resource {id: "b8fd38694cfe853c7aed179c9912618d"})
 SET r5.uri = "https://example.com/tie-b", r5.scheme = "https", r5.indexed_at = 1724434095000;
 
 MATCH (u:User {id: $amsterdam}), (r:Resource {id: "f3ea0c8e7e7f84365e2a7da7e282c992"})
-MERGE (u)-[rel:TAGGED {label: "tie", id: "RES_TAG_006", indexed_at: 1724544095010, app: "tiedky"}]->(r) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/tiedky/tags/RES_TAG_006";
+MERGE (u)-[rel:TAGGED {label: "tie", id: "RES_TAG_006", indexed_at: 1724544095010}]->(r) SET rel.uri = "pubky://emq37ky6fbnaun7q1ris6rx3mqmw3a33so1txfesg9jj3ak9ryoy/pub/tiedky/tags/RES_TAG_006";
 
 MATCH (u:User {id: $bogota}), (r:Resource {id: "b8fd38694cfe853c7aed179c9912618d"})
-MERGE (u)-[rel:TAGGED {label: "tie", id: "RES_TAG_007", indexed_at: 1724544095010, app: "tiedky"}]->(r) SET rel.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/tiedky/tags/RES_TAG_007";
+MERGE (u)-[rel:TAGGED {label: "tie", id: "RES_TAG_007", indexed_at: 1724544095010}]->(r) SET rel.uri = "pubky://ep441mndnsjeesenwz78r9paepm6e4kqm4ggiyy9uzpoe43eu9ny/pub/tiedky/tags/RES_TAG_007";

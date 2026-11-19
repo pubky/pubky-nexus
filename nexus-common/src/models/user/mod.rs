@@ -16,7 +16,7 @@ pub use counts::UserCounts;
 pub use cursor::{user_hs_cursor_key, UserHsCursor, UserHsCursorKey};
 pub use details::{
     set_user_homeserver, set_user_homeserver_from_record, set_user_homeserver_stale, users_exist,
-    UserDetails,
+    UserDetails, UserLink,
 };
 pub use epoch::Epoch;
 pub use homeserver_resolver::{
@@ -25,7 +25,9 @@ pub use homeserver_resolver::{
 pub use influencers::{Influencers, GLOBAL_INFLUENCERS_CACHE_SIZE};
 pub use ingestor::UserIngestor;
 pub use relationship::Relationship;
-pub use search::{UserSearch, UsersByTagSearch, TAG_GLOBAL_USER_TAGGERS, USER_NAME_KEY_PARTS};
+pub use search::{
+    UserSearch, UsersByTagSearch, TAG_GLOBAL_USER_TAGGERS, USER_ID_KEY_PARTS, USER_NAME_KEY_PARTS,
+};
 pub use social_graph::{SocialGraphStatus, USER_SOCIAL_GRAPH_KEY_PARTS};
 pub use stream::{
     UserIdStream, UserStream, UserStreamInput, UserStreamSource, CACHE_USER_RECOMMENDED_KEY_PARTS,

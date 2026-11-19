@@ -1,10 +1,12 @@
 use crate::models::{
-    BoundedLimit, BoundedPagination, BoundedSkip, PostId, PubkyId, Tags, UserIds, UsernamePrefix,
+    BoundedLimit, BoundedPagination, BoundedSkip, PostId, PubkyId, TagLabels, UserIds,
+    UsernamePrefix,
 };
 use crate::routes::v0::endpoints::{
     STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE, STREAM_USERS_USERNAME_SEARCH_ROUTE,
     STREAM_USER_IDS_ROUTE,
 };
+use crate::routes::v0::version::{versioned_handlers, ApiVersion};
 use crate::routes::Json as RequestJson;
 use crate::routes::Query;
 use crate::{Error, Result};
@@ -19,8 +21,11 @@ use serde::Deserialize;
 use tracing::debug;
 use utoipa::{OpenApi, ToSchema};
 
+/// The query of `GET /stream/users` and `GET /stream/users/ids`, with the labels of `tags`
+/// folded by version `V`'s rule. Every other parameter is the same on both.
 #[derive(Deserialize)]
-pub struct UserStreamQuery {
+#[serde(bound(deserialize = ""))]
+pub struct UserStreamQuery<V: ApiVersion> {
     user_id: Option<PubkyId>,
     viewer_id: Option<PubkyId>,
     #[serde(flatten)]
@@ -32,47 +37,14 @@ pub struct UserStreamQuery {
     depth: Option<u8>,
     timeframe: Option<Timeframe>,
     preview: Option<bool>,
-    tags: Option<Tags>,
+    tags: Option<V::Tags>,
 }
 
-#[utoipa::path(
-    get,
-    path = STREAM_USERS_ROUTE,
-    tag = "Stream",
-    params(
-        ("source" = Option<UserStreamSource>, Query, description = "Source of users for streams (followers, following, friends, most_followed, influencers, recommended, post_replies, starter_pack)"),
-        ("user_id" = Option<PubkyId>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'influencers' and 'recommended'. Optional for 'starter_pack', where it is the subject whose self and follows are excluded; 'viewer_id' stands in as that subject only when 'user_id' is absent."),
-        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("author_id" = Option<PubkyId>, Query, description = "Author ID when source is 'post_replies'"),
-        ("post_id" = Option<PostId>, Query, description = "Post ID when source is 'post_replies'"),
-        ("reach" = Option<String>, Query, example = "wot_2", description = "The target reach of the 'influencers' source: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. Bare `wot` defaults to depth 2."),
-        ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range"),
-        ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
-        ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 3 will be ignored"),
-        ("tags" = Option<Tags>, Query, example = "bitcoin,travel,music", description = "Comma-separated interest labels (1-5) for source 'starter_pack'. Rejected with 400 for every other source, and for moderation labels."),
-        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000; 100 for source 'starter_pack', and for global 'influencers' with a timeframe other than 'all_time')"),
-        ("limit" = Option<BoundedLimit<5, 20>>, Query, description = "Retrieve N users (1–20, default 5)")
-    ),
-    responses(
-        (status = 200, description = "Users stream", body = UserStream),
-        (status = 400, description = "Invalid parameters"),
-        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
-    ),
-    description = r#"Stream Users: Retrieve a stream of users.
-
-The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
-- *following*, *followers*, *friends*, *recommended*: Requires **user_id**.
-- *influencers*: When **user_id** is provided with a **timeframe** (not 'all_time'), **reach** determines the network scope for finding influencers.The **reach** parameter can be: 'followers', 'following', 'friends', 'wot' (defaults to depth 2), or 'wot_1', 'wot_2', 'wot_3'. Defaults to 'wot_2' if not specified. If **user_id** is not provided, returns global influencers.
-- *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
-- *most_followed*: Does not require **user_id**.
-- *starter_pack*: Requires **tags** (1-5 comma-separated interest labels) and nothing else, so it works for a brand new account with no follows. Returns one deduplicated list ranked by the summed TrustRank of the people who tagged each candidate, either on their profile or on a post they wrote. Labels are ranked separately and interleaved in the order given, so a popular interest does not crowd out a niche one. Passing **user_id** additionally drops that user and everyone they already follow, and **viewer_id** does the same when **user_id** is absent. When both are given, **user_id** is the one excluded and **viewer_id** only shapes the relationship flags, as on every other source. An id that is not indexed yet excludes nothing. **timeframe** gates on the candidate having posted within it; the default 'all_time' only requires that they have ever posted. Moderation labels are rejected, as is a **skip** above 100, which is past the point the ranking can be paged accurately.
-
-Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not provided, an error will be returned."#
-)]
-pub async fn stream_users_handler(
-    Query(query): Query<UserStreamQuery>,
-) -> Result<Json<UserStream>> {
+/// The one body behind `stream_users_handler_v0` and `stream_users_handler_v1`: the page in
+/// the version's shape, the interest labels folded as the version folds them.
+pub async fn stream_users<V: ApiVersion>(
+    Query(query): Query<UserStreamQuery<V>>,
+) -> Result<Json<V::UserStream>> {
     debug!(
         "GET {STREAM_USERS_ROUTE} viewer_id: {:?} source: {:?}",
         query.viewer_id, query.source
@@ -80,37 +52,34 @@ pub async fn stream_users_handler(
 
     let (input, viewer_id, depth) = build_user_stream_input(query)?;
 
-    match UserStream::get_by_id(input, viewer_id, depth).await? {
-        Some(stream) => Ok(Json(stream)),
-        None => Ok(Json(UserStream::default())),
-    }
+    let stream = UserStream::get_by_id(input, viewer_id, depth)
+        .await?
+        .unwrap_or_default();
+    Ok(Json(V::UserStream::from(stream)))
 }
 
-#[utoipa::path(
-    get,
-    path = STREAM_USER_IDS_ROUTE,
-    tag = "Stream",
-    params(
-        ("source" = Option<UserStreamSource>, Query, description = "Source of users for streams (followers, following, friends, most_followed, influencers, recommended, post_replies, starter_pack)"),
-        ("user_id" = Option<PubkyId>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'influencers' and 'recommended'. Optional for 'starter_pack', where it is the subject whose self and follows are excluded; 'viewer_id' stands in as that subject only when 'user_id' is absent."),
-        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("author_id" = Option<PubkyId>, Query, description = "Author ID when source is 'post_replies'"),
-        ("post_id" = Option<PostId>, Query, description = "Post ID when source is 'post_replies'"),
-        ("reach" = Option<String>, Query, example = "wot_2", description = "The target reach of the 'influencers' source: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. Bare `wot` defaults to depth 2."),
-        ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range"),
-        ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
-        ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 3 will be ignored"),
-        ("tags" = Option<Tags>, Query, example = "bitcoin,travel,music", description = "Comma-separated interest labels (1-5) for source 'starter_pack'. Rejected with 400 for every other source, and for moderation labels."),
-        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000; 100 for source 'starter_pack', and for global 'influencers' with a timeframe other than 'all_time')"),
-        ("limit" = Option<BoundedLimit<5, 20>>, Query, description = "Retrieve N users (1–20, default 5)")
-    ),
-    responses(
-        (status = 200, description = "User IDs stream", body = UserIdStream),
-        (status = 400, description = "Invalid parameters"),
-        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
-    ),
-    description = r#"Stream User IDs: Retrieve a stream of user identifiers.
+versioned_handlers! {
+    stream_users_handler_v0 / stream_users_handler_v1 => stream_users(query: Query<shapes::UserStreamQuery>) -> shapes::UserStream;
+    #[utoipa::path(
+        get,
+        path = STREAM_USERS_ROUTE,
+        operation_id = "stream_users_handler",
+        tag = "Stream",
+        params(
+            ("source" = Option<UserStreamSource>, Query, description = "Source of users for streams (followers, following, friends, most_followed, influencers, recommended, post_replies, starter_pack)"),
+            ("user_id" = Option<PubkyId>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'influencers' and 'recommended'. Optional for 'starter_pack', where it is the subject whose self and follows are excluded; 'viewer_id' stands in as that subject only when 'user_id' is absent."),
+            ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
+            ("author_id" = Option<PubkyId>, Query, description = "Author ID when source is 'post_replies'"),
+            ("post_id" = Option<PostId>, Query, description = "Post ID when source is 'post_replies'"),
+            ("reach" = Option<String>, Query, example = "wot_2", description = "The target reach of the 'influencers' source: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. Bare `wot` defaults to depth 2."),
+            ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range"),
+            ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
+            ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 3 will be ignored"),
+            ("tags" = Option<shapes::Tags>, Query, example = "bitcoin,travel,music", description = "Comma-separated interest labels (1-5) for source 'starter_pack'. Rejected with 400 for every other source, and for moderation labels."),
+            ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000; 100 for source 'starter_pack', and for global 'influencers' with a timeframe other than 'all_time')"),
+            ("limit" = Option<BoundedLimit<5, 20>>, Query, description = "Retrieve N users (1–20, default 5)")
+        ),
+        description = r#"Stream Users: Retrieve a stream of users.
 
 The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
 - *following*, *followers*, *friends*, *recommended*: Requires **user_id**.
@@ -120,9 +89,19 @@ The `source` parameter determines the type of stream. Depending on the `source`,
 - *starter_pack*: Requires **tags** (1-5 comma-separated interest labels) and nothing else, so it works for a brand new account with no follows. Returns one deduplicated list ranked by the summed TrustRank of the people who tagged each candidate, either on their profile or on a post they wrote. Labels are ranked separately and interleaved in the order given, so a popular interest does not crowd out a niche one. Passing **user_id** additionally drops that user and everyone they already follow, and **viewer_id** does the same when **user_id** is absent. When both are given, **user_id** is the one excluded and **viewer_id** only shapes the relationship flags, as on every other source. An id that is not indexed yet excludes nothing. **timeframe** gates on the candidate having posted within it; the default 'all_time' only requires that they have ever posted. Moderation labels are rejected, as is a **skip** above 100, which is past the point the ranking can be paged accurately.
 
 Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not provided, an error will be returned."#
-)]
-pub async fn stream_user_ids_handler(
-    Query(query): Query<UserStreamQuery>,
+    )]
+    responses(
+        (status = 200, description = "Users stream"),
+        (status = 400, description = "Invalid parameters"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error")
+    )
+}
+
+/// The one body behind `stream_user_ids_handler_v0` and `stream_user_ids_handler_v1`: the ids
+/// of the page, the interest labels folded as the version folds them.
+pub async fn stream_user_ids<V: ApiVersion>(
+    Query(query): Query<UserStreamQuery<V>>,
 ) -> Result<Json<UserIdStream>> {
     debug!(
         "GET {STREAM_USER_IDS_ROUTE} viewer_id: {:?} source: {:?}",
@@ -137,6 +116,46 @@ pub async fn stream_user_ids_handler(
     }
 }
 
+versioned_handlers! {
+    stream_user_ids_handler_v0 / stream_user_ids_handler_v1 => stream_user_ids(query: Query<shapes::UserStreamQuery>) -> UserIdStream;
+    #[utoipa::path(
+        get,
+        path = STREAM_USER_IDS_ROUTE,
+        operation_id = "stream_user_ids_handler",
+        tag = "Stream",
+        params(
+            ("source" = Option<UserStreamSource>, Query, description = "Source of users for streams (followers, following, friends, most_followed, influencers, recommended, post_replies, starter_pack)"),
+            ("user_id" = Option<PubkyId>, Query, description = "User ID to use for streams with source 'following', 'followers', 'friends', 'influencers' and 'recommended'. Optional for 'starter_pack', where it is the subject whose self and follows are excluded; 'viewer_id' stands in as that subject only when 'user_id' is absent."),
+            ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
+            ("author_id" = Option<PubkyId>, Query, description = "Author ID when source is 'post_replies'"),
+            ("post_id" = Option<PostId>, Query, description = "Post ID when source is 'post_replies'"),
+            ("reach" = Option<String>, Query, example = "wot_2", description = "The target reach of the 'influencers' source: `followers` | `following` | `friends` | `wot` | `wot_1`..`wot_3`. Bare `wot` defaults to depth 2."),
+            ("timeframe" = Option<Timeframe>, Query, description = "Timeframe for sources supporting a range"),
+            ("preview" = Option<bool>, Query, description = "Provide a random selection of size 3 for sources supporting preview. Passing preview ignores skip and limit parameters."),
+            ("depth" = Option<u8>, Query, description = "User trusted network depth, user following users distance. Numbers bigger than 3 will be ignored"),
+            ("tags" = Option<shapes::Tags>, Query, example = "bitcoin,travel,music", description = "Comma-separated interest labels (1-5) for source 'starter_pack'. Rejected with 400 for every other source, and for moderation labels."),
+            ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000; 100 for source 'starter_pack', and for global 'influencers' with a timeframe other than 'all_time')"),
+            ("limit" = Option<BoundedLimit<5, 20>>, Query, description = "Retrieve N users (1–20, default 5)")
+        ),
+        description = r#"Stream User IDs: Retrieve a stream of user identifiers.
+
+The `source` parameter determines the type of stream. Depending on the `source`, certain parameters are required:
+- *following*, *followers*, *friends*, *recommended*: Requires **user_id**.
+- *influencers*: When **user_id** is provided with a **timeframe** (not 'all_time'), **reach** determines the network scope for finding influencers.The **reach** parameter can be: 'followers', 'following', 'friends', 'wot' (defaults to depth 2), or 'wot_1', 'wot_2', 'wot_3'. Defaults to 'wot_2' if not specified. If **user_id** is not provided, returns global influencers.
+- *post_replies*: Requires **author_id** and **post_id** to filter replies to a specific post.
+- *most_followed*: Does not require **user_id**.
+- *starter_pack*: Requires **tags** (1-5 comma-separated interest labels) and nothing else, so it works for a brand new account with no follows. Returns one deduplicated list ranked by the summed TrustRank of the people who tagged each candidate, either on their profile or on a post they wrote. Labels are ranked separately and interleaved in the order given, so a popular interest does not crowd out a niche one. Passing **user_id** additionally drops that user and everyone they already follow, and **viewer_id** does the same when **user_id** is absent. When both are given, **user_id** is the one excluded and **viewer_id** only shapes the relationship flags, as on every other source. An id that is not indexed yet excludes nothing. **timeframe** gates on the candidate having posted within it; the default 'all_time' only requires that they have ever posted. Moderation labels are rejected, as is a **skip** above 100, which is past the point the ranking can be paged accurately.
+
+Ensure that you provide the necessary parameters based on the selected `source`. If the required parameter is not provided, an error will be returned."#
+    )]
+    responses(
+        (status = 200, description = "User IDs stream"),
+        (status = 400, description = "Invalid parameters"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error")
+    )
+}
+
 #[derive(Deserialize)]
 pub struct UserStreamSearchQuery {
     username: UsernamePrefix,
@@ -145,27 +164,11 @@ pub struct UserStreamSearchQuery {
     pagination: BoundedPagination<10_000, 20, 20>,
 }
 
-#[utoipa::path(
-    get,
-    path = STREAM_USERS_USERNAME_SEARCH_ROUTE,
-    tag = "Stream",
-    description = "Stream of user from username search result",
-    params(
-        ("username" = UsernamePrefix, Query, description = "Username to search for"),
-        ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
-        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000)"),
-        ("limit" = Option<BoundedLimit<20, 20>>, Query, description = "Retrieve N users (1–20, default 20)")
-    ),
-    responses(
-        (status = 200, description = "Username search stream", body = UserStream),
-        (status = 400, description = "Bad Request"),
-        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn stream_username_search_handler(
+/// The one body behind `stream_username_search_handler_v0` and
+/// `stream_username_search_handler_v1`: the page in the version's shape.
+pub async fn stream_username_search<V: ApiVersion>(
     Query(query): Query<UserStreamSearchQuery>,
-) -> Result<Json<UserStream>> {
+) -> Result<Json<V::UserStream>> {
     let skip = query.pagination.skip_value();
     let limit = query.pagination.limit_value();
 
@@ -174,17 +177,38 @@ pub async fn stream_username_search_handler(
         query.username
     );
 
-    match UserStream::get_from_username_search(
+    let stream = UserStream::get_from_username_search(
         &query.username,
         query.viewer_id.as_deref(),
         Some(skip),
         Some(limit),
     )
     .await?
-    {
-        Some(stream) => Ok(Json(stream)),
-        None => Ok(Json(UserStream::default())),
-    }
+    .unwrap_or_default();
+    Ok(Json(V::UserStream::from(stream)))
+}
+
+versioned_handlers! {
+    stream_username_search_handler_v0 / stream_username_search_handler_v1 => stream_username_search(query: Query<UserStreamSearchQuery>) -> shapes::UserStream;
+    #[utoipa::path(
+        get,
+        path = STREAM_USERS_USERNAME_SEARCH_ROUTE,
+        operation_id = "stream_username_search_handler",
+        tag = "Stream",
+        description = "Stream of user from username search result",
+        params(
+            ("username" = UsernamePrefix, Query, description = "Username to search for"),
+            ("viewer_id" = Option<PubkyId>, Query, description = "Viewer Pubky ID"),
+            ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N users (max 10000)"),
+            ("limit" = Option<BoundedLimit<20, 20>>, Query, description = "Retrieve N users (1–20, default 20)")
+        )
+    )]
+    responses(
+        (status = 200, description = "Username search stream"),
+        (status = 400, description = "Bad Request"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error")
+    )
 }
 
 // This is a POST request because we're passing a potentially large list of user IDs in the request body,
@@ -197,22 +221,12 @@ pub struct UserStreamByIdsRequest {
     pub viewer_id: Option<PubkyId>,
     depth: Option<u8>,
 }
-#[utoipa::path(
-    post,
-    path = STREAM_USERS_BY_IDS_ROUTE,
-    tag = "Stream",
-    description = "Stream users by ID. This is a POST request because we're passing a potentially large list of user IDs in the request body.",
-    request_body = UserStreamByIdsRequest,
-    responses(
-        (status = 200, description = "Users stream", body = UserStream),
-        (status = 400, description = "Invalid request body"),
-        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn stream_users_by_ids_handler(
+
+/// The one body behind `stream_users_by_ids_handler_v0` and `stream_users_by_ids_handler_v1`:
+/// the listed users in the version's shape.
+pub async fn stream_users_by_ids<V: ApiVersion>(
     RequestJson(request): RequestJson<UserStreamByIdsRequest>,
-) -> Result<Json<UserStream>> {
+) -> Result<Json<V::UserStream>> {
     debug!(
         "POST {} user_ids: {:?}",
         STREAM_USERS_BY_IDS_ROUTE, request.user_ids
@@ -220,16 +234,33 @@ pub async fn stream_users_by_ids_handler(
 
     let user_ids = request.user_ids.to_string_vec();
 
-    match UserStream::from_listed_user_ids(&user_ids, request.viewer_id.as_deref(), request.depth)
-        .await?
-    {
-        Some(stream) => Ok(Json(stream)),
-        None => Ok(Json(UserStream::default())),
-    }
+    let stream =
+        UserStream::from_listed_user_ids(&user_ids, request.viewer_id.as_deref(), request.depth)
+            .await?
+            .unwrap_or_default();
+    Ok(Json(V::UserStream::from(stream)))
 }
 
-fn build_user_stream_input(
-    query: UserStreamQuery,
+versioned_handlers! {
+    stream_users_by_ids_handler_v0 / stream_users_by_ids_handler_v1 => stream_users_by_ids(request: RequestJson<UserStreamByIdsRequest>) -> shapes::UserStream;
+    #[utoipa::path(
+        post,
+        path = STREAM_USERS_BY_IDS_ROUTE,
+        operation_id = "stream_users_by_ids_handler",
+        tag = "Stream",
+        description = "Stream users by ID. This is a POST request because we're passing a potentially large list of user IDs in the request body.",
+        request_body = UserStreamByIdsRequest
+    )]
+    responses(
+        (status = 200, description = "Users stream"),
+        (status = 400, description = "Invalid request body"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error")
+    )
+}
+
+fn build_user_stream_input<V: ApiVersion>(
+    query: UserStreamQuery<V>,
 ) -> Result<(UserStreamInput, Option<String>, Option<u8>)> {
     let UserStreamQuery {
         user_id,
@@ -259,7 +290,7 @@ fn build_user_stream_input(
                     "skip must be at most {STARTER_PACK_MAX_SKIP} for source 'starter_pack'"
                 )));
             }
-            Some(validate_interest_tags(tags)?)
+            Some(validate_interest_tags(&tags)?)
         }
         (UserStreamSource::StarterPack, None) => {
             return Err(Error::invalid_input(
@@ -350,7 +381,7 @@ fn build_user_stream_input(
 ///
 /// Load-bearing: the watcher only deletes on sight for the configured moderator's tags, so
 /// anyone can put `hatespeech` on a profile. Uses the compile-time list, not watcher config.
-fn validate_interest_tags(tags: Tags) -> Result<Vec<String>> {
+fn validate_interest_tags(tags: &impl TagLabels) -> Result<Vec<String>> {
     let labels = tags.to_string_vec();
 
     if let Some(label) = labels.iter().find(|l| MODERATED_TAGS.contains(&l.as_str())) {
@@ -376,26 +407,46 @@ fn source_name(source: &UserStreamSource) -> &'static str {
     }
 }
 
+/// The schemas the user streams share; the streams of user views and the id stream, whose
+/// label list is the version's, come with the version's document.
 #[derive(OpenApi)]
-#[openapi(
-    paths(
-        stream_users_handler,
-        stream_user_ids_handler,
-        stream_username_search_handler,
-        stream_users_by_ids_handler
-    ),
-    components(schemas(
-        UserIdStream,
-        UserStream,
-        UserStreamSource,
-        UserStreamByIdsRequest,
-        UserIds,
-        UsernamePrefix,
-        StreamReach,
-        Timeframe,
-        Tags,
-        PubkyId,
-        PostId,
-    ))
-)]
+#[openapi(components(schemas(
+    UserIdStream,
+    UserStreamSource,
+    UserStreamByIdsRequest,
+    UserIds,
+    UsernamePrefix,
+    StreamReach,
+    Timeframe,
+    PubkyId,
+    PostId,
+)))]
 pub struct StreamUsersApiDocs;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::routes::v0::version::{V0, V1};
+
+    fn parse<V: ApiVersion>(query: &str) -> UserStreamQuery<V> {
+        serde_urlencoded::from_str(query).expect(query)
+    }
+
+    /// The interest labels fold by the version's rule: `/v1` trims and lowercases ASCII only,
+    /// so a non-ASCII capital stays; `/v0` lowercases every letter. Pinned here because the
+    /// two versions document the same `Tags` schema, so the documents would not tell.
+    #[test]
+    fn starter_pack_tags_fold_by_the_versions_rule() {
+        let query = "source=starter_pack&tags=%C3%84rger,%20Dev%20";
+        let v1 = parse::<V1>(query);
+        assert_eq!(
+            v1.tags.as_ref().map(TagLabels::to_string_vec),
+            Some(vec!["Ärger".to_string(), "dev".to_string()])
+        );
+        let v0 = parse::<V0>(query);
+        assert_eq!(
+            v0.tags.as_ref().map(TagLabels::to_string_vec),
+            Some(vec!["ärger".to_string(), "dev".to_string()])
+        );
+    }
+}

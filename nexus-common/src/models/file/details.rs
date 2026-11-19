@@ -1,12 +1,10 @@
 use crate::db::graph::{GraphResult, Query};
-use crate::db::kv::RedisResult;
 use crate::db::{exec_single_row, queries, RedisOps};
 use crate::media::{get_valid_variants_for_content_type, FileVariant};
 use crate::models::error::ModelResult;
 use crate::models::traits::Collection;
 use async_trait::async_trait;
-use chrono::Utc;
-use pubky_app_specs::{ParsedUri, PubkyAppFile, Resource};
+use pubky_social_specs::legacy_v0::{ParsedUri, Resource};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utoipa::ToSchema;
@@ -122,34 +120,9 @@ impl<'a, 'b> Collection<&'a [&'b str]> for FileDetails {
     fn put_graph_query(&self) -> GraphResult<Query> {
         queries::put::create_file(self)
     }
-
-    async fn extend_on_index_miss(_: &[std::option::Option<Self>]) -> RedisResult<()> {
-        Ok(())
-    }
 }
 
 impl FileDetails {
-    pub fn from_homeserver(
-        pubkyapp_file: &PubkyAppFile,
-        uri: String,
-        user_id: String,
-        file_id: String,
-    ) -> Self {
-        Self {
-            urls: FileUrls::new(&user_id, &file_id, &pubkyapp_file.content_type),
-            name: pubkyapp_file.name.clone(),
-            src: pubkyapp_file.src.clone(),
-            content_type: pubkyapp_file.content_type.clone(),
-            uri,
-            id: file_id,
-            created_at: pubkyapp_file.created_at,
-            indexed_at: Utc::now().timestamp_millis(),
-            owner_id: user_id.to_string(),
-            size: pubkyapp_file.size as i64,
-            metadata: None,
-        }
-    }
-
     pub async fn delete(&self) -> ModelResult<()> {
         exec_single_row(queries::del::delete_file(&self.owner_id, &self.id))
             .await

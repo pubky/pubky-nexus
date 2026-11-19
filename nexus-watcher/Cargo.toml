@@ -16,13 +16,14 @@ futures = { workspace = true }
 nexus-common = { path = "../nexus-common" }
 opentelemetry = { workspace = true }
 pubky = { workspace = true }
-pubky-app-specs = { workspace = true }
+pubky-social-specs = { workspace = true }
 reqwest = { version = "0.13", default-features = false, features = ["stream"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
@@ -30,6 +31,9 @@ base32 = "0.5"
 http = "1"
 nexus-common = { path = "../nexus-common", features = ["test-utils"] }
 opentelemetry_sdk = { workspace = true, features = ["testing"] }
+# The migrator is only a test oracle: the agreement test compares the migration's output with
+# `migrate::transform`. The feature stays off in every production build.
+pubky-social-specs = { workspace = true, features = ["migrator"] }
 pubky-testnet = { workspace = true }
 rand = "0.10.1"
 tempfile = { workspace = true }

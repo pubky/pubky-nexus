@@ -19,7 +19,7 @@ use crate::models::{
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::user::UserDetails;
+use super::user::users_exist;
 
 const BOOTSTRAP_NOTIFICATIONS_LIMIT: usize = 30;
 pub const BOOTSTRAP_HOT_TAGS_LIMIT: usize = 5;
@@ -28,6 +28,16 @@ pub const BOOTSTRAP_HOT_TAGS_LIMIT: usize = 5;
 pub enum ViewType {
     Full,
     Partial,
+}
+
+/// Whether the payload's `files` list is filled: the `FileDetails` of every attachment the
+/// posts and replies name, one batched read. A caller that drops the list skips the read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AttachmentFiles {
+    /// Fetch the details of every attachment into `files`.
+    Fetch,
+    /// Leave `files` empty, and read nothing for it.
+    Skip,
 }
 
 #[derive(Serialize, ToSchema, Deserialize, Default, Debug)]
@@ -73,12 +83,16 @@ impl Bootstrap {
     /// - `view_type: ViewType`
     ///   Controls whether to fetch replies and include full stream entries (`Full`)
     ///   or only base posts (`Partial`)
-    pub async fn get_by_id(user_id: &str, view_type: ViewType) -> ModelResult<Self> {
+    pub async fn get_by_id(
+        user_id: &str,
+        view_type: ViewType,
+        files: AttachmentFiles,
+    ) -> ModelResult<Self> {
         let mut bootstrap = Self::default();
         let mut user_ids = HashSet::new();
         let mut attachment_uris = HashSet::new();
 
-        let maybe_viewer_id = UserDetails::get_by_id(user_id).await?.map(|_| {
+        let maybe_viewer_id = users_exist(&[user_id]).await?.then(|| {
             user_ids.insert(user_id.to_string());
             bootstrap.indexed = true;
             user_id
@@ -120,8 +134,10 @@ impl Bootstrap {
                 .await?;
         }
 
-        // Fetch file metadata for all collected attachments
-        bootstrap.fetch_file_details(&attachment_uris).await?;
+        // Fetch file metadata for all collected attachments, if the caller serves it
+        if files == AttachmentFiles::Fetch {
+            bootstrap.fetch_file_details(&attachment_uris).await?;
+        }
 
         // Merge all the users related with posts, post replies, influencers, recommended, hot tags
         bootstrap
@@ -161,7 +177,7 @@ impl Bootstrap {
             }
             // Add the author of the post
             user_ids.insert(author_id.clone());
-            attachment_uris.extend(post_view.details.attachments.iter().flatten().cloned());
+            attachment_uris.extend(post_view.details.attachments.iter().cloned());
             // Include the post in the stream list
             if is_full_view_type {
                 self.ids.stream.push(format!("{author_id}:{post_id}"));

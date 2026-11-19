@@ -4,9 +4,11 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::db::{fetch_all_rows_from_graph, queries, RedisOps};
 use nexus_common::models::tag::user::TagUser;
-use nexus_common::models::user::{UserDetails, UsersByTagSearch};
+use nexus_common::models::user::{UserSearch, UsersByTagSearch};
+use nexus_watcher::events::inputs::UserInput;
 use pubky::Keypair;
-use pubky_app_specs::{PubkyAppTag, PubkyAppUser, PubkyId};
+use pubky_social_specs::legacy_v0::{user_uri_builder, PubkyAppTag, PubkyAppUser};
+use pubky_social_specs::PubkyId;
 
 /// The backfill enumerates pairs from a graph snapshot but derives every
 /// score from the live taggers set, so a delete landing after the snapshot
@@ -276,9 +278,9 @@ async fn test_sync_index_score_derives_from_taggers_set() -> Result<()> {
     Ok(())
 }
 
-/// Direct coverage of the removal guard: a details document carrying
-/// `deleted: true` forces removal regardless of the taggers set cardinality,
-/// and clearing it restores the derive.
+/// Direct coverage of the removal guard: a user in the deleted set is
+/// removed regardless of the taggers set cardinality, and leaving the set
+/// restores the derive.
 #[tokio_shared_rt::test(shared)]
 async fn test_sync_index_score_removal_guard() -> Result<()> {
     // Setup only initializes the shared stack connectors
@@ -293,9 +295,8 @@ async fn test_sync_index_score_removal_guard() -> Result<()> {
 
     TagUser::put_index_set(&[&user_id, label], &taggers, None, None).await?;
 
-    // Guard set: the deleted flag wins over a non-empty taggers set
-    let tombstone = UserDetails::tombstone(&pubky_id);
-    tombstone.put_index_json(&[&user_id], None, None).await?;
+    // Guard set: the tombstone wins over a non-empty taggers set
+    UserSearch::mark_tombstoned(&user_id).await?;
     UsersByTagSearch::sync_index_score(&user_id, label).await?;
     let score = check_member_user_tag_taggers(&user_id, label)
         .await
@@ -306,7 +307,7 @@ async fn test_sync_index_score_removal_guard() -> Result<()> {
     );
 
     // Guard cleared: the derive restores the member from the set cardinality
-    let restored = UserDetails::from_homeserver(
+    let restored = UserInput::from_v0(
         PubkyAppUser {
             bio: None,
             image: None,
@@ -314,9 +315,10 @@ async fn test_sync_index_score_removal_guard() -> Result<()> {
             name: "Watcher:GuardCheck:Restored".to_string(),
             status: None,
         },
-        &pubky_id,
-    );
-    restored.put_index_json(&[&user_id], None, None).await?;
+        user_uri_builder(user_id.clone()),
+    )
+    .into_details(&pubky_id);
+    UserSearch::index_profile(&restored).await?;
     UsersByTagSearch::sync_index_score(&user_id, label).await?;
     let score = check_member_user_tag_taggers(&user_id, label)
         .await
@@ -324,7 +326,7 @@ async fn test_sync_index_score_removal_guard() -> Result<()> {
     assert_eq!(
         score,
         Some(2),
-        "Clearing the deleted flag must restore the derived score"
+        "Leaving the deleted set must restore the derived score"
     );
 
     // Cleanup the fixture keys
@@ -332,7 +334,7 @@ async fn test_sync_index_score_removal_guard() -> Result<()> {
         .remove_from_index_set(&[&user_id, label])
         .await?;
     UsersByTagSearch::sync_index_score(&user_id, label).await?;
-    UserDetails::remove_from_index_multiple_json(&[&[user_id.as_str()]]).await?;
+    UserSearch::delete(&user_id).await?;
 
     Ok(())
 }

@@ -10,9 +10,11 @@ use nexus_common::{
         POST_TOTAL_ENGAGEMENT_KEY_PARTS,
     },
 };
-use pubky_app_specs::{
-    post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser, PubkyId,
+use nexus_watcher::events::inputs::ResourceKey;
+use pubky_social_specs::legacy_v0::{
+    post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppUser,
 };
+use pubky_social_specs::{PubkyId, PubkySocialPost, PubkySocialPostKind, PubkySocialUser};
 
 pub async fn find_post_counts(user_id: &str, post_id: &str) -> PostCounts {
     // Read-through: counts are invalidated on write and recomputed from the
@@ -240,10 +242,34 @@ pub fn test_user(name: impl Into<String>, bio: impl Into<String>) -> PubkyAppUse
     }
 }
 
+/// Build a `social/v1` `Note` root post, the v1 kind a `Short` post becomes.
+pub fn v1_note(content: impl Into<String>) -> PubkySocialPost {
+    PubkySocialPost::new(
+        content.into(),
+        PubkySocialPostKind::Note,
+        None,
+        None,
+        vec![],
+    )
+}
+
+/// Build a `social/v1` profile for tests with the given display name and bio.
+pub fn v1_test_user(name: impl Into<String>, bio: impl Into<String>) -> PubkySocialUser {
+    PubkySocialUser::new(name.into(), Some(bio.into()), None, None, None)
+}
+
 /// Convert a user-id string into a `PubkyId`, surfacing the parse error
 /// through `anyhow`.
 pub fn pubky_id(id: &str) -> Result<PubkyId> {
     PubkyId::try_from(id).map_err(anyhow::Error::msg)
+}
+
+/// The [`ResourceKey`] of `owner_id`'s resource `resource_id`, such as a post.
+pub fn resource_key(owner_id: &str, resource_id: &str) -> Result<ResourceKey> {
+    Ok(ResourceKey {
+        owner_id: pubky_id(owner_id)?,
+        resource_id: resource_id.to_string(),
+    })
 }
 
 /// Assert that `user_id` currently has exactly `expected` notifications.
@@ -302,6 +328,38 @@ pub async fn set_post_uri(author_id: &str, post_id: &str, uri: Option<&str>) -> 
     .param("author_id", author_id)
     .param("post_id", post_id)
     .param("uri", uri.map(str::to_string));
+    exec_single_row(query).await?;
+    Ok(())
+}
+
+/// Plants a row the internal migration can't read back: `indexed_at` as text, where an integer
+/// is read. The posts step fails on it, so a flip fails and is queued.
+pub async fn corrupt_post_indexed_at(author_id: &str, post_id: &str) -> Result<()> {
+    let query = Query::new(
+        "corrupt_post_indexed_at",
+        "MATCH (:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        SET p.indexed_at = 'soon'",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id);
+    exec_single_row(query).await?;
+    Ok(())
+}
+
+/// Puts a post's `indexed_at` back.
+pub async fn restore_post_indexed_at(
+    author_id: &str,
+    post_id: &str,
+    indexed_at: i64,
+) -> Result<()> {
+    let query = Query::new(
+        "restore_post_indexed_at",
+        "MATCH (:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+        SET p.indexed_at = $indexed_at",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+    .param("indexed_at", indexed_at);
     exec_single_row(query).await?;
     Ok(())
 }

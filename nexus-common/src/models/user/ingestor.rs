@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
-use pubky_app_specs::{ParsedUri, PubkyId};
+use pubky_social_specs::PubkyId;
 
 use super::{PkdnsHomeserverResolver, StoredRecord};
 use crate::models::error::{ModelError, ModelResult};
 use crate::models::homeserver::HsBlacklist;
-use crate::models::traits::Collection;
-use crate::models::user::{set_user_homeserver_from_record, UserDetails, UserHsCursor};
+use crate::models::user::{
+    set_user_homeserver_from_record, users_exist, UserDetails, UserHsCursor,
+};
 use crate::StackConfig;
 
 /// Ingests previously-unknown users unless their HS is blacklisted.
@@ -48,20 +49,15 @@ impl UserIngestor {
         )
     }
 
-    /// Ingests the author of a referenced post, if unknown.
-    pub async fn maybe_ingest_author_of_post(
-        &self,
-        referenced_post_uri: &ParsedUri,
-    ) -> ModelResult<()> {
-        self.maybe_ingest_user(&referenced_post_uri.user_id).await
-    }
-
     /// Resolves the HS hosting `user_id` and refuses it if blacklisted.
     ///
     /// # Returns
     /// - `Ok(Some(hs_id))` if the user's HS resolved and is not blacklisted
     /// - `Ok(None)` if the user has no published HS or is an HS PK itself
     /// - [`ModelError::HsBlacklisted`] if the resolved HS is blacklisted
+    /// - [`ModelError::InvalidInput`] if `user_id` is well-formed but not a public key
+    /// - [`ModelError::Generic`] if the lookup itself failed (DHT or network). A failed
+    ///   lookup is not "no HS": callers must not proceed as if the HS were known to be clean.
     pub async fn ensure_hs_not_blacklisted(
         &self,
         user_id: &PubkyId,
@@ -88,9 +84,14 @@ impl UserIngestor {
             });
         }
 
+        // A format-valid id need not be a curve point. That never changes, so it is not retryable.
+        let user_pk = user_id.to_public_key().map_err(|e| {
+            ModelError::InvalidInput(format!("{user_id} is not a valid public key: {e}"))
+        })?;
+
         let record = self
             .resolver
-            .resolve_own_record(&user_id.to_public_key())
+            .resolve_own_record(&user_pk)
             .await
             .map_err(ModelError::from_generic)?;
         let (Some(stored), Some(hs_pk)) = (record.stored(), record.homeserver()) else {
@@ -111,7 +112,10 @@ impl UserIngestor {
     #[tracing::instrument(name = "user.ingest", skip_all)]
     pub async fn maybe_ingest_user(&self, user_id: &PubkyId) -> ModelResult<()> {
         let user_id_str = user_id.to_string();
-        if UserDetails::get_by_id(&user_id_str).await?.is_some() {
+        // Whether the node exists, not whether it reads: one that does not
+        // deserialize is still a known user, and must not be looked up and
+        // bound to a homeserver again.
+        if users_exist(&[&user_id_str]).await? {
             tracing::debug!("Skipping ingestion: {user_id_str} already known");
             return Ok(());
         }
@@ -126,12 +130,11 @@ impl UserIngestor {
             return Ok(());
         };
 
-        let user_details = UserDetails::from_pubky(user_id.clone());
-
         // Do not add to index, as this would affect the timeline of events for this user.
-        // Only create stub graph node for HS-resolver to store user-HS mapping.
-        user_details
-            .put_to_graph()
+        // Only create stub graph node for HS-resolver to store user-HS mapping. The write
+        // creates and never overwrites: the lookup above takes time, and a profile indexed
+        // during it is no longer the unknown user the check saw.
+        UserDetails::create_stub_in_graph(user_id)
             .await
             .inspect(|_| tracing::info!("Ingested user {user_id} from HS {hs_id}"))
             .inspect_err(|e| tracing::error!("Failed to ingest user {user_id}: {e}"))?;
@@ -208,13 +211,86 @@ mod tests {
             timestamp: row.get("timestamp")?,
         };
         assert_eq!(stored.timestamp, 7);
-        let packet = stored.verify(&user_id.to_public_key())?;
+        let packet = stored.verify(&user_id.to_public_key()?)?;
         assert_eq!(
             PkdnsRecord::Published(packet).homeserver(),
             Some(homeserver)
         );
 
         exec_single_row(queries::del::delete_user(user_id.as_ref())).await?;
+        Ok(())
+    }
+
+    /// Indexes `profile` before answering the lookup, as a profile event landing while key
+    /// discovery waits for the network does.
+    struct ProfileIndexedDuringLookup {
+        answer: SigningResolver,
+        profile: UserDetails,
+        uri: String,
+    }
+
+    #[async_trait::async_trait]
+    impl PkdnsHomeserverResolver for ProfileIndexedDuringLookup {
+        async fn resolve_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+            self.profile
+                .clone()
+                .put_profile_to_graph(&self.uri)
+                .await
+                .expect("the profile is written");
+            self.answer.resolve_record(user_pk).await
+        }
+    }
+
+    /// The user is unknown at the check and has a profile by the time the lookup answers:
+    /// the stub write must leave that profile as it is.
+    #[tokio_shared_rt::test(shared)]
+    async fn profile_indexed_during_the_lookup_survives_the_stub_write() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let user = Keypair::random();
+        let user_id = PubkyId::from(user.public_key());
+        let profile = UserDetails {
+            name: "Indexed during the lookup".to_string(),
+            bio: Some("bio".to_string()),
+            status: Some("status".to_string()),
+            image: Some("image".to_string()),
+            indexed_at: 1,
+            ..UserDetails::from_pubky(user_id.clone())
+        };
+        let uri = format!("pubky://{user_id}/pub/pubky.app/profile.json");
+        let ingestor = UserIngestor::new(
+            [],
+            Arc::new(ProfileIndexedDuringLookup {
+                answer: SigningResolver {
+                    keypair: user,
+                    homeserver: random_pubky_id(),
+                },
+                profile: profile.clone(),
+                uri: uri.clone(),
+            }),
+        );
+
+        // Remove the node before asserting, so a failure cannot leave it in the graph.
+        let ingested = ingestor.maybe_ingest_user(&user_id).await;
+        let stored = UserDetails::get_by_id(&user_id).await;
+        let stored_uri = fetch_row_from_graph(
+            Query::new(
+                "ingested_user_uri",
+                "MATCH (u:User {id: $user_id}) RETURN u.uri AS uri",
+            )
+            .param("user_id", user_id.to_string()),
+        )
+        .await;
+        exec_single_row(queries::del::delete_user(user_id.as_ref())).await?;
+        ingested?;
+
+        let stored = stored?.expect("the node exists");
+        assert_eq!(stored.name, profile.name);
+        assert_eq!(stored.bio, profile.bio);
+        assert_eq!(stored.status, profile.status);
+        assert_eq!(stored.image, profile.image);
+        assert_eq!(stored.indexed_at, profile.indexed_at);
+        let stored_uri: Option<String> = stored_uri?.expect("the node exists").get("uri")?;
+        assert_eq!(stored_uri, Some(uri));
         Ok(())
     }
 
