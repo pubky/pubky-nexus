@@ -1,5 +1,4 @@
 use crate::db::graph::keyset_scan;
-use crate::db::kv::RedisResult;
 use crate::db::kv::SortOrder;
 use crate::models::error::{ModelError, ModelResult};
 use crate::types::{CacheTimeframe, StreamReach, Timeframe};
@@ -158,9 +157,7 @@ impl Influencers {
             return Ok(cached_influencers);
         }
         Influencers::refresh(timeframe).await?;
-        Influencers::get_from_global_cache(skip, limit, timeframe)
-            .await
-            .map_err(Into::into)
+        Influencers::get_from_global_cache(skip, limit, timeframe).await
     }
 
     /// Rebuilds the global ranking of `timeframe` from the graph: the top-100 cache of a
@@ -285,7 +282,7 @@ impl Influencers {
         skip: usize,
         limit: usize,
         timeframe: &Timeframe,
-    ) -> RedisResult<Option<Influencers>> {
+    ) -> ModelResult<Option<Influencers>> {
         let ranking = match timeframe {
             // AllTime reads the full ranking in Sorted:Users:Influencers. It has no TTL: the
             // all-time job rebuilds it, so a request only pays for a rebuild when the key is lost.
@@ -392,21 +389,13 @@ impl Influencers {
     async fn filter_deleted(
         influencers: Influencers,
         timeframe: Option<&Timeframe>,
-    ) -> RedisResult<Influencers> {
+    ) -> ModelResult<Influencers> {
         let ids: Vec<String> = influencers.iter().map(|(id, _)| id.clone()).collect();
-        let details_list = UserDetails::mget(&ids).await?;
-
-        let mut kept = Vec::new();
-        let mut deleted_ids = Vec::new();
-
-        for ((id, score), details) in influencers.0.into_iter().zip(details_list) {
-            match details {
-                Some(ref d) if !d.deleted => kept.push((id, score)),
-                _ => deleted_ids.push(id),
-            }
-        }
+        let details_list = UserDetails::get_by_ids(&ids).await?;
+        let (kept, deleted) = UserDetails::split_live(influencers.0, details_list);
 
         if let Some(tf) = timeframe {
+            let deleted_ids: Vec<String> = deleted.into_iter().map(|(id, _)| id).collect();
             Influencers::remove_deleted_from_global_cache(&deleted_ids, tf).await;
         }
 
@@ -458,8 +447,9 @@ impl Influencers {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::get_redis_conn;
-    use crate::models::{traits::Collection, user::UserCounts};
+    use crate::db::kv::RedisResult;
+    use crate::db::{exec_single_row, get_redis_conn};
+    use crate::models::user::UserCounts;
     use crate::{types::DynError, StackConfig, StackManager};
     use deadpool_redis::redis;
     use pubky::Keypair;
@@ -667,8 +657,8 @@ mod tests {
         // Remove the nodes before asserting, so a failure cannot leave them in the graph.
         let refreshed = Influencers::refresh(&Timeframe::AllTime).await;
         let live = read_all_time(None).await;
-        UserDetails::delete(&tombstone).await?;
-        UserDetails::delete(&stub).await?;
+        exec_single_row(queries::del::delete_user(&tombstone)).await?;
+        exec_single_row(queries::del::delete_user(&stub)).await?;
         refreshed?;
         let live: HashMap<String, f64> = live?.unwrap_or_default().into_iter().collect();
 
@@ -694,6 +684,43 @@ mod tests {
             live.len() > GLOBAL_INFLUENCERS_CACHE_SIZE,
             "the fixture must rank more users than a ranged cache holds, got {}",
             live.len()
+        );
+        Ok(())
+    }
+
+    /// A ranged ranking is padded with users scoring zero, in id order. A discovery stub
+    /// scores zero too, and must not take one of those places: the ranking lists a user
+    /// with a profile and no activity, never a stub.
+    #[tokio_shared_rt::test(shared)]
+    async fn ranged_ranking_leaves_discovery_stubs_out() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let stub = PubkyId::from(Keypair::random());
+        let quiet = PubkyId::from(Keypair::random());
+        UserDetails::create_stub_in_graph(&stub).await?;
+        UserDetails::from_pubky(quiet.clone())
+            .put_profile_to_graph(&format!("pubky://{quiet}/pub/pubky.app/profile.json"))
+            .await?;
+
+        // Every user of the graph, so the two are not cut off by the limit. Remove the nodes
+        // before asserting, so a failure cannot leave them in the graph.
+        let query = queries::get::get_global_influencers(0, 1_000_000, CacheTimeframe::Today);
+        let ranked = fetch_key_from_graph::<Influencers>(query, "influencers").await;
+        exec_single_row(queries::del::delete_user(&stub)).await?;
+        exec_single_row(queries::del::delete_user(&quiet)).await?;
+        let ranked: HashMap<String, f64> = ranked?
+            .expect("the query collects one row")
+            .0
+            .into_iter()
+            .collect();
+
+        assert_eq!(
+            ranked.get(&*quiet),
+            Some(&0.0),
+            "a user with a profile pads the ranking"
+        );
+        assert!(
+            !ranked.contains_key(&*stub),
+            "a discovery stub must not be ranked"
         );
         Ok(())
     }

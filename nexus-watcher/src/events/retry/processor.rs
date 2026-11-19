@@ -373,7 +373,6 @@ mod tests {
     use crate::events::retry::store::InMemoryRetryStore;
     use crate::events::EventType;
     use nexus_common::db::{exec_single_row, queries};
-    use nexus_common::models::traits::Collection as _;
     use nexus_common::models::user::{Epoch, UserDetails};
     use nexus_common::types::DynError;
     use nexus_common::utils::test_utils::random_pubky_id;

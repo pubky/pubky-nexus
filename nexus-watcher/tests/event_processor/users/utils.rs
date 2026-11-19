@@ -47,11 +47,11 @@ pub async fn find_user_details(user_id: &str) -> Result<UserDetails> {
     anyhow::bail!("User node not found in Nexus graph");
 }
 
-/// The user's details as cached for the API, read through `UserDetails::get_by_id`.
-pub async fn find_cached_user_details(user_id: &str) -> Result<UserDetails> {
+/// The user's details as the API reads them, through `UserDetails::get_by_id`.
+pub async fn find_api_user_details(user_id: &str) -> Result<UserDetails> {
     let user = UserDetails::get_by_id(user_id)
         .await?
-        .expect("the user's details are cached");
+        .expect("the user has a node");
     Ok(user)
 }
 

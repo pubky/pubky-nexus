@@ -1,17 +1,12 @@
 use crate::events::{v0_to_v1, EventProcessorError};
 
 use nexus_common::db::queries::get::user_is_safe_to_delete;
-use nexus_common::db::{
-    exec_single_row, execute_graph_operation, queries, OperationOutcome, RedisOps,
-};
-use nexus_common::models::{
-    traits::Collection,
-    user::{Epoch, UserDetails, UserSearch, UsersByTagSearch},
-};
+use nexus_common::db::{exec_single_row, execute_graph_operation, queries, OperationOutcome};
+use nexus_common::models::user::{Epoch, UserDetails, UserSearch, UsersByTagSearch};
 use pubky_social_specs::PubkyId;
 use std::future::Future;
 use std::path::Path;
-use tracing::{debug, error, info, Instrument};
+use tracing::{debug, error, info};
 
 use crate::events::inputs::UserInput;
 
@@ -24,21 +19,15 @@ pub async fn sync_put(user: UserInput, user_id: PubkyId) -> Result<(), EventProc
     let mut user_details = user.into_details(&user_id);
 
     // Step 2: Save to graph, with the address the profile is stored under. The node keeps its
-    // epoch, which the cache copies.
+    // epoch.
     user_details.put_profile_to_graph(&uri).await?;
 
-    // Step 3: Reindex search BEFORE refreshing the details cache. `put_to_index`
-    // resolves the stale `name:id` member from the cached JSON, so a concurrent
-    // `UserDetails::put_to_index` could overwrite it with the new name first and
-    // leak the old member forever.
-    UserSearch::put_to_index(&[&user_details]).await?;
+    // Step 3: Index the profile: drops the previous name member and clears the
+    // tombstone. Retry-safe, the previous member comes from the search state
+    // itself.
+    UserSearch::index_profile(&user_details).await?;
 
-    // Step 4: Refresh the details cache: SAVE TO INDEX
-    UserDetails::put_to_index(&[&user_details.id], vec![Some(user_details.clone())])
-        .instrument(tracing::info_span!("index.write"))
-        .await?;
-
-    // A profile write always clears the tombstone, so re-derive the user's
+    // The search write above cleared the tombstone, so re-derive the user's
     // per-label search entries afterwards: a recreated profile gets its
     // retained tags back.
     UsersByTagSearch::sync_user_labels(&user_id).await?;
@@ -54,34 +43,23 @@ pub async fn sync_put(user: UserInput, user_id: PubkyId) -> Result<(), EventProc
 /// ([`move_to_v1`]). Every failure there, the epoch write's included, comes
 /// out of [`v0_to_v1::step`] as [`EventProcessorError::FlipFailed`] naming the step and the
 /// cause, leaves the user at `v0` and logs one summary line saying so: the retry runs the whole
-/// step again over its partial work, without limit while the user is `v0`. The details cache
-/// is then refreshed from the graph, so the API reports `v1` before the profile fetch that
-/// follows; a failure there is a `FlipFailed` of a user already `v1`, logged by its step only,
-/// whose retry is the ordinary profile PUT. That retry rewrites the cache only when its fetch
-/// indexes the profile: after a 404, an invalid profile or a dead-letter, the cache reads `v0`
-/// until the user's next profile write. Indexing is not affected, since the gate reads the
-/// epoch from the graph. The profile itself is the ordinary `v1` profile PUT's ([`sync_put`]).
+/// step again over its partial work, without limit while the user is `v0`. The API reads the
+/// user's details from the graph, so it reports `v1` once the epoch write lands, before the
+/// profile fetch that follows. The profile itself is the ordinary `v1` profile PUT's ([`sync_put`]).
 /// A user whose first event is this PUT has no node yet: the epoch write creates a stub, which
 /// the profile write fills in.
 pub async fn flip(user_id: &PubkyId, files_path: &Path) -> Result<(), EventProcessorError> {
-    run_flip(
-        user_id,
-        move_to_v1(user_id, files_path),
-        refresh_details_cache(user_id),
-    )
-    .await
+    run_flip(user_id, move_to_v1(user_id, files_path)).await
 }
 
-/// The flip's order and its log lines, over its two parts: `moved` (steps 1 and 2,
-/// [`move_to_v1`]) and `cache` (step 3, [`refresh_details_cache`]). `cache` runs only once
-/// `moved` succeeded. Taking the parts as futures lets a test fail either one without the stack.
+/// The flip's log lines over `moved` (steps 1 and 2, [`move_to_v1`]). Taking it as a future
+/// lets a test fail it without the stack.
 #[tracing::instrument(name = "user.flip", skip_all, fields(user_id = %user_id))]
 async fn run_flip(
     user_id: &PubkyId,
     moved: impl Future<Output = Result<(), EventProcessorError>>,
-    cache: impl Future<Output = Result<(), EventProcessorError>>,
 ) -> Result<(), EventProcessorError> {
-    // Steps 1 and 2. The summary covers them only: until the epoch write lands the user is `v0`
+    // Until the epoch write lands the user is `v0`
     moved.await.inspect_err(|e| {
         error!(
             user_id = %user_id,
@@ -93,11 +71,6 @@ async fn run_flip(
     // One line per flip, so flips can be counted and found by user.
     info!("User flipped to v1");
 
-    // Step 3: Refresh the details cache from the graph, so the API reports `v1` now and not
-    // only once the profile fetch succeeds. Every indexed `v0` user has a cached copy from their
-    // `pubky.app` profile, which reads as `v0` until it is rewritten.
-    v0_to_v1::step(user_id, "cache", cache).await?;
-
     Ok(())
 }
 
@@ -106,16 +79,6 @@ async fn run_flip(
 async fn move_to_v1(user_id: &PubkyId, files_path: &Path) -> Result<(), EventProcessorError> {
     v0_to_v1::run(user_id, files_path).await?;
     v0_to_v1::step(user_id, "epoch", Epoch::set_v1_in_graph(user_id)).await
-}
-
-/// Rewrites the user's cached details from the graph, epoch included.
-async fn refresh_details_cache(user_id: &PubkyId) -> Result<(), EventProcessorError> {
-    let user_id: &str = user_id.as_ref();
-    let user_details = UserDetails::get_from_graph(&[user_id]).await?;
-    UserDetails::put_to_index(&[user_id], user_details)
-        .instrument(tracing::info_span!("index.write"))
-        .await?;
-    Ok(())
 }
 
 #[tracing::instrument(name = "user.del", skip_all, fields(user_id = %user_id))]
@@ -130,36 +93,23 @@ pub async fn del(user_id: PubkyId) -> Result<(), EventProcessorError> {
     // profile carrying `deleted = true`. The node survives so its edges stay intact.
     match execute_graph_operation(query).await? {
         OperationOutcome::CreatedOrDeleted => {
-            // 1. UserSearch reads UserDetails — must run before UserDetails Redis is removed
+            // 1. Drop the user from search; idempotent, the member comes from the search state
             UserSearch::delete(&user_id).await?;
 
-            // 2. Redis cleanup (idempotent DEL)
-            let user_id_str: &str = user_id.as_ref();
-            UserDetails::remove_from_index_multiple_json(&[&[user_id_str]])
-                .instrument(tracing::info_span!("index.delete"))
-                .await?;
-
-            // 3. Graph deletion LAST
+            // 2. Graph deletion LAST
             exec_single_row(queries::del::delete_user(&user_id)).await?;
         }
         OperationOutcome::Updated => {
-            // 1. UserSearch resolves the indexed name from UserDetails — must run
-            // before the profile is wiped, or the stale entry cannot be removed.
-            UserSearch::delete(&user_id).await?;
-
-            // 2. Graph-first: write the tombstone before the cache. Collection::get_by_ids
-            // repopulates the cache from the graph on a miss, so writing the cache first
-            // would let a concurrent read cache the live profile again afterwards.
-            // The tombstone keeps the stored `uri` and its epoch in the graph.
+            // 1. Graph-first: the tombstone keeps the stored `uri` and its epoch.
             let mut tombstone = UserDetails::tombstone(&user_id);
             tombstone.put_tombstone_to_graph().await?;
 
-            // 3. Cache the tombstone rather than invalidating: the users-by-tag removal
-            // guard reads `$.deleted` from this document and a missing key reads as
-            // live, so a concurrent tag event would re-add the user.
-            UserDetails::put_to_index(&[&tombstone.id], vec![Some(tombstone.clone())]).await?;
+            // 2. Drop the user from search and mark them deleted, atomically: from
+            // here on the users-by-tag sync evicts them, so a concurrent tag event
+            // cannot re-add them. A retry finds the same state and changes nothing.
+            UserSearch::mark_tombstoned(&user_id).await?;
 
-            // 4. Evict the user from every per-label users-by-tag sorted set.
+            // 3. Evict the user from every per-label users-by-tag sorted set.
             UsersByTagSearch::sync_user_labels(&user_id).await?;
         }
         OperationOutcome::MissingDependency => return Err(EventProcessorError::SkipIndexing),
@@ -180,8 +130,7 @@ mod tests {
     use nexus_common::{StackConfig, StackManager};
 
     /// The flip step of a `v0` user with nothing to migrate: the user is `v1` in the graph, the
-    /// profile untouched until the fetch that follows, and one `info` line names the user. The
-    /// cache refresh is proved through the API read path in `tests/service/retry_processor.rs`.
+    /// profile untouched until the fetch that follows, and one `info` line names the user.
     #[tokio_shared_rt::test(shared)]
     #[tracing_test::traced_test]
     async fn a_flip_moves_the_user_to_v1_and_logs_one_info_line() -> Result<(), DynError> {
@@ -193,8 +142,8 @@ mod tests {
         flip(&user, files.path()).await?;
 
         assert_eq!(Epoch::get_from_graph(&user).await?, Epoch::V1);
-        let details = UserDetails::get_from_graph(&[user.as_ref()]).await?[0]
-            .clone()
+        let details = UserDetails::get_by_id(user.as_ref())
+            .await?
             .expect("the node stays");
         assert_eq!(details.name, user.to_string(), "no profile fetched here");
         logs_assert(|lines| {
@@ -214,47 +163,11 @@ mod tests {
         Ok(())
     }
 
-    /// A failed `cache` step comes after the epoch write: `run_flip` returns its `FlipFailed`,
-    /// logs the `info` line and the step line, and no line says the user stays at `v0`.
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn a_failed_cache_step_logs_the_flip_and_the_step_but_no_summary() {
-        let user = random_pubky_id();
-        let cache = async {
-            Err(EventProcessorError::IndexOperationFailed(
-                true,
-                "redis down".into(),
-            ))
-        };
-
-        let err = run_flip(&user, async { Ok(()) }, cache)
-            .await
-            .expect_err("the cache step must fail");
-
-        assert!(
-            matches!(err, EventProcessorError::FlipFailed { step: "cache", .. }),
-            "{err:?}"
-        );
-        assert!(logs_contain("User flipped to v1"));
-        logs_assert(|lines| {
-            let steps: Vec<_> = lines
-                .iter()
-                .filter(|line| line.contains("Flip step failed"))
-                .collect();
-            match steps.as_slice() {
-                [line] if line.contains(" ERROR ") && line.contains("step=cache") => Ok(()),
-                other => Err(format!("expected one cache step line, got {other:?}")),
-            }
-        });
-        assert!(!logs_contain("stays at v0"));
-    }
-
     /// A failed `moved` part (steps 1 and 2) leaves the user at `v0`: `run_flip` returns its
-    /// error unchanged, logs exactly one summary line naming the user, no `info` line, and
-    /// never polls the `cache` step.
+    /// error unchanged, logs exactly one summary line naming the user and no `info` line.
     #[tokio::test]
     #[tracing_test::traced_test]
-    async fn a_failed_move_logs_one_summary_line_and_never_runs_the_cache_step() {
+    async fn a_failed_move_logs_one_summary_line() {
         let user = random_pubky_id();
         let moved = async {
             Err(EventProcessorError::FlipFailed {
@@ -265,23 +178,14 @@ mod tests {
                 )),
             })
         };
-        let cache_ran = std::sync::atomic::AtomicBool::new(false);
-        let cache = async {
-            cache_ran.store(true, std::sync::atomic::Ordering::SeqCst);
-            Ok(())
-        };
 
-        let err = run_flip(&user, moved, cache)
+        let err = run_flip(&user, moved)
             .await
             .expect_err("the move must fail");
 
         assert!(
             matches!(err, EventProcessorError::FlipFailed { step: "posts", .. }),
             "{err:?}"
-        );
-        assert!(
-            !cache_ran.load(std::sync::atomic::Ordering::SeqCst),
-            "the cache step must not run"
         );
         assert!(!logs_contain("User flipped to v1"));
         logs_assert(|lines| {

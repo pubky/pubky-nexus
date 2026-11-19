@@ -103,8 +103,7 @@ pub(super) fn flip_profile_uri(user_id: &PubkyId) -> String {
     format!("pubky://{user_id}{}", PubkySocialUser::create_path())
 }
 
-/// The gate's decision for `event` by its user's epoch in the graph, with that epoch: never
-/// the cached `User:Details` copy, which a concurrent profile write can leave stale.
+/// The gate's decision for `event` by its user's epoch in the graph, with that epoch.
 async fn decide_by_graph(event: &Event) -> Result<(Gate, Epoch), EventProcessorError> {
     let user_epoch = Epoch::get_from_graph(event.target.user_id()).await?;
     Ok((decide(event, user_epoch), user_epoch))
@@ -272,7 +271,6 @@ mod tests {
         use crate::events::retry::InMemoryRetryStore;
         use async_trait::async_trait;
         use nexus_common::db::{exec_single_row, queries};
-        use nexus_common::models::traits::Collection as _;
         use nexus_common::models::user::UserDetails;
         use nexus_common::types::DynError;
         use nexus_common::utils::test_utils::random_pubky_id;

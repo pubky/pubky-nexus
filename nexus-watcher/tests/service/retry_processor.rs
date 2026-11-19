@@ -4,7 +4,7 @@ use crate::event_processor::posts::utils::{
 use crate::event_processor::tags::resource_utils::{compute_resource_id, count_resource_tags};
 use crate::event_processor::tags::utils::{find_post_tag, find_tag_uri};
 use crate::event_processor::users::utils::{
-    assert_flipped, find_cached_user_details, find_user_details, find_user_epoch, find_user_uri,
+    assert_flipped, find_api_user_details, find_user_details, find_user_epoch, find_user_uri,
     set_user_epoch,
 };
 use crate::event_processor::utils::default_moderation_tests;
@@ -1576,8 +1576,8 @@ async fn test_social_v1_entry_of_a_v0_user_is_removed_and_nothing_indexed() -> R
 // ============================================================================
 // A queued `social/v1` profile flips its `v0` user
 // A v1 profile line queued for a user still at `v0` goes through the real
-// handler: the user moves to `v1` in the graph, then the profile is indexed and
-// cached at `v1`, and the entry is removed.
+// handler: the user moves to `v1` in the graph, then the profile is indexed
+// at `v1`, and the entry is removed.
 // ============================================================================
 
 #[tokio_shared_rt::test(shared)]
@@ -1628,9 +1628,9 @@ async fn test_social_v1_profile_entry_flips_a_v0_user() -> Result<()> {
         .expect("the flip must not fail the batch");
 
     assert_eq!(find_user_epoch(&user_id).await.as_deref(), Some("v1"));
-    let cached = find_cached_user_details(&user_id).await?;
-    assert_eq!(cached.epoch, Epoch::V1);
-    assert_eq!(cached.name, "Retry:EpochGate:Flip");
+    let served = find_api_user_details(&user_id).await?;
+    assert_eq!(served.epoch, Epoch::V1);
+    assert_eq!(served.name, "Retry:EpochGate:Flip");
     assert!(
         store.get(&IndexKey::for_uri(&event_uri)).await?.is_none(),
         "Handled entry must be removed from the queue"
@@ -1732,7 +1732,7 @@ struct SeededContent {
 }
 
 /// Indexes `user` at `pubky.app` as an indexed `v0` user is: their profile, through the
-/// handler, so the node has no epoch and the details cache holds a copy that reads as `v0`; a
+/// handler, so the node has no epoch and the API reads the user as `v0`; a
 /// blob and the file naming it; a post attaching the file; and the user's tag on each
 /// `(target, label)` in `tags`, all named after `prefix`. `client` carries the test's own lines
 /// and the flip's answer; the content's resources are added to it, and the handler that indexed
@@ -1814,10 +1814,10 @@ async fn seed_v0_user_with_content(
 
 /// The flip's first attempt with the homeserver down: the flip step lands, so the user is
 /// `v1` with their post, its attachment (through the file map) and their tag at their `v1`
-/// addresses, the details cache the `pubky.app` profile left reports `v1` with the previous
+/// addresses, the API reports `v1` with the previous
 /// profile, and the profile PUT is queued with the transient class as the `v1` edit it now is.
 /// The homeserver back, the entry's retry fetches and indexes the `social/v1` profile, the
-/// details cache shows it at `v1`, and the entry leaves the queue. (The `info` line is asserted in the handler's own tests, where
+/// API shows it at `v1`, and the entry leaves the queue. (The `info` line is asserted in the handler's own tests, where
 /// the crate's logs can be read.)
 #[tokio_shared_rt::test(shared)]
 async fn test_a_5xx_at_the_fetch_flips_the_user_and_queues_the_profile_put_as_a_v1_edit(
@@ -1850,9 +1850,9 @@ async fn test_a_5xx_at_the_fetch_flips_the_user_and_queues_the_profile_put_as_a_
     )
     .await?;
     assert_eq!(
-        find_cached_user_details(&user_id).await?.epoch,
+        find_api_user_details(&user_id).await?.epoch,
         Epoch::V0,
-        "the pubky.app profile leaves the cache at v0 before the flip"
+        "the API reads the pubky.app profile at v0 before the flip"
     );
     let runner = primary_runner(client, handler, store.clone()).await?;
 
@@ -1895,13 +1895,13 @@ async fn test_a_5xx_at_the_fetch_flips_the_user_and_queues_the_profile_put_as_a_
         name,
         "the previous profile stays until the fetch"
     );
-    let cached = find_cached_user_details(&user_id).await?;
+    let served = find_api_user_details(&user_id).await?;
     assert_eq!(
-        cached.epoch,
+        served.epoch,
         Epoch::V1,
-        "the cache the pubky.app profile left reports v1 before the fetch"
+        "the API reports v1 before the fetch"
     );
-    assert_eq!(cached.name, name, "with the previous profile");
+    assert_eq!(served.name, name, "with the previous profile");
 
     // The homeserver is back: the same entry, due again, indexes the profile and leaves the queue
     store
@@ -1934,9 +1934,9 @@ async fn test_a_5xx_at_the_fetch_flips_the_user_and_queues_the_profile_put_as_a_
         "the indexed entry must leave the queue"
     );
     assert_eq!(find_user_uri(&user_id).await, Some(flip_uri.clone()));
-    let cached = find_cached_user_details(&user_id).await?;
-    assert_eq!(cached.epoch, Epoch::V1);
-    assert_eq!(cached.name, "Retry:Flip:Outage");
+    let served = find_api_user_details(&user_id).await?;
+    assert_eq!(served.epoch, Epoch::V1);
+    assert_eq!(served.name, "Retry:Flip:Outage");
 
     exec_single_row(queries::del::delete_post(&user_id, &post_id)).await?;
     exec_single_row(queries::del::delete_file(&user_id, &file_id)).await?;
@@ -2724,7 +2724,7 @@ async fn test_pubky_app_dels_of_a_v0_user_are_deferred_while_their_flip_is_queue
         "the deferred DEL must leave the post node"
     );
     assert!(
-        UserDetails::get_from_graph(&[user_id.as_str()]).await?[0].is_some(),
+        UserDetails::get_by_id(&user_id).await?.is_some(),
         "the deferred DEL must leave the user node"
     );
     assert_eq!(

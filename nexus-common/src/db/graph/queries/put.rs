@@ -51,6 +51,23 @@ pub fn set_user_epoch_v1(stub: &UserDetails) -> Query {
     .param("deleted", stub.deleted)
 }
 
+/// Creates the discovery stub of a user Nexus has no node for, from `stub`, a
+/// [`UserDetails::from_pubky`] of the user, with no `uri`. An existing node is left as it is:
+/// key discovery looks the homeserver up between its check and this write, and a profile
+/// indexed during that lookup must survive it. The links are `'[]'`, as [`create_user`] stores
+/// a stub's empty list.
+pub fn create_user_stub(stub: &UserDetails) -> Query {
+    Query::new(
+        "create_user_stub",
+        "MERGE (u:User {id: $id})
+         ON CREATE SET u.name = $name, u.indexed_at = $indexed_at, u.deleted = $deleted, u.links = '[]'",
+    )
+    .param("id", stub.id.to_string())
+    .param("name", stub.name.clone())
+    .param("indexed_at", stub.indexed_at)
+    .param("deleted", stub.deleted)
+}
+
 /// Creates a Cypher query to add or edit a post to the graph database and handles its relationships.
 /// # Arguments
 /// * `post` - A reference to a `PostDetails` struct containing information about the post to be created or edited
