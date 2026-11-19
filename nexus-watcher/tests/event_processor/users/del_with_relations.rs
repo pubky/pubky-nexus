@@ -383,11 +383,11 @@ async fn test_user_resurrection_on_external_homeserver() -> Result<()> {
 
     // The user signs up on an external homeserver, and nexus learns about them the way
     // it does in production: a user it indexes follows them.
-    let external_hs = PubkyId::from(test.testnet.create_random_homeserver().await?.public_key());
+    let external_hs_pk = test.testnet.create_random_homeserver().await?.public_key();
+    let external_hs = PubkyId::from(external_hs_pk.clone());
     let user_kp = Keypair::random();
     let user_id = user_kp.public_key().to_z32();
-    test.register_user_in_hs(&user_kp, &external_hs.to_public_key())
-        .await?;
+    test.register_user_in_hs(&user_kp, &external_hs_pk).await?;
 
     let follower_kp = Keypair::random();
     let follower = profile(
