@@ -124,7 +124,7 @@ async fn test_takedown_of_a_v1_file_removes_its_folder_and_holds_against_a_later
     // A later PUT at the address, over a homeserver that serves nothing: skipped before any
     // fetch, so it succeeds and leaves the file down.
     let (handler, client) = handler_over_mock(test.temp_dir.path());
-    retrieve_and_handle_event_line(&format!("PUT {uri}"), handler)
+    retrieve_and_handle_event_line(&format!("PUT {uri}"), &test.homeserver_id, handler)
         .await
         .expect("a PUT of a taken-down file is skipped, not failed");
     assert!(client.blob_fetches().await.is_empty(), "no fetch");

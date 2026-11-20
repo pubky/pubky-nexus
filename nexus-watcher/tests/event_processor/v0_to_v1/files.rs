@@ -393,7 +393,7 @@ async fn test_a_write_failure_leaves_the_user_at_v0_and_the_retry_rewrites_nothi
     let profile_path = flip(&mut test, &author_kp, "Watcher:Migration:Disk:Author:V1").await?;
     let line = format!("PUT pubky://{author_id}{profile_path}");
     let handler = test.event_processor_runner.event_handler.clone();
-    let err = retrieve_and_handle_event_line(&line, handler.clone())
+    let err = retrieve_and_handle_event_line(&line, &test.homeserver_id, handler.clone())
         .await
         .expect_err("a failed write must fail the flip");
 
@@ -427,7 +427,7 @@ async fn test_a_write_failure_leaves_the_user_at_v0_and_the_retry_rewrites_nothi
     fs::remove_file(&blocked).await?;
     fs::create_dir_all(a_main.parent().unwrap()).await?;
     fs::write(&a_main, b"sentinel").await?;
-    retrieve_and_handle_event_line(&line, handler)
+    retrieve_and_handle_event_line(&line, &test.homeserver_id, handler)
         .await
         .expect("the retry finishes the flip");
 

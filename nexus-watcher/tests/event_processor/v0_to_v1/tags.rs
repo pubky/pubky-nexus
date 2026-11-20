@@ -669,8 +669,12 @@ async fn test_flip_keeps_unmatched_ids_and_leaves_other_edges_alone() -> Result<
 
     // Removable by its old id, now at the v1 address
     let event_handler = test.event_processor_runner.event_handler.clone();
-    retrieve_and_handle_event_line(&v1_tag_del_line(&author_id, &no_match_id), event_handler)
-        .await?;
+    retrieve_and_handle_event_line(
+        &v1_tag_del_line(&author_id, &no_match_id),
+        &test.homeserver_id,
+        event_handler,
+    )
+    .await?;
     assert!(find_user_tag(&other_id, no_match_label).await?.is_none());
     assert_eq!(find_tag_uri(&author_id, &no_match_id).await, None);
 
@@ -778,8 +782,12 @@ async fn test_tags_migration_rerun_gives_the_same_result() -> Result<()> {
     set_user_epoch(&author_id, "v1").await?;
     let event_handler = test.event_processor_runner.event_handler.clone();
     for (_, id, _, _, _) in &first {
-        retrieve_and_handle_event_line(&v1_tag_del_line(&author_id, id), event_handler.clone())
-            .await?;
+        retrieve_and_handle_event_line(
+            &v1_tag_del_line(&author_id, id),
+            &test.homeserver_id,
+            event_handler.clone(),
+        )
+        .await?;
     }
     assert!(tag_edges_snapshot(&author_id).await?.is_empty());
     assert!(!resource_exists_in_graph(&compute_resource_id(&url)).await?);

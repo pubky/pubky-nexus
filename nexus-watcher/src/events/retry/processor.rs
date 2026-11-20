@@ -6,6 +6,7 @@ use crate::events::{Event, ParseResult};
 use chrono::{DateTime, Utc};
 use nexus_common::config::EventRetryConfig;
 use nexus_common::WatcherConfig;
+use pubky_social_specs::PubkyId;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
@@ -13,13 +14,18 @@ use super::store::{RedisRetryStore, RetryStore};
 use super::IndexKey;
 use super::RetryEvent;
 use super::RetryScheduler;
-use crate::events::{confirm_flip, is_flip, EventHandler};
-use crate::service::indexer::{RunOutcome, TEventProcessor};
+use crate::events::{confirm_flip, is_flip, EventHandler, SkipReason};
+use crate::service::indexer::{run_on_own_task, RunError, RunOutcome};
+use crate::service::SLOW_RUN_THRESHOLD;
 
 /// Maximum number of retry events to fetch per batch to avoid memory spikes
 const RETRY_BATCH_SIZE: usize = 100;
 
-/// Processor for retrying events that failed due to missing dependencies
+/// Processor for retrying events that failed due to missing dependencies.
+///
+/// Not a [`TEventProcessor`](crate::service::indexer::TEventProcessor): one of those reads a
+/// homeserver, while this retries the entries of every homeserver, each handled as read from
+/// its own origin homeserver.
 pub struct RetryProcessor {
     pub event_handler: Arc<dyn EventHandler>,
     pub shutdown_rx: Receiver<bool>,
@@ -29,21 +35,23 @@ pub struct RetryProcessor {
     pub store: Arc<dyn RetryStore>,
 }
 
-#[async_trait::async_trait]
-impl TEventProcessor for RetryProcessor {
-    fn event_handler(&self) -> &Arc<dyn EventHandler> {
-        &self.event_handler
+impl RetryProcessor {
+    /// Runs [`Self::run_internal`] on its own task, and waits for it to end: see
+    /// [`run_on_own_task`]. The span names no homeserver: a run retries every homeserver's
+    /// entries.
+    pub async fn run(self: Arc<Self>) -> Result<(), RunError> {
+        run_on_own_task(
+            "RetryProcessor",
+            None,
+            SLOW_RUN_THRESHOLD,
+            self.run_internal(),
+        )
+        .await
     }
 
-    fn instance_name(&self) -> &'static str {
-        "RetryProcessor"
-    }
-
-    fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
-        None
-    }
-
-    async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {
+    /// Retries every entry that is ready, batch by batch, until none is left or shutdown is
+    /// signalled.
+    pub async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {
         let now = Utc::now().timestamp_millis();
 
         loop {
@@ -66,9 +74,7 @@ impl TEventProcessor for RetryProcessor {
             }
         }
     }
-}
 
-impl RetryProcessor {
     /// Creates a processor retrying events from the Redis queue through `event_handler`
     pub fn new(
         config: &WatcherConfig,
@@ -100,33 +106,13 @@ impl RetryProcessor {
         index_key: &IndexKey,
         retry_event: RetryEvent,
     ) -> Result<(), EventProcessorError> {
-        // Reconstruct the event line and parse the event
-        // Event format is "METHOD URI" (e.g., "PUT pubky://...")
-        let event_line = format!("{} {}", retry_event.event_type, retry_event.event_uri);
-
-        // Anything but `Parsed` is removed and the batch continues. The fetched
-        // RetryEvent deserialized fine, so its nonce is trustworthy and the
-        // removal stays conditional: a newer entry for the same URI must survive.
-        let event = match Event::parse_event(&event_line) {
-            Ok(ParseResult::Parsed(event)) => event,
-            Ok(ParseResult::Skipped(reason)) => {
-                // Skipped by design (`social/vN`, mute): queued before the parse
-                // step started skipping such lines ahead of any fetch.
-                debug!(
-                    "Retry entry skipped by design ({reason:?}) for key {index_key}, removing: '{event_line}'"
-                );
-                return self
-                    .remove_if_current(index_key, retry_event.nonce, &retry_event.event_uri)
-                    .await;
-            }
-            Ok(ParseResult::UnrecognizedUri { reason, .. }) => {
-                warn!("Unrecognized URI in retry entry for key {index_key}, removing: {reason}");
-                return self
-                    .remove_if_current(index_key, retry_event.nonce, &retry_event.event_uri)
-                    .await;
-            }
-            Err(_) => {
-                warn!("Corrupted retry entry for key {index_key}, removing: '{event_line}'");
+        // An entry that can't be retried is removed and the batch continues. The fetched
+        // RetryEvent deserialized fine, so its nonce is trustworthy and the removal stays
+        // conditional: a newer entry for the same URI must survive.
+        let (event, origin_homeserver_id) = match retry_target(&retry_event) {
+            Ok(target) => target,
+            Err(unretryable) => {
+                unretryable.log(index_key, &retry_event);
                 return self
                     .remove_if_current(index_key, retry_event.nonce, &retry_event.event_uri)
                     .await;
@@ -134,7 +120,6 @@ impl RetryProcessor {
         };
 
         let ev_uri = &retry_event.event_uri;
-        let ev_retry_count = retry_event.retry_count;
 
         // In principle, it's possible to check if `origin_homeserver_id` is blacklisted before
         // handling the event. A retry entry may have been queued before that HS got blacklisted.
@@ -142,11 +127,15 @@ impl RetryProcessor {
         // blacklisted HS are blocked before they can be enqueued.
         //
         // Call event_handler directly to get the actual error (bypassing handle_event/handle_error)
-        let event_handle_res = self.event_handler().handle(&event).await.inspect_err(|e| {
-            // In case of error, log it before the error itself is classified and handled
-            // Error handling could itself throw an error. We log it here to pre-empt this possibility.
-            warn!("Retry event handling failed: {e}");
-        });
+        let event_handle_res = self
+            .event_handler
+            .handle(&event, &origin_homeserver_id)
+            .await
+            .inspect_err(|e| {
+                // In case of error, log it before the error itself is classified and handled
+                // Error handling could itself throw an error. We log it here to pre-empt this possibility.
+                warn!("Retry event handling failed: {e}");
+            });
 
         // Removals and reschedules below are conditional on the nonce of the event
         // we fetched: a live processor may have overwritten the hash(URI)-keyed
@@ -160,7 +149,23 @@ impl RetryProcessor {
                 .await;
         };
 
-        let limit = self.limit_reached(&event, ev_retry_count, &error).await;
+        self.settle_failed_retry(index_key, &retry_event, &event, error)
+            .await
+    }
+
+    /// Settles an entry whose retry failed with `error`: removes it, or reschedules it, as
+    /// [`retry_outcome`] says. Returns the error when it stops the batch.
+    async fn settle_failed_retry(
+        &self,
+        index_key: &IndexKey,
+        retry_event: &RetryEvent,
+        event: &Event,
+        error: EventProcessorError,
+    ) -> Result<(), EventProcessorError> {
+        let ev_uri = &retry_event.event_uri;
+        let ev_retry_count = retry_event.retry_count;
+
+        let limit = self.limit_reached(event, ev_retry_count, &error).await;
         let (e, outcome) = retry_outcome(error, limit);
         match outcome {
             RetryOutcome::Drop => {
@@ -176,24 +181,17 @@ impl RetryProcessor {
                 // Errors we should not retry right now (e.g. Neo4j/Redis failures) must NOT count
                 // against the application-level max_retries limit.  Reschedule with backoff but do
                 // NOT increment retry_count, then propagate to stop the current batch.
-                self.reschedule(&retry_event, &e, false).await?;
+                self.reschedule(retry_event, &e, false).await?;
                 return Err(e);
             }
             RetryOutcome::DeadLetter => {
-                // A flip has no limit for a failed flip step (`limit_reached`), so a `social/v1`
-                // profile PUT reaching it is usually a `v1` user's edit, logged at `warn`; a flip
-                // lost to any other error is logged at `error` (`is_flip`).
-                if is_flip(&event).await {
-                    error!("social/v1 profile PUT {ev_uri} exceeded max retries ({ev_retry_count}), dead-lettering: {e}");
-                } else {
-                    warn!("Event {ev_uri} exceeded max retries ({ev_retry_count}), dead-lettering: {e}");
-                }
+                log_dead_letter(event, retry_event, &e).await;
                 self.remove_if_current(index_key, retry_event.nonce, ev_uri)
                     .await?;
             }
             RetryOutcome::Reschedule => {
                 // Schedule retry with backoff (increments retry_count)
-                self.reschedule(&retry_event, &e, true).await?;
+                self.reschedule(retry_event, &e, true).await?;
             }
         }
 
@@ -309,6 +307,78 @@ impl RetryProcessor {
     }
 }
 
+/// Logs that `retry_event` used up its limit and is removed.
+///
+/// A flip has no limit for a failed flip step (`limit_reached`), so a `social/v1` profile PUT
+/// reaching it is usually a `v1` user's edit, logged at `warn`; a flip lost to any other error
+/// is logged at `error` (`is_flip`).
+async fn log_dead_letter(event: &Event, retry_event: &RetryEvent, e: &EventProcessorError) {
+    let ev_uri = &retry_event.event_uri;
+    let ev_retry_count = retry_event.retry_count;
+    if is_flip(event).await {
+        error!("social/v1 profile PUT {ev_uri} exceeded max retries ({ev_retry_count}), dead-lettering: {e}");
+    } else {
+        warn!("Event {ev_uri} exceeded max retries ({ev_retry_count}), dead-lettering: {e}");
+    }
+}
+
+/// Why a queued entry is removed instead of retried.
+#[derive(Debug, PartialEq)]
+enum Unretryable {
+    /// Skipped by design (`social/vN`, mute): queued before the parse step started skipping
+    /// such lines ahead of any fetch.
+    SkippedByDesign(SkipReason),
+    /// Its address is not one Nexus recognises, for the reason given.
+    UnrecognizedUri(String),
+    /// Its event type and URI don't make an event line.
+    CorruptedLine,
+    /// Its origin homeserver is no public key, so the event line can't be stored with it.
+    OriginNotAKey,
+}
+
+impl Unretryable {
+    /// Logs the removal: at `debug` for an entry skipped by design, at `warn` for the rest.
+    fn log(&self, index_key: &IndexKey, retry_event: &RetryEvent) {
+        let event_line = event_line(retry_event);
+        match self {
+            Self::SkippedByDesign(reason) => debug!(
+                "Retry entry skipped by design ({reason:?}) for key {index_key}, removing: '{event_line}'"
+            ),
+            Self::UnrecognizedUri(reason) => {
+                warn!("Unrecognized URI in retry entry for key {index_key}, removing: {reason}")
+            }
+            Self::CorruptedLine => {
+                warn!("Corrupted retry entry for key {index_key}, removing: '{event_line}'")
+            }
+            Self::OriginNotAKey => warn!(
+                "Corrupted retry entry for key {index_key}, origin homeserver {:?} is no public key, removing: '{event_line}'",
+                retry_event.origin_homeserver_id
+            ),
+        }
+    }
+}
+
+/// The event line a queued entry stands for: "METHOD URI" (e.g. "PUT pubky://...").
+fn event_line(retry_event: &RetryEvent) -> String {
+    format!("{} {}", retry_event.event_type, retry_event.event_uri)
+}
+
+/// The event a queued entry asks to retry and the homeserver it was read from, whose key the
+/// event line is stored with, or why the entry can't be retried.
+fn retry_target(retry_event: &RetryEvent) -> Result<(Event, PubkyId), Unretryable> {
+    let event = match Event::parse_event(&event_line(retry_event)) {
+        Ok(ParseResult::Parsed(event)) => event,
+        Ok(ParseResult::Skipped(reason)) => return Err(Unretryable::SkippedByDesign(reason)),
+        Ok(ParseResult::UnrecognizedUri { reason, .. }) => {
+            return Err(Unretryable::UnrecognizedUri(reason))
+        }
+        Err(_) => return Err(Unretryable::CorruptedLine),
+    };
+    let origin_homeserver_id = PubkyId::try_from(&retry_event.origin_homeserver_id)
+        .map_err(|_| Unretryable::OriginNotAKey)?;
+    Ok((event, origin_homeserver_id))
+}
+
 /// Calculate exponential backoff
 fn calculate_backoff(retry_count: u32, initial: u64, max: u64) -> u64 {
     let exponential = 2u64
@@ -383,6 +453,8 @@ mod tests {
     /// `Event::parse_event` yields `ParseResult::Parsed` without any stack.
     const URI: &str =
         "pubky://uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko/pub/pubky.app/posts/clobberpst";
+    /// Origin homeserver of the test entries: a valid key, or the processor removes the entry.
+    const HS: &str = "8rsrmfrn1anbrzuxiffwy1174o58emf4qgbfk5h7s8a33r3bd8dy";
 
     /// Handler that simulates a live event processor enqueuing a NEW retry
     /// event (fresh nonce) for the same URI while the fetched retry is still
@@ -394,7 +466,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl EventHandler for EnqueueNewerEventHandler {
-        async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
+        async fn handle(
+            &self,
+            _event: &Event,
+            _homeserver_id: &PubkyId,
+        ) -> Result<(), EventProcessorError> {
             self.store.put(&self.newer).await?;
             Ok(())
         }
@@ -416,7 +492,7 @@ mod tests {
             event_type: EventType::Put,
             event_uri: URI.to_string(),
             next_retry_at: now - 1_000,
-            origin_homeserver_id: "test_hs".to_string(),
+            origin_homeserver_id: HS.to_string(),
             nonce: 100,
         };
         store.put(&e1).await.unwrap();
@@ -460,6 +536,59 @@ mod tests {
         assert_eq!(stored.next_retry_at, now + 60_000);
     }
 
+    /// An entry is retried only when its type and URI parse into an event Nexus handles and its
+    /// origin homeserver is a public key. Every other entry is removed, for the reason given.
+    #[test]
+    fn retry_target_gives_the_event_and_its_origin_or_why_the_entry_is_removed() {
+        const USER: &str = "uo7jgkykft4885n8cruizwy6khw71mnu5pq3ay9i8pw1ymcn85ko";
+        let entry = |event_uri: &str, origin: &str| RetryEvent {
+            retry_count: 0,
+            event_type: EventType::Put,
+            event_uri: event_uri.to_string(),
+            next_retry_at: 0,
+            origin_homeserver_id: origin.to_string(),
+            nonce: 1,
+        };
+
+        let (event, origin) = retry_target(&entry(URI, HS)).expect("a sound entry is retried");
+        assert_eq!(event.uri, URI);
+        assert_eq!(event.event_type, EventType::Put);
+        assert_eq!(origin.as_ref(), HS);
+
+        let mute = format!("pubky://{USER}/pub/pubky.app/mutes/{USER}");
+        let cases = [
+            (
+                entry(&mute, HS),
+                Unretryable::SkippedByDesign(SkipReason::LegacyNotIndexed {
+                    resource: "mutes".to_string(),
+                }),
+            ),
+            (
+                entry("https://example.com/pub/pubky.app/posts/x", HS),
+                Unretryable::UnrecognizedUri("".to_string()),
+            ),
+            (
+                entry(&format!("pubky://{USER}/pub/pubky.app/foo/bar"), HS),
+                Unretryable::CorruptedLine,
+            ),
+            (entry(URI, "test_hs"), Unretryable::OriginNotAKey),
+            (entry(URI, ""), Unretryable::OriginNotAKey),
+            // The line is judged first: a corrupted one is reported as such whatever its origin
+            (
+                entry(&format!("pubky://{USER}/pub/pubky.app/foo/bar"), "test_hs"),
+                Unretryable::CorruptedLine,
+            ),
+        ];
+        for (entry, expected) in cases {
+            let got = retry_target(&entry).map(|_| ()).expect_err("removed");
+            match (&got, &expected) {
+                // The router words the reason; only the kind is this function's
+                (Unretryable::UnrecognizedUri(_), Unretryable::UnrecognizedUri(_)) => {}
+                _ => assert_eq!(got, expected, "{entry:?}"),
+            }
+        }
+    }
+
     /// Handler that fails every event with `error`.
     struct FailingHandler {
         error: EventProcessorError,
@@ -467,7 +596,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl EventHandler for FailingHandler {
-        async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
+        async fn handle(
+            &self,
+            _event: &Event,
+            _homeserver_id: &PubkyId,
+        ) -> Result<(), EventProcessorError> {
             Err(self.error.clone())
         }
     }
@@ -496,7 +629,7 @@ mod tests {
                 event_type: EventType::Put,
                 event_uri: flip_uri,
                 next_retry_at: Utc::now().timestamp_millis() - 1_000,
-                origin_homeserver_id: "test_hs".to_string(),
+                origin_homeserver_id: HS.to_string(),
                 nonce: 1,
             })
             .await?;

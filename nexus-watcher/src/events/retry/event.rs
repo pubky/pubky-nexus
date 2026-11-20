@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use deadpool_redis::redis::Script;
 use nexus_common::db::kv::{RedisError, RedisResult, SortOrder};
+use pubky_social_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
@@ -54,7 +55,9 @@ pub struct RetryEvent {
     pub event_uri: String,
     /// Unix ms - when to next attempt (exponential backoff)
     pub next_retry_at: i64,
-    /// Homeserver that served the event
+    /// Homeserver that served the event: the key the event line is stored with once the retry
+    /// succeeds. Kept a `String` so every stored entry still deserializes; the retry processor
+    /// parses it into a [`PubkyId`] and removes an entry whose key doesn't parse.
     pub origin_homeserver_id: String,
     /// Identity of this logical enqueue, used by the compare-and-act store ops.
     ///
@@ -141,14 +144,14 @@ static PUT_IF_NONCE_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
 });
 
 impl RetryEvent {
-    /// Creates a new RetryEvent from the source event
-    pub fn new(event: &Event, next_retry_at: i64, origin_homeserver_id: impl Into<String>) -> Self {
+    /// Creates a new RetryEvent from the source event, read from `origin_homeserver_id`
+    pub fn new(event: &Event, next_retry_at: i64, origin_homeserver_id: &PubkyId) -> Self {
         Self {
             retry_count: 0,
             event_type: event.event_type.clone(),
             event_uri: event.uri.clone(),
             next_retry_at,
-            origin_homeserver_id: origin_homeserver_id.into(),
+            origin_homeserver_id: origin_homeserver_id.to_string(),
             nonce: Self::fresh_nonce(),
         }
     }

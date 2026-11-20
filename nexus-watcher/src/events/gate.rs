@@ -140,6 +140,11 @@ mod tests {
     use crate::events::ParseResult;
 
     const USER: &str = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
+    const HS: &str = "8rsrmfrn1anbrzuxiffwy1174o58emf4qgbfk5h7s8a33r3bd8dy";
+
+    fn homeserver() -> PubkyId {
+        PubkyId::try_from(HS).unwrap()
+    }
 
     fn event(line: &str) -> Event {
         match Event::parse_event(line) {
@@ -255,7 +260,7 @@ mod tests {
     fn only_a_put_entry_is_a_queued_flip() {
         let entry = |kind: &str| {
             let line = format!("{kind} pubky://{USER}/pub/social/v1/profile.json");
-            RetryEvent::new(&event(&line), 0, "hs")
+            RetryEvent::new(&event(&line), 0, &homeserver())
         };
         assert!(is_queued_flip(Some(&entry("PUT"))));
         assert!(
@@ -308,7 +313,7 @@ mod tests {
                 kind: &str,
             ) -> Result<(), EventProcessorError> {
                 let line = format!("{kind} {}", flip_profile_uri(user_id));
-                self.put(&RetryEvent::new(&event(&line), i64::MAX, "hs"))
+                self.put(&RetryEvent::new(&event(&line), i64::MAX, &homeserver()))
                     .await
             }
         }

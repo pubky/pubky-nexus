@@ -155,8 +155,8 @@ impl TEventProcessor for HsEventProcessor {
         Some(&self.retry_scheduler)
     }
 
-    fn homeserver_id(&self) -> Option<&str> {
-        Some(self.homeserver.id.as_ref())
+    fn homeserver_id(&self) -> &PubkyId {
+        &self.homeserver.id
     }
 
     /// Skips events from users that are not actively bound to this homeserver.
