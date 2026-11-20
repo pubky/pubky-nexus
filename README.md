@@ -29,39 +29,6 @@ The OpenAPI documents are `/api-docs/v0/openapi.json`, `/api-docs/v1/openapi.jso
 
 You can explore available endpoints, test queries, and view schema definitions directly within Swagger.
 
-## 🏷️ Versioning
-
-Nexus 1.x serves `/v1` and reads the 1.x data model of [`pubky-social-specs`](https://github.com/pubky/pubky-social-specs). The two version numbers move independently.
-
-A release is published as the Docker image `synonymsoft/pubky-nexus:vX.Y.Z`, with a GitHub release of the same name. What changed in each version is in [CHANGELOG.md](CHANGELOG.md); how a release is cut is in [docs/guides/releasing.md](docs/guides/releasing.md).
-
-### What a version number promises
-
-From 1.0.0, the version follows [semver](https://semver.org) for the parts listed here, and only for those. A minor release adds, a patch release fixes, and a major release may remove or change.
-
-| Area | Promise |
-|---|---|
-| `/v1` | Follows semver, as set out below. |
-| `/v0` | Deprecated and frozen: fixes only, no new routes or fields. It can be removed in a 1.x minor release, announced in the changelog at least one release ahead. |
-| Docker image | A `synonymsoft/pubky-nexus:vX.Y.Z` image is never pushed again once published. `latest` moves with each release. |
-| Everything else | Not covered: the config file, the `nexusd` commands, the Rust crates (not published) and the data Nexus stores in Neo4j and Redis. A change to the config file or to the commands is still listed under **Upgrade** in the release's changelog section. |
-
-A minor or patch release keeps, for every `/v1` route:
-
-- the route and its method;
-- its path and query parameters, the pagination parameters and their bounds;
-- the response's field names and types;
-- which fields can be missing and which are always there, and when a list comes back empty rather than as an error;
-- the status codes.
-
-Not part of the contract:
-
-- the ranking and the content of the results, such as which posts a trust filter hides or the order of a ranked list;
-- a default `limit`, within its bounds;
-- the text of an error message.
-
-A minor release may add routes, parameters and response fields, and new values to an enum in a response. A client ignores fields and enum values it does not know.
-
 ## 🏗️ Architecture Overview
 
 Nexus is one binary, `nexusd`, built from four crates:
@@ -113,6 +80,39 @@ The Swagger UI is then at [http://localhost:8080/swagger-ui](http://localhost:80
 2. **Set up** the environment from the [development guide](docs/guides/development.md).
 3. **Write tests**, and benchmarks where performance matters, for every change. Update the guide that covers what you changed.
 4. **Open a pull request** that describes the change.
+
+## 🏷️ Versioning
+
+Nexus 1.x serves `/v1` and reads the 1.x data model of [`pubky-social-specs`](https://github.com/pubky/pubky-social-specs). The two version numbers move independently.
+
+A release is published as the Docker image `synonymsoft/pubky-nexus:vX.Y.Z`, with a GitHub release of the same name. What changed in each version is in [CHANGELOG.md](CHANGELOG.md); how a release is cut is in [docs/guides/releasing.md](docs/guides/releasing.md).
+
+### What a version number promises
+
+From 1.0.0, the version follows [semver](https://semver.org) for the parts listed here, and only for those. A minor release adds, a patch release fixes, and a major release may remove or change.
+
+| Area | Promise |
+|---|---|
+| `/v1` | Follows semver, as set out below. |
+| `/v0` | Deprecated and frozen: fixes only, no new routes or fields. It can be removed in a 1.x minor release, announced in the changelog at least one release ahead. |
+| Docker image | A `synonymsoft/pubky-nexus:vX.Y.Z` image is never pushed again once published. `latest` moves with each release. |
+| Everything else | Not covered: the config file, the `nexusd` commands, the Rust crates (not published) and the data Nexus stores in Neo4j and Redis. A change to the config file or to the commands is still listed under **Upgrade** in the release's changelog section. |
+
+A minor or patch release keeps, for every `/v1` route:
+
+- the route and its method;
+- its path and query parameters, the pagination parameters and their bounds;
+- the response's field names and types;
+- which fields can be missing and which are always there, and when a list comes back empty rather than as an error;
+- the status codes.
+
+Not part of the contract:
+
+- the ranking and the content of the results, such as which posts a trust filter hides or the order of a ranked list;
+- a default `limit`, within its bounds;
+- the text of an error message.
+
+A minor release may add routes, parameters and response fields, and new values to an enum in a response. A client ignores fields and enum values it does not know.
 
 ## 🌐 Useful Links
 
