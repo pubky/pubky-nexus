@@ -30,10 +30,10 @@ use tracing::{info, warn};
 /// homeserver they were bound to, and only a user first bound after moving gets the new one.
 ///
 /// # While it runs
-/// The watcher and the API keep working on `Event:Events`, whole, until the swap. A line the
-/// watcher appends meanwhile is copied like any other: the swap happens only at the moment
-/// both lists have the same length, so none is left behind. Every line keeps its offset, so
-/// the `/v0/events` cursors stay valid across the swap.
+/// It is meant to run with every instance stopped (see Deploy ordering). A watcher left
+/// running loses no line all the same: a line it appends meanwhile is copied like any other,
+/// and the swap happens only at the moment both lists have the same length. Every line keeps
+/// its offset, so the `/v0/events` cursors stay valid across the swap.
 ///
 /// Each page's users are looked up in one query and its lines appended to the copy by one
 /// script. An append costs the same wherever the copy ends. Reading a page makes Redis seek to
@@ -54,10 +54,11 @@ use tracing::{info, warn};
 /// trusted: until then the lines are stored twice.
 ///
 /// # Deploy ordering
-/// The API first, or together with the watcher: only an API of this build strips the key from
-/// `/v0/events`, and an older one would serve keyed lines to readers that did not ask for the
-/// key. Then the watchers that store the key, then this migration. A line an older watcher
-/// appends after the swap stays without a key.
+/// Hard cutover: stop every instance of the previous build (API and watcher), run
+/// `nexusd db migration run`, then start this build. The steps must not overlap. A previous
+/// API serves lines as stored, so after the swap it would hand keyed lines to readers that
+/// expect `PUT` or `DEL` first, and a line a previous watcher appends after the swap stays
+/// without a key.
 pub struct EventLineHomeserverBackfill1794005092;
 
 /// Event lines copied per page.
