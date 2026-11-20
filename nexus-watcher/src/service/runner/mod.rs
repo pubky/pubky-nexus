@@ -363,6 +363,51 @@ mod tests {
         );
     }
 
+    /// Processor whose every run fails.
+    struct FailingProcessor {
+        handler: Arc<dyn EventHandler>,
+    }
+
+    #[async_trait::async_trait]
+    impl TEventProcessor for FailingProcessor {
+        fn event_handler(&self) -> &Arc<dyn EventHandler> {
+            &self.handler
+        }
+
+        fn instance_name(&self) -> &'static str {
+            "FailingProcessor"
+        }
+
+        async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {
+            Err(EventProcessorError::generic("poll failed"))
+        }
+    }
+
+    /// A failed run is logged at ERROR inside its `event_processor.run` span, which is what
+    /// marks the span as errored in the exported trace.
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn a_failed_run_is_logged_in_its_span() {
+        let processor = Arc::new(FailingProcessor {
+            handler: Arc::new(NoopHandler),
+        });
+
+        let result = processor.run().await;
+
+        assert!(matches!(result, Err(RunError::Internal(_))), "{result:?}");
+        logs_assert(|lines| {
+            lines
+                .iter()
+                .any(|line| {
+                    line.contains(" ERROR ")
+                        && line.contains("event_processor.run{")
+                        && line.contains("Event processor failed")
+                })
+                .then_some(())
+                .ok_or_else(|| "no ERROR line in the event_processor.run span".to_string())
+        });
+    }
+
     /// Pins a known limitation: the tick waits for every run, so a run that never returns
     /// holds up the homeservers after it for good. Bounding the calls a run makes fixes it.
     #[tokio::test(start_paused = true)]
