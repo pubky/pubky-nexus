@@ -1,12 +1,13 @@
 use crate::models::{BoundedLimit, BoundedPagination, BoundedSkip, PubkyId};
 use crate::routes::v0::endpoints::{
-    USER_FOLLOWERS_ROUTE, USER_FOLLOWING_ROUTE, USER_FRIENDS_ROUTE,
+    USER_FOLLOWERS_ROUTE, USER_FOLLOWING_DETAILS_ROUTE, USER_FOLLOWING_ROUTE, USER_FRIENDS_ROUTE,
 };
 use crate::routes::Path;
 use crate::routes::Query;
 use crate::{Error, Result};
 use axum::Json;
 use nexus_common::models::follow::{Followers, Following, Friends, UserFollows};
+use nexus_common::models::user::UserDetails;
 use serde::Deserialize;
 use tracing::debug;
 use utoipa::OpenApi;
@@ -79,6 +80,42 @@ pub async fn user_following_handler(
         Some(following) => Ok(Json(following)),
         None => Err(Error::user_not_found(user_id)),
     }
+}
+
+#[utoipa::path(
+    get,
+    path = USER_FOLLOWING_DETAILS_ROUTE,
+    description = "List the details of the users a user follows, in the same order and pages as `/following`. A followed user whose record cannot be read is left out, so a page can be shorter than `limit` without being the last one: advance `skip` by `limit`. A user Nexus knows only by key, with no profile yet, comes back named after the key; a deleted user comes back with `deleted: true`.",
+    tag = "User",
+    params(
+        ("user_id" = PubkyId, Path, description = "User Pubky ID"),
+        ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Skip N following (max 10000)"),
+        ("limit" = Option<BoundedLimit<50, 200>>, Query, description = "Retrieve N following (1–200, default 50)")
+    ),
+    responses(
+        (status = 200, description = "Details of the followed users", body = Vec<UserDetails>),
+        (status = 400, description = "Invalid parameters"),
+        (status = 404, description = "User not found"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error")
+    )
+)]
+/// `/v1` only (`V1::own_routes`): `/v0` takes no new routes.
+pub async fn user_following_details_handler(
+    Path(user_id): Path<PubkyId>,
+    Query(query): Query<FollowsQuery>,
+) -> Result<Json<Vec<UserDetails>>> {
+    debug!("GET {USER_FOLLOWING_DETAILS_ROUTE} user_id:{}", user_id);
+
+    let pagination = query.pagination.to_pagination(None, None);
+
+    let Some(following) = Following::get_by_id(&user_id, pagination.skip, pagination.limit).await?
+    else {
+        return Err(Error::user_not_found(user_id));
+    };
+    let details = UserDetails::get_by_ids(&following.0).await?;
+
+    Ok(Json(details.into_iter().flatten().collect()))
 }
 
 #[utoipa::path(

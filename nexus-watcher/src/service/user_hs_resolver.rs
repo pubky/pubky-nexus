@@ -622,7 +622,7 @@ async fn get_user_homeserver(user_id: &str) -> GraphResult<Option<UserHomeserver
     }))
 }
 
-/// Population counts over non-deleted users with a `HOSTED_BY` mapping.
+/// Population counts over users with a `HOSTED_BY` mapping, deleted or not.
 #[derive(Debug, Default)]
 struct MappingCounts {
     /// Users bound to a homeserver.
@@ -667,7 +667,8 @@ struct HsResolverMetrics {
     /// PKDNS records older than the one the mapping was applied from: replays
     /// or lagging answers, never applied.
     ignored_older_record: Counter<u64>,
-    /// Non-deleted users with a `HOSTED_BY` mapping; denominator for `stale_users`.
+    /// Users with a `HOSTED_BY` mapping, deleted ones included; denominator
+    /// for `stale_users`.
     mapped_users: Gauge<u64>,
     /// Subset of `mapped_users` whose mapping is currently stale. Refreshed
     /// after every run that processed users, which are the runs that can change it.
@@ -905,11 +906,13 @@ mod tests {
         let user_fresh = "ttl_test_user_fresh";
         let user_stale = "ttl_test_user_stale";
         let user_no_hs = "ttl_test_user_no_hs";
+        let user_deleted = "ttl_test_user_deleted";
         let hs_id = "ttl_test_hs";
 
         create_test_user(user_fresh).await?;
         create_test_user(user_stale).await?;
         create_test_user(user_no_hs).await?;
+        create_test_user(user_deleted).await?;
 
         // Give user_fresh a recently resolved mapping
         set_user_homeserver(user_fresh, hs_id).await?;
@@ -925,6 +928,20 @@ mod tests {
         .param("user_id", user_stale)
         .param("hs_id", hs_id);
         exec_single_row(stale_query).await?;
+
+        // user_deleted is tombstoned with an expired mapping: the sweep keeps
+        // re-resolving their record, so it still notices a switch they
+        // publish after the delete.
+        let deleted_query = Query::new(
+            "tombstone_ttl_test_user",
+            "MATCH (u:User {id: $user_id})
+             MERGE (hs:Homeserver {id: $hs_id})
+             MERGE (u)-[r:HOSTED_BY]->(hs)
+             SET u.deleted = true, r.resolved_at = timestamp() - 7200000",
+        )
+        .param("user_id", user_deleted)
+        .param("hs_id", hs_id);
+        exec_single_row(deleted_query).await?;
 
         // user_no_hs has no HOSTED_BY at all
 
@@ -944,11 +961,16 @@ mod tests {
             needing.contains(&user_no_hs.to_string()),
             "User without HOSTED_BY should need resolution"
         );
+        assert!(
+            needing.contains(&user_deleted.to_string()),
+            "Deleted user should stay in the sweep"
+        );
 
         // Cleanup
         cleanup_test_user(user_fresh).await?;
         cleanup_test_user(user_stale).await?;
         cleanup_test_user(user_no_hs).await?;
+        cleanup_test_user(user_deleted).await?;
 
         Ok(())
     }
@@ -1726,6 +1748,46 @@ mod tests {
         let counts = count_mappings().await?;
         assert!(counts.stale >= 1);
         assert!(counts.mapped >= counts.stale);
+
+        cleanup_test_user(&user_id).await?;
+
+        Ok(())
+    }
+
+    /// A tombstone does not take a mapping out of the counts: the user stays bound,
+    /// read and re-resolved, so the gauges keep counting them.
+    ///
+    /// Compares two reads of the global counts taken around the tombstone, so it
+    /// runs alone (see `.config/nextest.toml`): a mapping another test creates or
+    /// drops in between would move them.
+    #[tokio_shared_rt::test(shared)]
+    async fn test_count_mappings_keep_tombstoned_users() -> Result<(), DynError> {
+        setup().await?;
+
+        let user_id = random_pk().z32();
+        create_test_user(&user_id).await?;
+        set_user_homeserver(&user_id, &random_pubky_id()).await?;
+        set_user_homeserver_stale(&user_id, true, None).await?;
+        let before = count_mappings().await?;
+
+        exec_single_row(
+            Query::new(
+                "tombstone_counted_user",
+                "MATCH (u:User {id: $user_id}) SET u.deleted = true",
+            )
+            .param("user_id", user_id.clone()),
+        )
+        .await?;
+        let after = count_mappings().await?;
+
+        assert_eq!(
+            after.mapped, before.mapped,
+            "a tombstone took the mapping out of the count"
+        );
+        assert_eq!(
+            after.stale, before.stale,
+            "a tombstone took the mapping out of the stale count"
+        );
 
         cleanup_test_user(&user_id).await?;
 

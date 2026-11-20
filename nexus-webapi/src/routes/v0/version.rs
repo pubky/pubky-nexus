@@ -31,12 +31,15 @@ use nexus_common::models::resource::view::ResourceView;
 use nexus_common::models::tag::search::PrefixFold;
 use nexus_common::models::tag::traits::taggers::TaggersTuple;
 use nexus_common::models::tag::TagDetails;
-use nexus_common::models::user::{UserCounts, UserStream, UserView};
+use nexus_common::models::user::{UserCounts, UserDetails, UserStream, UserView};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use utoipa::{IntoParams, OpenApi, ToSchema};
 
-use super::endpoints::{POST_BOOKMARK_ROUTE, V0_PREFIX, V1_PREFIX};
+use super::endpoints::{
+    POST_BOOKMARK_ROUTE, STREAM_USERS_DETAILS_BY_IDS_ROUTE, USER_FOLLOWING_DETAILS_ROUTE,
+    V0_PREFIX, V1_PREFIX,
+};
 use super::stream::posts::{PostStreamByIdsRequest, StreamSourceKind};
 use super::types::TaggersInfoResponse;
 use super::{bootstrap, file, notification, post, resource, search, stream, tag, user};
@@ -495,10 +498,19 @@ impl ApiVersion for V1 {
         axum::routing::get(stream::resources::stream_resource_ids_handler_v1)
     }
 
-    /// None: `/v1` serves no route of its own yet, and no bookmark or file details route at
-    /// all.
+    /// The details-only user lookups, by ids and for a user's follows. Both are one indexed graph
+    /// read, like `/user/{user_id}/details`, so they sit in the default bucket. `/v1` has no bookmark or file details route at all.
     fn own_routes() -> (Router<AppState>, Router<AppState>) {
-        (Router::new(), Router::new())
+        let default = Router::new()
+            .route(
+                STREAM_USERS_DETAILS_BY_IDS_ROUTE,
+                axum::routing::post(stream::users::stream_users_details_by_ids_handler),
+            )
+            .route(
+                USER_FOLLOWING_DETAILS_ROUTE,
+                axum::routing::get(user::follows::user_following_details_handler),
+            );
+        (Router::new(), default)
     }
 
     fn docs() -> utoipa::openapi::OpenApi {
@@ -734,6 +746,8 @@ struct V0Doc;
         search::tags::search_tags_by_prefix_handler_v1,
         stream::resources::stream_resources_handler_v1,
         stream::resources::stream_resource_ids_handler_v1,
+        stream::users::stream_users_details_by_ids_handler,
+        user::follows::user_following_details_handler,
     ),
     components(schemas(
         v1::PostView,
@@ -755,6 +769,8 @@ struct V0Doc;
         v1::ResourceTagsResponse,
         v1::TagLabel,
         v1::Tags,
+        stream::users::UserDetailsByIdsRequest,
+        UserDetails,
     ))
 )]
 struct V1Doc;

@@ -17,7 +17,8 @@ fn ft_search_timeout_ms() -> usize {
     *FT_SEARCH_TIMEOUT.get().unwrap_or(&FT_SEARCH_TIMEOUT_MS)
 }
 
-/// Creates the post content index: $.content TEXT + $.author TAG CASESENSITIVE + $.kind TAG CASESENSITIVE.
+/// Creates the post content index: $.content TEXT, $.author TAG CASESENSITIVE, $.kind TAG
+/// CASESENSITIVE and $.indexed_at NUMERIC SORTABLE.
 /// NOOFFSETS/NOHL kept; NOFIELDS dropped to allow field-targeted queries.
 /// Idempotent: short-circuits on "already exists".
 ///
@@ -28,9 +29,9 @@ pub(crate) async fn ft_create_post_content_index(
     prefix: &str,
 ) -> RedisResult<()> {
     // Adding or changing a field here requires a matching index migration.
-    // PostContentIndexAuthorSetup1780531200 drops and recreates from a frozen
-    // v2 copy, so a fresh environment would boot on this schema and then be
-    // silently downgraded to v2 by `nexusd db migration run`.
+    // PostContentIndexSortSetup1795086590 drops and recreates from a frozen
+    // v3 copy, so a fresh environment would boot on this schema and then be
+    // silently downgraded to v3 by `nexusd db migration run`.
     let result = deadpool_redis::redis::cmd("FT.CREATE")
         .arg("postContentIdx")
         .arg("ON")
@@ -55,6 +56,11 @@ pub(crate) async fn ft_create_post_content_index(
         .arg("kind")
         .arg("TAG")
         .arg("CASESENSITIVE")
+        .arg("$.indexed_at")
+        .arg("AS")
+        .arg("indexed_at")
+        .arg("NUMERIC")
+        .arg("SORTABLE")
         .query_async::<()>(conn)
         .await;
 
@@ -126,7 +132,8 @@ fn build_ft_query(
     Some(parts.join(" "))
 }
 
-/// Full-text search on `postContentIdx` returning `(redis_key, score)` pairs ordered by relevance.
+/// Full-text search on `postContentIdx` returning `(redis_key, score)` pairs ordered by relevance,
+/// or newest first when scoped to one author, as that author's profile timeline is.
 /// Keys are returned as-is (including any Redis prefix); the caller strips the prefix.
 ///
 /// When `author` is `Some`, results are scoped to posts by those authors.
@@ -145,11 +152,17 @@ pub(crate) async fn ft_search_scored(
 
     let mut conn = get_redis_conn().await?;
 
-    let raw: deadpool_redis::redis::Value = deadpool_redis::redis::cmd("FT.SEARCH")
-        .arg("postContentIdx")
+    let mut cmd = deadpool_redis::redis::cmd("FT.SEARCH");
+    cmd.arg("postContentIdx")
         .arg(&ft_query)
         .arg("NOCONTENT")
-        .arg("WITHSCORES")
+        .arg("WITHSCORES");
+    // Relevance scoring buries long posts under short ones; one author's matches
+    // read as their timeline does, newest first, every kind interleaved.
+    if matches!(author, Some(AuthorFilter::One(_))) {
+        cmd.arg("SORTBY").arg("indexed_at").arg("DESC");
+    }
+    let raw: deadpool_redis::redis::Value = cmd
         .arg("LIMIT")
         .arg(skip)
         .arg(limit)

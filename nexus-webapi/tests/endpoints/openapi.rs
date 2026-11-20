@@ -83,10 +83,13 @@ const V0_ONLY_PATHS: &[&str] = &[
 ];
 
 /// The paths only v1 documents, relative to the prefix: the two `/v1/static` routes, served
-/// by the static router and documented with v1 so a v1 client reads one document.
+/// by the static router and documented with v1 so a v1 client reads one document, and the
+/// routes added after `/v0` froze.
 const V1_ONLY_PATHS: &[&str] = &[
     "/static/avatar/{user_id}",
     "/static/files/{owner_id}/{file_id}/{variant}",
+    "/stream/users/details/by_ids",
+    "/user/{user_id}/following/details",
 ];
 
 /// Both documents come from one route declaration, so every v0 path is in the v1 document
@@ -340,6 +343,17 @@ fn test_post_kind_schema_names_the_kinds_per_version() {
         assert_eq!(spec.is_known(), v1_name != "unknown", "{v1_name}");
         assert_eq!(spec.wire_name(), v1_name, "{v1_name}");
     }
+}
+
+/// The details-only routes are v1 only, and so is their request schema: the shared stream
+/// document is merged into v0 too, so a schema listed there would show in v0 without a route.
+#[test]
+fn test_details_by_ids_request_schema_is_v1_only() {
+    let schema = "/components/schemas/UserDetailsByIdsRequest";
+    let v0 = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
+    let v1 = serde_json::to_value(ApiDoc::v1_docs()).expect("serializable spec");
+    assert!(v0.pointer(schema).is_none(), "listed in the v0 document");
+    assert!(v1.pointer(schema).is_some(), "missing from the v1 document");
 }
 
 /// The v1 schemas keep `epoch`, `tag_uri` and `deleted` where v0 has them.

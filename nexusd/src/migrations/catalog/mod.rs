@@ -8,6 +8,7 @@ use file_details_keys_retire_1792145757::FileDetailsKeysRetire1792145757;
 use overwritten_profile_restore_1795036051::OverwrittenProfileRestore1795036051;
 use post_content_index_author_setup_1780531200::PostContentIndexAuthorSetup1780531200;
 use post_content_index_setup_1780444800::PostContentIndexSetup1780444800;
+use post_content_index_sort_setup_1795086590::PostContentIndexSortSetup1795086590;
 use post_deleted_flag_1790899200::PostDeletedFlag1790899200;
 use remove_muted_1771718400::RemoveMuted1771718400;
 use resource_node_setup_1774000000::ResourceNodeSetup1774000000;
@@ -50,6 +51,7 @@ pub fn import_migrations(migration_manager: &mut MigrationManager) {
         Box::new(OverwrittenProfileRestore1795036051),
         Box::new(UserSearchStateBackfill1792157548),
         Box::new(UserDetailsCacheRetire1792160000),
+        Box::new(PostContentIndexSortSetup1795086590),
         Box::new(EventLineHomeserverBackfill1794005092),
     ];
     for migration in migrations {
@@ -65,6 +67,7 @@ pub mod file_details_keys_retire_1792145757;
 pub mod overwritten_profile_restore_1795036051;
 pub mod post_content_index_author_setup_1780531200;
 pub mod post_content_index_setup_1780444800;
+pub mod post_content_index_sort_setup_1795086590;
 pub mod post_deleted_flag_1790899200;
 pub mod remove_muted_1771718400;
 pub mod resource_node_setup_1774000000;

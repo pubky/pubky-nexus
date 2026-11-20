@@ -3,8 +3,8 @@ use crate::models::{
     UsernamePrefix,
 };
 use crate::routes::v0::endpoints::{
-    STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_ROUTE, STREAM_USERS_USERNAME_SEARCH_ROUTE,
-    STREAM_USER_IDS_ROUTE,
+    STREAM_USERS_BY_IDS_ROUTE, STREAM_USERS_DETAILS_BY_IDS_ROUTE, STREAM_USERS_ROUTE,
+    STREAM_USERS_USERNAME_SEARCH_ROUTE, STREAM_USER_IDS_ROUTE,
 };
 use crate::routes::v0::version::{versioned_handlers, ApiVersion};
 use crate::routes::Json as RequestJson;
@@ -13,8 +13,8 @@ use crate::{Error, Result};
 use axum::Json;
 use nexus_common::config::watcher::MODERATED_TAGS;
 use nexus_common::models::user::{
-    UserIdStream, UserStream, UserStreamInput, UserStreamSource, GLOBAL_INFLUENCERS_CACHE_SIZE,
-    STARTER_PACK_MAX_SKIP,
+    UserDetails, UserIdStream, UserStream, UserStreamInput, UserStreamSource,
+    GLOBAL_INFLUENCERS_CACHE_SIZE, STARTER_PACK_MAX_SKIP,
 };
 use nexus_common::types::{StreamReach, Timeframe};
 use serde::Deserialize;
@@ -257,6 +257,39 @@ versioned_handlers! {
         (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error")
     )
+}
+
+#[derive(ToSchema, Deserialize)]
+pub struct UserDetailsByIdsRequest {
+    pub user_ids: UserIds,
+}
+
+/// `/v1` only (`V1::own_routes`): `/v0` takes no new routes.
+#[utoipa::path(
+    post,
+    path = STREAM_USERS_DETAILS_BY_IDS_ROUTE,
+    tag = "Stream",
+    description = "User details by ID, without tags, counts or relationship. Ids with no user in Nexus are left out of the response, so it can be shorter than the request. A user Nexus knows only by key, with no profile yet, comes back named after the key; a deleted user comes back with `deleted: true`.",
+    request_body = UserDetailsByIdsRequest,
+    responses(
+        (status = 200, description = "User details, in request order", body = Vec<UserDetails>),
+        (status = 400, description = "Invalid request body"),
+        (status = 429, description = "Rate limit exceeded", headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn stream_users_details_by_ids_handler(
+    RequestJson(request): RequestJson<UserDetailsByIdsRequest>,
+) -> Result<Json<Vec<UserDetails>>> {
+    debug!(
+        "POST {} user_ids: {:?}",
+        STREAM_USERS_DETAILS_BY_IDS_ROUTE, request.user_ids
+    );
+
+    let user_ids = request.user_ids.to_string_vec();
+    let details = UserDetails::get_by_ids(&user_ids).await?;
+
+    Ok(Json(details.into_iter().flatten().collect()))
 }
 
 fn build_user_stream_input<V: ApiVersion>(

@@ -20,6 +20,7 @@ use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::events::{Event, ParseResult};
 use nexus_watcher::homeserver::{HomeserverClient, PubkyHomeserverClient};
 use nexus_watcher::service::HsEventProcessorRunner;
+use nexus_watcher::service::KeyBasedEventProcessorRunner;
 use nexus_watcher::service::TEventProcessorRunner;
 use pubky::ClientId;
 use pubky::Keypair;
@@ -222,6 +223,27 @@ impl WatcherTest {
                 .await
                 .map_err(|e| anyhow!(e))?;
         }
+        Ok(())
+    }
+
+    /// Reads the events of the users bound to `homeserver_id`, an external homeserver,
+    /// the way the watcher does: through a key-based processor sharing the primary
+    /// processor's client, handler and retry scheduler.
+    pub async fn process_external_homeserver(&self, homeserver_id: &PubkyId) -> Result<()> {
+        let runner = KeyBasedEventProcessorRunner::new(
+            &WatcherConfig::default(),
+            self.event_processor_runner.client.clone(),
+            self.event_processor_runner.event_handler.clone(),
+            self.event_processor_runner.retry_scheduler.clone(),
+            self.event_processor_runner.shutdown_rx.clone(),
+        );
+        runner
+            .build(homeserver_id.as_ref())
+            .await
+            .map_err(|e| anyhow!(e))?
+            .run()
+            .await
+            .map_err(|e| anyhow!(e))?;
         Ok(())
     }
 

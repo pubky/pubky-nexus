@@ -71,7 +71,7 @@ async fn db_size() -> Result<i64> {
 }
 
 fn assert_post_content_schema(info: &[String], prefix: &str, stage: &str) {
-    for field in ["$.content", "$.author", "$.kind"] {
+    for field in ["$.content", "$.author", "$.kind", "$.indexed_at"] {
         assert!(
             info.iter().any(|s| s == field),
             "{stage}: {POST_CONTENT_INDEX} should index {field}, got {info:?}"
