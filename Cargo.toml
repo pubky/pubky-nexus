@@ -9,6 +9,11 @@ members = [
     "examples",
 ]
 
+[workspace.package]
+# One version for every crate: the Nexus release. The crates are not published.
+version = "1.0.0"
+publish = false
+
 [workspace.dependencies]
 anyhow = "1.0.103"
 blake3 = "1"
