@@ -1,6 +1,6 @@
-# Nexus and HS Decentralization — Configuration Reference
+# Homeservers: configuration reference
 
-These are technical notes describing configuration fields related to Decentralization.
+How the watcher finds and indexes homeservers, and the config fields that drive it: the primary homeserver, the externally-hosted users, the user → homeserver resolution and the event retries.
 
 ---
 
@@ -237,7 +237,7 @@ catch both:
 | `nexus.task.hs-resolver.heartbeat_timestamp` | gauge, unit `s` | Unix time of the resolver's most recent progress: a user handled or a run finished. |
 
 Prometheus alerting rules for these metrics live in
-[`docker/otel/alerts.yaml`](../docker/otel/alerts.yaml), loaded by the local
+[`docker/otel/alerts.yaml`](../../docker/otel/alerts.yaml), loaded by the local
 observability stack (metric names as translated by the Prometheus exporter;
 under SigNoz drop the `_total` / `_seconds` suffixes):
 
