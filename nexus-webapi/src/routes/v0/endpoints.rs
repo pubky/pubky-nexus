@@ -27,6 +27,7 @@ pub const USER_TAGS_ROUTE: &str = concatcp!(USER_ROUTE, "/tags");
 pub const USER_TAGGERS_ROUTE: &str = concatcp!(USER_ROUTE, "/taggers/{label}");
 pub const USER_FOLLOWERS_ROUTE: &str = concatcp!(USER_ROUTE, "/followers");
 pub const USER_FOLLOWING_ROUTE: &str = concatcp!(USER_ROUTE, "/following");
+pub const USER_FOLLOWING_DETAILS_ROUTE: &str = concatcp!(USER_FOLLOWING_ROUTE, "/details");
 pub const USER_FRIENDS_ROUTE: &str = concatcp!(USER_ROUTE, "/friends");
 
 // -- POST endpoints --
@@ -46,6 +47,8 @@ pub const STREAM_USERS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/users");
 pub const STREAM_USER_IDS_ROUTE: &str = concatcp!(STREAM_USERS_ROUTE, "/ids");
 pub const STREAM_USERS_USERNAME_SEARCH_ROUTE: &str = concatcp!(STREAM_USERS_ROUTE, "/username");
 pub const STREAM_USERS_BY_IDS_ROUTE: &str = concatcp!(STREAM_USERS_ROUTE, "/by_ids");
+pub const STREAM_USERS_DETAILS_BY_IDS_ROUTE: &str =
+    concatcp!(STREAM_USERS_ROUTE, "/details/by_ids");
 // STREAM of PostView objects
 pub const STREAM_POSTS_ROUTE: &str = concatcp!(STREAM_PREFIX, "/posts");
 pub const STREAM_POSTS_BY_IDS_ROUTE: &str = concatcp!(STREAM_POSTS_ROUTE, "/by_ids");

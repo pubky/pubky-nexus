@@ -1,3 +1,4 @@
+use crate::utils::recommended::{DELETED, HOP};
 use crate::utils::{get_request, invalid_get_request, server::TestServiceServer};
 use anyhow::Result;
 use axum::http::StatusCode;
@@ -102,6 +103,69 @@ async fn test_get_following() -> Result<()> {
     // Test non-existing user
     invalid_get_request(
         &format!("/v0/user/{NON_EXISTING_USER_ID}/following"),
+        StatusCode::NOT_FOUND,
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_get_following_details() -> Result<()> {
+    // HOP's follows (recommended.cypher) are read by no other test that clears the cache. The
+    // order is only stable while both reads hit the same cached set: a cold read returns the
+    // graph's order and caches it, a warm one SSCANs it. So warm it first.
+    get_request(&format!("/v1/user/{HOP}/following")).await?;
+
+    // Same users, same order, same pages as /following
+    for query in ["", "?skip=1&limit=3"] {
+        let ids = get_request(&format!("/v1/user/{HOP}/following{query}")).await?;
+        let details = get_request(&format!("/v1/user/{HOP}/following/details{query}")).await?;
+
+        let details = details.as_array().expect("Response should be an array");
+        let detail_ids: Vec<&str> = details.iter().map(|d| d["id"].as_str().unwrap()).collect();
+        let ids: Vec<&str> = ids
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|id| id.as_str().unwrap())
+            .collect();
+        assert!(!ids.is_empty(), "Expected followed users for {query:?}");
+        assert_eq!(detail_ids, ids, "Details should follow /following{query}");
+
+        for user in details {
+            assert!(user["name"].is_string(), "Name should be a string");
+            assert!(user.get("tags").is_none(), "Tags should not be returned");
+            assert!(
+                user.get("counts").is_none(),
+                "Counts should not be returned"
+            );
+        }
+    }
+
+    // A followed tombstone comes back flagged, not filtered out
+    let details = get_request(&format!("/v1/user/{HOP}/following/details")).await?;
+    let deleted = details
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["id"] == DELETED)
+        .expect("Expected the followed deleted user");
+    assert_eq!(deleted["deleted"], true, "Expected deleted: true");
+
+    invalid_get_request(
+        &format!("/v1/user/{NON_EXISTING_USER_ID}/following/details"),
+        StatusCode::NOT_FOUND,
+    )
+    .await?;
+    invalid_get_request(
+        &format!("/v1/user/{HOP}/following/details?limit=201"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+    // /v0 is frozen: the route is /v1 only
+    invalid_get_request(
+        &format!("/v0/user/{HOP}/following/details"),
         StatusCode::NOT_FOUND,
     )
     .await?;

@@ -121,6 +121,117 @@ async fn test_stream_users_by_ids_with_invalid_ids() -> Result<()> {
     Ok(())
 }
 
+// ##### USER DETAILS BY ID ######
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_users_details_by_ids_returns_details_only() -> Result<()> {
+    let known = [
+        "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro",
+        "ywng83zf5paobxptt8ipkdgq5karppe3edxy1kigb7kgwai56uxo",
+        "h3fghnb3x59oh7r53x8y6a5x38oatqyjym9b31ybss17zqdnhcoy",
+    ];
+    // A well-formed key Nexus has never indexed
+    let unknown = "qca6wzjg4okp6g1hwr9g8hmx1po1jpoirjfau9ejsws1qz3t7iiy";
+
+    let request_body = json!({ "user_ids": [known[0], unknown, known[1], known[2]] });
+    let res = post_request("/v1/stream/users/details/by_ids", request_body).await?;
+
+    let users = res.as_array().expect("Response should be an array");
+    // The unknown id is left out; the rest keep request order
+    let ids: Vec<&str> = users.iter().map(|u| u["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, known, "Expected the known users, in request order");
+
+    for user in users {
+        assert!(user["name"].is_string(), "Name should be a string");
+        assert_eq!(user["deleted"], false, "Expected live users");
+        assert!(user.get("details").is_none(), "Expected bare UserDetails");
+        assert!(user.get("tags").is_none(), "Tags should not be returned");
+        assert!(
+            user.get("counts").is_none(),
+            "Counts should not be returned"
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_users_details_by_ids_returns_deleted_users() -> Result<()> {
+    // A tombstoned user (recommended.cypher): returned, flagged, not filtered out
+    let deleted = "z48xiqc4mcfiicwi1ewgn7swkhuem86wbkyoudt9yqidcxadt4to";
+    let res = post_request(
+        "/v1/stream/users/details/by_ids",
+        json!({ "user_ids": [deleted] }),
+    )
+    .await?;
+
+    let users = res.as_array().expect("Response should be an array");
+    assert_eq!(users.len(), 1, "Expected the deleted user");
+    assert_eq!(users[0]["id"], deleted);
+    assert_eq!(users[0]["deleted"], true, "Expected deleted: true");
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_users_details_by_ids_not_on_v0() -> Result<()> {
+    // /v0 is frozen: the route is /v1 only
+    invalid_post_request(
+        "/v0/stream/users/details/by_ids",
+        json!({ "user_ids": ["4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro"] }),
+        StatusCode::NOT_FOUND,
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_users_details_by_ids_unknown_only_is_empty() -> Result<()> {
+    let request_body =
+        json!({ "user_ids": ["qca6wzjg4okp6g1hwr9g8hmx1po1jpoirjfau9ejsws1qz3t7iiy"] });
+    let res = post_request("/v1/stream/users/details/by_ids", request_body).await?;
+
+    assert_eq!(res, json!([]), "Expected an empty array");
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_users_details_by_ids_limit_exceeded() -> Result<()> {
+    let user_ids: Vec<String> = (0..101).map(|i| format!("user_id_{i}")).collect();
+
+    let res = invalid_post_request(
+        "/v1/stream/users/details/by_ids",
+        json!({ "user_ids": user_ids }),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    let error_response: ErrorResponsePayload =
+        serde_json::from_value(res).expect("Response should be a valid ErrorResponsePayload");
+    assert!(
+        error_response.error.contains("100")
+            || error_response.error.to_lowercase().contains("maximum"),
+        "Error message should mention the maximum items limit, got: {}",
+        error_response.error
+    );
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_users_details_by_ids_empty_list() -> Result<()> {
+    invalid_post_request(
+        "/v1/stream/users/details/by_ids",
+        json!({ "user_ids": [] }),
+        StatusCode::BAD_REQUEST,
+    )
+    .await?;
+
+    Ok(())
+}
+
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_users_by_ids_empty_list() -> Result<()> {
     // Empty list of user IDs
