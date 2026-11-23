@@ -104,6 +104,9 @@ impl HsMapping {
     /// is read there, and what they hold arrives through that homeserver's stream. A stale
     /// mapping still points here and a record naming it again resumes the read past the
     /// event, and a user with no stored mapping is the bulk read's, so both are retried.
+    ///
+    /// Known limit: a dropped DEL of something the user did not take along is lost, and the
+    /// item stays indexed, like anything else left on the homeserver they moved from.
     pub(crate) fn retries_here(mapping: Option<&Self>) -> bool {
         !matches!(mapping, Some(Self::Other { .. }))
     }

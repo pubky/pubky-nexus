@@ -447,84 +447,142 @@ async fn test_retry_handles_event_from_its_origin_homeserver() -> Result<()> {
     Ok(())
 }
 
-/// Runs one retry pass, through the real handler, over a single ready entry: the PUT of a
-/// post its homeserver still serves, of a new user mapped to `mapped_to`, read from
-/// `origin`. Returns whether the post was indexed and whether the entry is still queued.
-async fn retry_a_post_of_a_mapped_user(
-    mapped_to: &PubkyId,
-    stale: bool,
-    origin: &PubkyId,
-) -> Result<(bool, bool)> {
-    setup().await?;
+/// A new user mapped to a homeserver, a post that homeserver serves, and a retry processor
+/// over the real handler with an empty queue.
+struct MappedUsersPost {
+    user_id: String,
+    post_id: String,
+    event_uri: String,
+    store: Arc<dyn RetryStore>,
+    processor: Arc<RetryProcessor>,
+    _files: tempfile::TempDir,
+    _shutdown_tx: watch::Sender<bool>,
+}
 
-    let user = random_pubky_id();
-    let user_id = user.to_string();
-    UserDetails::from_pubky(user).put_to_graph().await?;
-    set_user_homeserver(&user_id, mapped_to).await?;
-    if stale {
-        set_user_homeserver_stale(&user_id, true, None).await?;
+impl MappedUsersPost {
+    async fn of_a_user_mapped_to(homeserver_id: &PubkyId) -> Result<Self> {
+        setup().await?;
+
+        let user = random_pubky_id();
+        let user_id = user.to_string();
+        UserDetails::from_pubky(user).put_to_graph().await?;
+        set_user_homeserver(&user_id, homeserver_id).await?;
+
+        let post = PubkyAppPost {
+            content: "Retry:Mapping:Post".to_string(),
+            kind: PubkyAppPostKind::Short,
+            parent: None,
+            embed: None,
+            attachments: None,
+            lock: None,
+        };
+        let post_id = post.create_id();
+        let event_uri = post_uri_builder(user_id.clone(), post_id.clone());
+        let client =
+            MockHomeserverClient::default().with_resource(&event_uri, serde_json::to_vec(&post)?);
+        let files = tempfile::TempDir::new()?;
+        let store = new_in_memory_store();
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let processor = build_processor(
+            store.clone(),
+            create_test_config(10, 50, 60, 3600, 60, 3600),
+            default_handler(client, &files, store.clone()),
+            shutdown_rx,
+        );
+
+        Ok(Self {
+            user_id,
+            post_id,
+            event_uri,
+            store,
+            processor,
+            _files: files,
+            _shutdown_tx: shutdown_tx,
+        })
     }
 
-    let post = PubkyAppPost {
-        content: "Retry:Mapping:Post".to_string(),
-        kind: PubkyAppPostKind::Short,
-        parent: None,
-        embed: None,
-        attachments: None,
-        lock: None,
-    };
-    let post_id = post.create_id();
-    let event_uri = post_uri_builder(user_id.clone(), post_id.clone());
-    let client =
-        MockHomeserverClient::default().with_resource(&event_uri, serde_json::to_vec(&post)?);
-    let files = tempfile::TempDir::new()?;
-    let store = new_in_memory_store();
-    store
-        .put(&RetryEvent {
-            origin_homeserver_id: origin.to_string(),
-            ..ready_put_entry(&event_uri, 0)
-        })
-        .await?;
+    /// Queues one ready entry for the post, read from `origin`, and runs a retry pass.
+    async fn retry(&self, event_type: EventType, origin: &PubkyId) -> Result<()> {
+        self.store
+            .put(&RetryEvent {
+                event_type,
+                origin_homeserver_id: origin.to_string(),
+                ..ready_put_entry(&self.event_uri, 0)
+            })
+            .await?;
+        self.processor.clone().run_internal().await?;
+        Ok(())
+    }
 
-    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
-    let processor = build_processor(
-        store.clone(),
-        create_test_config(10, 50, 60, 3600, 60, 3600),
-        default_handler(client, &files, store.clone()),
-        shutdown_rx,
-    );
-    processor.run_internal().await?;
-
-    let indexed = PostDetails::get_from_graph(&user_id, &post_id)
-        .await?
-        .is_some();
-    let queued = store.get(&IndexKey::for_uri(&event_uri)).await?.is_some();
-    exec_single_row(queries::del::delete_user(&user_id)).await?;
-    Ok((indexed, queued))
+    /// Whether the post is indexed and whether its entry is still queued; removes the user.
+    async fn outcome(self) -> Result<(bool, bool)> {
+        let indexed = PostDetails::get_from_graph(&self.user_id, &self.post_id)
+            .await?
+            .is_some();
+        let queued = self
+            .store
+            .get(&IndexKey::for_uri(&self.event_uri))
+            .await?
+            .is_some();
+        exec_single_row(queries::del::delete_user(&self.user_id)).await?;
+        Ok((indexed, queued))
+    }
 }
 
 /// A user mapped to another homeserver than the one an entry was read from is read
-/// there, and what they hold arrives through that homeserver's stream. The entry is what
-/// the old homeserver said, a reply they have since deleted included, so it is removed
-/// and nothing is indexed.
+/// there, so the entry is removed and nothing is indexed. A PUT is refetched through the
+/// user's record, which names the new homeserver, and that homeserver's own stream
+/// delivers what it holds: the entry adds nothing.
 #[tokio_shared_rt::test(shared)]
 async fn test_retry_of_a_user_mapped_to_another_homeserver_is_removed_and_nothing_indexed(
 ) -> Result<()> {
     let (origin, elsewhere) = (random_pubky_id(), random_pubky_id());
+    let post = MappedUsersPost::of_a_user_mapped_to(&elsewhere).await?;
 
-    let outcome = retry_a_post_of_a_mapped_user(&elsewhere, false, &origin).await?;
+    post.retry(EventType::Put, &origin).await?;
 
-    assert_eq!(outcome, (false, false), "(indexed, still queued)");
+    assert_eq!(
+        post.outcome().await?,
+        (false, false),
+        "(indexed, still queued)"
+    );
+    Ok(())
+}
+
+/// A DEL fetches nothing, so a queued one removed the item whatever the user's new
+/// homeserver holds, what they took along included. It is removed with the entry instead
+/// and the post stays indexed. The cost: a delete of something they did not take along is
+/// lost, and that item stays indexed like anything else left on the old homeserver.
+#[tokio_shared_rt::test(shared)]
+async fn test_retry_of_a_del_of_a_user_mapped_to_another_homeserver_is_removed_and_the_post_stays_indexed(
+) -> Result<()> {
+    let (origin, elsewhere) = (random_pubky_id(), random_pubky_id());
+    let post = MappedUsersPost::of_a_user_mapped_to(&origin).await?;
+    post.retry(EventType::Put, &origin).await?;
+
+    set_user_homeserver(&post.user_id, &elsewhere).await?;
+    post.retry(EventType::Del, &origin).await?;
+
+    assert_eq!(
+        post.outcome().await?,
+        (true, false),
+        "(indexed, still queued)"
+    );
     Ok(())
 }
 
 #[tokio_shared_rt::test(shared)]
 async fn test_retry_of_a_user_mapped_to_the_origin_homeserver_is_handled() -> Result<()> {
     let origin = random_pubky_id();
+    let post = MappedUsersPost::of_a_user_mapped_to(&origin).await?;
 
-    let outcome = retry_a_post_of_a_mapped_user(&origin, false, &origin).await?;
+    post.retry(EventType::Put, &origin).await?;
 
-    assert_eq!(outcome, (true, false), "(indexed, still queued)");
+    assert_eq!(
+        post.outcome().await?,
+        (true, false),
+        "(indexed, still queued)"
+    );
     Ok(())
 }
 
@@ -535,10 +593,16 @@ async fn test_retry_of_a_user_mapped_to_the_origin_homeserver_is_handled() -> Re
 async fn test_retry_of_a_user_with_a_stale_mapping_to_the_origin_homeserver_is_handled(
 ) -> Result<()> {
     let origin = random_pubky_id();
+    let post = MappedUsersPost::of_a_user_mapped_to(&origin).await?;
+    set_user_homeserver_stale(&post.user_id, true, None).await?;
 
-    let outcome = retry_a_post_of_a_mapped_user(&origin, true, &origin).await?;
+    post.retry(EventType::Put, &origin).await?;
 
-    assert_eq!(outcome, (true, false), "(indexed, still queued)");
+    assert_eq!(
+        post.outcome().await?,
+        (true, false),
+        "(indexed, still queued)"
+    );
     Ok(())
 }
 
