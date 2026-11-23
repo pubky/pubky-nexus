@@ -53,7 +53,7 @@ static STALLED_CURSOR_PRIMARY_HS: LazyLock<Counter<u64>> = LazyLock::new(|| {
 /// The `stale` flag is only carried where it is meaningful: a stale mapping means
 /// the user's published HS has diverged from the stored one (see
 /// [`set_user_homeserver_stale`](nexus_common::db::queries::put::set_user_homeserver_stale)).
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum HsMapping {
     /// The user has no `HOSTED_BY` edge and the lookup found no published homeserver.
     /// On pubky 0.9.3 a DHT or relay failure also surfaces as no homeserver, and a failed
@@ -77,13 +77,24 @@ impl HsMapping {
         let stored_hs_id: String = row.get("homeserver_id")?;
         let stale: bool = row.get("stale")?;
 
+        Ok(Some(Self::relative_to(stored_hs_id, stale, hs_id)))
+    }
+
+    /// Classifies a stored mapping to `stored_hs_id` relative to the homeserver `hs_id`.
+    fn relative_to(stored_hs_id: String, stale: bool, hs_id: &str) -> Self {
         if stored_hs_id == hs_id {
-            Ok(Some(Self::Current { stale }))
+            Self::Current { stale }
         } else {
-            Ok(Some(Self::Other {
+            Self::Other {
                 hs_id: stored_hs_id,
-            }))
+            }
         }
+    }
+
+    /// Whether a user with this stored mapping is read on the homeserver it is relative to:
+    /// only when mapped to it and not stale. A user with no mapping is read nowhere.
+    pub(super) fn reads_here(mapping: Option<&Self>) -> bool {
+        matches!(mapping, Some(Self::Current { stale: false }))
     }
 }
 
@@ -448,7 +459,7 @@ impl HsEventProcessor {
 
 #[cfg(test)]
 mod tests {
-    use super::EventBatch;
+    use super::{EventBatch, HsMapping};
 
     fn lines(raw: &[&str]) -> Vec<String> {
         raw.iter().map(|l| l.to_string()).collect()
@@ -511,6 +522,42 @@ mod tests {
         assert_eq!(batch.event_lines, vec!["PUT pubky://a/pub/x"]);
         assert_eq!(batch.cursor, None);
         assert!(batch.has_events());
+    }
+
+    #[test]
+    fn a_stored_mapping_is_current_only_for_its_own_homeserver() {
+        assert_eq!(
+            HsMapping::relative_to("hs-a".into(), false, "hs-a"),
+            HsMapping::Current { stale: false }
+        );
+        assert_eq!(
+            HsMapping::relative_to("hs-a".into(), true, "hs-a"),
+            HsMapping::Current { stale: true }
+        );
+        assert_eq!(
+            HsMapping::relative_to("hs-b".into(), false, "hs-a"),
+            HsMapping::Other {
+                hs_id: "hs-b".into()
+            }
+        );
+    }
+
+    #[test]
+    fn a_user_is_read_only_where_their_mapping_is_current_and_not_stale() {
+        let other = HsMapping::Other {
+            hs_id: "hs-b".into(),
+        };
+        let cases = [
+            (Some(HsMapping::Current { stale: false }), true),
+            (Some(HsMapping::Current { stale: true }), false),
+            (Some(other), false),
+            (Some(HsMapping::Unresolved), false),
+            (None, false),
+        ];
+
+        for (mapping, read) in cases {
+            assert_eq!(HsMapping::reads_here(mapping.as_ref()), read, "{mapping:?}");
+        }
     }
 
     /// Lines that will later parse as skipped or unrecognized still count as

@@ -271,7 +271,7 @@ impl KeyBasedEventProcessor {
     /// Whether `user_id` is read on this homeserver right now: mapped to it, and not stale.
     async fn reads_user(&self, user_id: &str) -> Result<bool, EventProcessorError> {
         let mapping = HsMapping::stored(user_id, &self.homeserver_id).await?;
-        Ok(matches!(mapping, Some(HsMapping::Current { stale: false })))
+        Ok(HsMapping::reads_here(mapping.as_ref()))
     }
 
     /// Processes already-fetched events for a single user stream.
