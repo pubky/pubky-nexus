@@ -3606,6 +3606,48 @@ async fn test_a_failed_flip_step_at_max_retries_is_rescheduled_while_the_user_is
     Ok(())
 }
 
+/// A failed read of the user's mapping decides nothing: the entry stays queued as it was,
+/// uncounted, and the batch stops, as for any graph failure. Removing it instead would empty
+/// the queue of every due entry during an outage. The stack is never set up here, so the
+/// read fails on the uninitialised connection; nextest runs each test in its own process, so
+/// no other test initialises it first.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_failed_mapping_read_keeps_the_entry_and_stops_the_batch() -> Result<()> {
+    let post_uri = another_users_post_uri();
+    let files = tempfile::TempDir::new()?;
+    let store = new_in_memory_store();
+    let entry = ready_put_entry(&post_uri, 3);
+    store.put(&entry).await?;
+
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(MAX_RETRIES, 50, 60, 3600, 600, 7200),
+        default_handler(MockHomeserverClient::default(), &files, store.clone()),
+        shutdown_rx,
+    );
+
+    let err = processor
+        .run_internal()
+        .await
+        .expect_err("a failed graph read must stop the batch");
+    assert!(
+        matches!(err, EventProcessorError::GraphQueryFailed(true, _)),
+        "classified as the graph error it is: {err:?}"
+    );
+
+    let kept = store
+        .get(&IndexKey::for_uri(&post_uri))
+        .await?
+        .expect("the entry must stay queued");
+    assert_eq!(
+        (kept.retry_count, kept.next_retry_at),
+        (entry.retry_count, entry.next_retry_at),
+        "untouched: a graph error does not count"
+    );
+    Ok(())
+}
+
 /// A failed graph read inside the limit check takes the handler's error's place: the entry is
 /// rescheduled without counting, as for any graph failure, and the batch stops. The stack is
 /// never set up here, so the gate's read fails on the uninitialised connection; nextest runs
