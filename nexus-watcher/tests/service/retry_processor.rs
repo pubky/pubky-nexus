@@ -3606,11 +3606,12 @@ async fn test_a_failed_flip_step_at_max_retries_is_rescheduled_while_the_user_is
     Ok(())
 }
 
-/// A failed read of the user's mapping decides nothing: the entry stays queued as it was,
-/// uncounted, and the batch stops, as for any graph failure. Removing it instead would empty
-/// the queue of every due entry during an outage. The stack is never set up here, so the
-/// read fails on the uninitialised connection; nextest runs each test in its own process, so
-/// no other test initialises it first.
+/// A failed read of the user's mapping decides nothing: the batch stops and the attempt does
+/// not count, as for any graph failure. Unlike a failure in handling, the entry is not
+/// rescheduled: it stays due as it was. Removing it instead would empty the queue of every
+/// due entry during an outage. The stack is never set up here, so the read fails on the
+/// uninitialised connection; nextest runs each test in its own process, so no other test
+/// initialises it first.
 #[tokio_shared_rt::test(shared)]
 async fn test_a_failed_mapping_read_keeps_the_entry_and_stops_the_batch() -> Result<()> {
     let post_uri = another_users_post_uri();
