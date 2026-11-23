@@ -91,8 +91,10 @@ impl HsMapping {
         }
     }
 
-    /// Whether a user with this stored mapping is read on the homeserver it is relative to:
-    /// only when mapped to it and not stale. A user with no mapping is read nowhere.
+    /// Whether a per-user read of the homeserver this mapping is relative to applies the
+    /// user's events: only when the stored mapping points there and is not stale, as its
+    /// user listing requires. A user with no stored mapping is on no per-user read's list;
+    /// the bulk read classifies them by the homeserver they publish instead.
     pub(super) fn reads_here(mapping: Option<&Self>) -> bool {
         matches!(mapping, Some(Self::Current { stale: false }))
     }
@@ -543,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    fn a_user_is_read_only_where_their_mapping_is_current_and_not_stale() {
+    fn a_per_user_read_applies_only_a_current_non_stale_mapping() {
         let other = HsMapping::Other {
             hs_id: "hs-b".into(),
         };
