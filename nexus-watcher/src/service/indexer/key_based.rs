@@ -244,10 +244,11 @@ impl KeyBasedEventProcessor {
         // mapping may have changed since. Events fetched from a homeserver the user is no
         // longer read on are left alone, cursor included: after a move they may be the
         // wipe of what the user took along.
-        if !self.reads_user(&user_id).await? {
+        let mapping = HsMapping::stored(&user_id, &self.homeserver_id).await?;
+        if !HsMapping::reads_here(mapping.as_ref()) {
             info!(
-                %user_id, action = "skip_user",
-                "User is no longer mapped to this homeserver; leaving the fetched events unread",
+                %user_id, ?mapping, action = "skip_user",
+                "User's mapping to this homeserver is stale, points to another homeserver or is gone; leaving the fetched events unread",
             );
             return Ok(());
         }
@@ -266,12 +267,6 @@ impl KeyBasedEventProcessor {
         }
 
         result
-    }
-
-    /// Whether `user_id` is read on this homeserver right now: mapped to it, and not stale.
-    async fn reads_user(&self, user_id: &str) -> Result<bool, EventProcessorError> {
-        let mapping = HsMapping::stored(user_id, &self.homeserver_id).await?;
-        Ok(HsMapping::reads_here(mapping.as_ref()))
     }
 
     /// Processes already-fetched events for a single user stream.
