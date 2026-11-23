@@ -53,7 +53,7 @@ static STALLED_CURSOR_PRIMARY_HS: LazyLock<Counter<u64>> = LazyLock::new(|| {
 /// The `stale` flag is only carried where it is meaningful: a stale mapping means
 /// the user's published HS has diverged from the stored one (see
 /// [`set_user_homeserver_stale`](nexus_common::db::queries::put::set_user_homeserver_stale)).
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum HsMapping {
     /// The user has no `HOSTED_BY` edge and the lookup found no published homeserver.
     /// On pubky 0.9.3 a DHT or relay failure also surfaces as no homeserver, and a failed
@@ -64,6 +64,40 @@ pub enum HsMapping {
     Current { stale: bool },
     /// The user is mapped to a different HS.
     Other { hs_id: String },
+}
+
+impl HsMapping {
+    /// Reads a user's `HOSTED_BY` mapping relative to the homeserver `hs_id` from the graph,
+    /// or `None` if the user has no edge.
+    pub(super) async fn stored(user_id: &str, hs_id: &str) -> GraphResult<Option<Self>> {
+        let query = queries::get::get_user_homeserver(user_id);
+        let Some(row) = fetch_row_from_graph(query).await? else {
+            return Ok(None);
+        };
+        let stored_hs_id: String = row.get("homeserver_id")?;
+        let stale: bool = row.get("stale")?;
+
+        Ok(Some(Self::relative_to(stored_hs_id, stale, hs_id)))
+    }
+
+    /// Classifies a stored mapping to `stored_hs_id` relative to the homeserver `hs_id`.
+    fn relative_to(stored_hs_id: String, stale: bool, hs_id: &str) -> Self {
+        if stored_hs_id == hs_id {
+            Self::Current { stale }
+        } else {
+            Self::Other {
+                hs_id: stored_hs_id,
+            }
+        }
+    }
+
+    /// Whether a per-user read of the homeserver this mapping is relative to applies the
+    /// user's events: only when the stored mapping points there and is not stale, as its
+    /// user listing requires. A user with no stored mapping is on no per-user read's list;
+    /// the bulk read classifies them by the homeserver they publish instead.
+    pub(super) fn reads_here(mapping: Option<&Self>) -> bool {
+        matches!(mapping, Some(Self::Current { stale: false }))
+    }
 }
 
 /// A homeserver response, split into its event lines and the cursor closing the batch.
@@ -155,8 +189,8 @@ impl TEventProcessor for HsEventProcessor {
         Some(&self.retry_scheduler)
     }
 
-    fn homeserver_id(&self) -> Option<&str> {
-        Some(self.homeserver.id.as_ref())
+    fn homeserver_id(&self) -> &PubkyId {
+        &self.homeserver.id
     }
 
     /// Skips events from users that are not actively bound to this homeserver.
@@ -226,7 +260,7 @@ impl HsEventProcessor {
             return Ok(hs_mapping.clone());
         }
 
-        let mapping = match self.stored_hs_mapping(user_id).await? {
+        let mapping = match HsMapping::stored(user_id.as_ref(), &self.homeserver.id).await? {
             Some(stored) => stored,
             None => self.published_hs_mapping(user_id).await,
         };
@@ -261,23 +295,6 @@ impl HsEventProcessor {
                 hs_id: hs_id.to_string(),
             },
             None => HsMapping::Unresolved,
-        }
-    }
-
-    /// Reads a user's `HOSTED_BY` mapping relative to this processor's HS from the graph, or
-    /// `None` if the user has no edge yet.
-    async fn stored_hs_mapping(&self, user_id: &PubkyId) -> GraphResult<Option<HsMapping>> {
-        let query = queries::get::get_user_homeserver(user_id.as_ref());
-        let Some(row) = fetch_row_from_graph(query).await? else {
-            return Ok(None);
-        };
-        let hs_id: String = row.get("homeserver_id")?;
-        let stale: bool = row.get("stale")?;
-
-        if hs_id.as_str() == self.homeserver.id.as_ref() {
-            Ok(Some(HsMapping::Current { stale }))
-        } else {
-            Ok(Some(HsMapping::Other { hs_id }))
         }
     }
 
@@ -444,7 +461,7 @@ impl HsEventProcessor {
 
 #[cfg(test)]
 mod tests {
-    use super::EventBatch;
+    use super::{EventBatch, HsMapping};
 
     fn lines(raw: &[&str]) -> Vec<String> {
         raw.iter().map(|l| l.to_string()).collect()
@@ -507,6 +524,42 @@ mod tests {
         assert_eq!(batch.event_lines, vec!["PUT pubky://a/pub/x"]);
         assert_eq!(batch.cursor, None);
         assert!(batch.has_events());
+    }
+
+    #[test]
+    fn a_stored_mapping_is_current_only_for_its_own_homeserver() {
+        assert_eq!(
+            HsMapping::relative_to("hs-a".into(), false, "hs-a"),
+            HsMapping::Current { stale: false }
+        );
+        assert_eq!(
+            HsMapping::relative_to("hs-a".into(), true, "hs-a"),
+            HsMapping::Current { stale: true }
+        );
+        assert_eq!(
+            HsMapping::relative_to("hs-b".into(), false, "hs-a"),
+            HsMapping::Other {
+                hs_id: "hs-b".into()
+            }
+        );
+    }
+
+    #[test]
+    fn a_per_user_read_applies_only_a_current_non_stale_mapping() {
+        let other = HsMapping::Other {
+            hs_id: "hs-b".into(),
+        };
+        let cases = [
+            (Some(HsMapping::Current { stale: false }), true),
+            (Some(HsMapping::Current { stale: true }), false),
+            (Some(other), false),
+            (Some(HsMapping::Unresolved), false),
+            (None, false),
+        ];
+
+        for (mapping, read) in cases {
+            assert_eq!(HsMapping::reads_here(mapping.as_ref()), read, "{mapping:?}");
+        }
     }
 
     /// Lines that will later parse as skipped or unrecognized still count as

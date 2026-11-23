@@ -4,10 +4,13 @@ use std::time::Duration;
 
 use anyhow::Result;
 use chrono::Utc;
-use nexus_common::db::{exec_single_row, graph::Query, PubkyClientError, RedisOps};
+use nexus_common::db::{
+    exec_single_row, graph::Query, PubkyClientError, PubkyClientResult, RedisOps,
+};
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
 use nexus_common::models::user::{
-    set_user_homeserver, user_hs_cursor_key, Epoch, UserDetails, UserHsCursor,
+    set_user_homeserver, set_user_homeserver_stale, user_hs_cursor_key, Epoch,
+    PkdnsHomeserverResolver, PkdnsRecord, UserDetails, UserHsCursor,
 };
 use nexus_common::types::DynError;
 use nexus_common::utils::test_utils::random_pubky_id;
@@ -16,7 +19,7 @@ use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::events::{Event, EventType};
-use nexus_watcher::homeserver::{HsErrorKind, HsStreamEvent};
+use nexus_watcher::homeserver::{HomeserverClient, HsError, HsErrorKind, HsStreamEvent};
 use nexus_watcher::service::indexer::{KeyBasedEventProcessor, RunError, TEventProcessor};
 use nexus_watcher::service::runner::{UserNotFoundBackoff, UserResumePoints};
 use nexus_watcher::service::stats::ProcessorRunStatus;
@@ -46,12 +49,15 @@ async fn key_based_processor_skips_unrecognized_events() -> Result<(), DynError>
     ]]));
 
     let handler = create_mock_handler(Ok(()), None);
+    let hs_id = homeserver.id.to_string();
     let processor = processor(homeserver, handler.clone(), source.clone());
 
     processor.run().await?;
 
     // The unrecognized event is skipped, while the valid event is handled.
     assert_eq!(handler.get_handle_count(), 1);
+    // As read from this homeserver, whose key the handler stores with the line.
+    assert_eq!(handler.get_handled_homeserver_ids(), vec![hs_id]);
 
     // The processor fetched events only for the hosted user.
     assert_eq!(source.calls().await, vec![user_id]);
@@ -464,7 +470,11 @@ struct CountingHandler {
 
 #[async_trait::async_trait]
 impl EventHandler for CountingHandler {
-    async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
+    async fn handle(
+        &self,
+        _event: &Event,
+        _homeserver_id: &PubkyId,
+    ) -> Result<(), EventProcessorError> {
         self.handled.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -1038,6 +1048,132 @@ async fn key_based_processor_aborts_blacklisted_homeserver() -> Result<(), DynEr
     Ok(())
 }
 
+/// What happens to a user's mapping while a read is fetching their events.
+enum MappingChange {
+    /// Their record names another homeserver or none, so the resolver marks the mapping stale.
+    MarkedStale,
+    /// They are bound to another homeserver.
+    BoundElsewhere,
+}
+
+/// A homeserver whose answer to the first fetch of a user's events arrives after the
+/// user's mapping has changed: a read lists its users when it starts and reaches each one
+/// later, so the mapping it listed is not the one that holds when the events arrive.
+struct MappingChangesDuringFetch {
+    inner: MockHomeserverClient,
+    change: MappingChange,
+}
+
+#[async_trait::async_trait]
+impl PkdnsHomeserverResolver for MappingChangesDuringFetch {
+    async fn resolve_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+        self.inner.resolve_record(user_pk).await
+    }
+}
+
+#[async_trait::async_trait]
+impl HomeserverClient for MappingChangesDuringFetch {
+    async fn poll_events(
+        &self,
+        hs: &PubkyId,
+        cursor: u64,
+        limit: u16,
+    ) -> Result<Vec<String>, HsError> {
+        self.inner.poll_events(hs, cursor, limit).await
+    }
+
+    async fn user_events(
+        &self,
+        hs: &PubkyId,
+        user: &PublicKey,
+        cursor: u64,
+        limit: u16,
+    ) -> Result<Vec<HsStreamEvent>, HsError> {
+        let user_id = user.z32();
+        match self.change {
+            MappingChange::MarkedStale => set_user_homeserver_stale(&user_id, true, None).await,
+            MappingChange::BoundElsewhere => {
+                set_user_homeserver(&user_id, &random_pubky_id()).await
+            }
+        }
+        .expect("the mapping changes");
+        self.inner.user_events(hs, user, cursor, limit).await
+    }
+
+    async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
+        self.inner.get_resource(resource).await
+    }
+
+    async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
+        self.inner.get_blob(resource).await
+    }
+}
+
+/// Runs one read of a homeserver during which its user's mapping changes while their
+/// events are fetched. Returns how many events were handled and the user's cursor after.
+async fn read_while_the_mapping_changes(
+    change: MappingChange,
+) -> Result<(usize, Option<isize>), DynError> {
+    setup().await?;
+
+    let (_hs_keypair, homeserver) = create_homeserver().await?;
+    let hs_id = homeserver.id.to_string();
+    let user_id = create_user_on_homeserver(&homeserver).await?;
+    let cursor_key = user_hs_cursor_key(&user_id);
+    UserHsCursor::put_index_sorted_set(&cursor_key, &[(10.0, hs_id.as_str())], None, None).await?;
+
+    let inner = MockHomeserverClient::default().with_events(vec![vec![
+        stream_event(11, &user_id, "/pub/pubky.app/posts/0000000000001")?,
+        stream_event(12, &user_id, "/pub/pubky.app/profile.json")?,
+    ]]);
+    let handler = create_mock_handler(Ok(()), None);
+    let processor = Arc::new(KeyBasedEventProcessor {
+        client: Arc::new(MappingChangesDuringFetch { inner, change }),
+        ..processor_with_options(
+            homeserver,
+            handler.clone(),
+            Arc::new(MockHomeserverClient::default()),
+            100,
+            watch::channel(false).1,
+            Arc::new(UserNotFoundBackoff::default()),
+            HsBlacklist::default(),
+        )
+    });
+
+    processor.run().await?;
+
+    Ok((
+        handler.get_handle_count(),
+        user_cursor(&user_id, &hs_id).await?,
+    ))
+}
+
+/// A user whose mapping went stale while their events were fetched is indexed nowhere
+/// until a record names the stored homeserver again, so the fetched events are left
+/// unread: none is handled and the cursor stays, for the read after the mapping recovers.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_leaves_events_of_a_user_marked_stale_during_the_fetch(
+) -> Result<(), DynError> {
+    let (handled, cursor) = read_while_the_mapping_changes(MappingChange::MarkedStale).await?;
+
+    assert_eq!((handled, cursor), (0, Some(10)));
+
+    Ok(())
+}
+
+/// A user bound to another homeserver while their events were fetched is read there:
+/// what this homeserver still holds for them, a wipe after a move included, is not
+/// theirs to index any more.
+#[tokio_shared_rt::test(shared)]
+async fn key_based_processor_leaves_events_of_a_user_bound_elsewhere_during_the_fetch(
+) -> Result<(), DynError> {
+    let (handled, cursor) = read_while_the_mapping_changes(MappingChange::BoundElsewhere).await?;
+
+    assert_eq!((handled, cursor), (0, Some(10)));
+
+    Ok(())
+}
+
 async fn create_homeserver() -> Result<(Keypair, Homeserver), DynError> {
     let keypair = Keypair::random();
     let homeserver_id = PubkyId::try_from(keypair.public_key().to_z32().as_str())?;
@@ -1348,7 +1484,11 @@ impl ShutdownOnFirstHandle {
 
 #[async_trait::async_trait]
 impl EventHandler for ShutdownOnFirstHandle {
-    async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
+    async fn handle(
+        &self,
+        _event: &Event,
+        _homeserver_id: &PubkyId,
+    ) -> Result<(), EventProcessorError> {
         if self.handle_count.fetch_add(1, Ordering::SeqCst) == 0 {
             let _ = self.shutdown_tx.send(true);
         }

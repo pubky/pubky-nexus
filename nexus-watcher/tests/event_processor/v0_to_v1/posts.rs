@@ -28,11 +28,14 @@ use pubky_social_specs::legacy_v0::{
     post_uri_builder as v0_post_uri_builder, user_uri_builder as v0_user_uri_builder, PubkyAppTag,
 };
 use pubky_social_specs::post_uri_builder as v1_post_uri_builder;
+use pubky_social_specs::PubkyId;
 
 /// Whether the shared event log holds `line`.
-async fn event_line_stored(line: &str) -> Result<bool> {
+async fn event_line_stored(line: &str, homeserver_id: &PubkyId) -> Result<bool> {
     let (lines, _) = EventLine::get_from_index(None, usize::MAX).await?;
-    Ok(lines.iter().any(|stored| stored == line))
+    // Stored with the key of the homeserver the event was read from
+    let stored_line = EventLine::new(line, homeserver_id);
+    Ok(lines.iter().any(|stored| stored == stored_line.as_str()))
 }
 
 /// Drops a post's `attachments` list, as a post indexed before the list was stored has none.
@@ -442,7 +445,7 @@ async fn test_failed_migration_leaves_v0_and_the_retry_finishes_it() -> Result<(
         RetryEvent::check_index_key(&IndexKey::for_uri(&profile_uri)).await?,
         "the failed flip must be queued for retry"
     );
-    assert!(!event_line_stored(&line).await?);
+    assert!(!event_line_stored(&line, &test.homeserver_id).await?);
     // The flip step runs before the fetch: a failed one leaves the `pubky.app` profile indexed
     assert_eq!(
         find_user_uri(&author_id).await,
@@ -457,10 +460,10 @@ async fn test_failed_migration_leaves_v0_and_the_retry_finishes_it() -> Result<(
     // The retry, once the row reads again
     restore_post_indexed_at(&author_id, &second_id, indexed_at).await?;
     let event_handler = test.event_processor_runner.event_handler.clone();
-    retrieve_and_handle_event_line(&line, event_handler).await?;
+    retrieve_and_handle_event_line(&line, &test.homeserver_id, event_handler).await?;
 
     assert_flipped(&author_id).await;
-    assert!(event_line_stored(&line).await?);
+    assert!(event_line_stored(&line, &test.homeserver_id).await?);
     for post_id in [&first_id, &second_id] {
         let expected = v1_post_uri_builder(author_id.clone(), post_id.clone());
         assert_eq!(

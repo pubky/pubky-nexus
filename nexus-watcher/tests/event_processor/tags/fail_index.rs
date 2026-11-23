@@ -54,7 +54,7 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     let tag_event = format!("PUT pubky://{shadow_user_id}/pub/pubky.app/tags/{tag_id}");
 
     let event_handler = test.event_processor_runner.event_handler.clone();
-    let sync_fail = retrieve_and_handle_event_line(&tag_event, event_handler)
+    let sync_fail = retrieve_and_handle_event_line(&tag_event, &test.homeserver_id, event_handler)
         .await
         .map_err(|e| error!("SYNC ERROR: {:?}", e))
         .is_err();
@@ -97,7 +97,7 @@ async fn test_homeserver_tag_cannot_add_while_index() -> Result<()> {
     let tag_event = format!("PUT pubky://{shadow_user_id}/pub/pubky.app/tags/{post_tag_id}");
 
     let event_handler = test.event_processor_runner.event_handler.clone();
-    let sync_fail = retrieve_and_handle_event_line(&tag_event, event_handler)
+    let sync_fail = retrieve_and_handle_event_line(&tag_event, &test.homeserver_id, event_handler)
         .await
         .map_err(|e| error!("SYNC ERROR: {:?}", e))
         .is_err();

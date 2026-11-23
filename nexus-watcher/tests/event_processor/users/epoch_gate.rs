@@ -15,13 +15,15 @@ use nexus_common::models::user::Epoch;
 use nexus_watcher::events::retry::{IndexKey, RetryEvent};
 use pubky::{Keypair, ResourcePath};
 use pubky_social_specs::legacy_v0::post_uri_builder;
-use pubky_social_specs::{post_uri_builder as v1_post_uri_builder, PubkySocialTag};
+use pubky_social_specs::{post_uri_builder as v1_post_uri_builder, PubkyId, PubkySocialTag};
 
 /// Whether the shared event log holds `line`.
-async fn event_line_stored(line: &str) -> Result<bool> {
+async fn event_line_stored(line: &str, homeserver_id: &PubkyId) -> Result<bool> {
     // Uncapped: the shared event log is append-only and unbounded.
     let (lines, _) = EventLine::get_from_index(None, usize::MAX).await?;
-    Ok(lines.iter().any(|stored| stored == line))
+    // Stored with the key of the homeserver the event was read from
+    let stored_line = EventLine::new(line, homeserver_id);
+    Ok(lines.iter().any(|stored| stored == stored_line.as_str()))
 }
 
 /// The event line of `kind` on `user_id`'s `path`.
@@ -62,7 +64,7 @@ async fn test_v1_user_pubky_app_post_put_is_ignored() -> Result<()> {
     );
     let uri = post_uri_builder(user_id.clone(), post_id);
     assert!(
-        !event_line_stored(&format!("PUT {uri}")).await?,
+        !event_line_stored(&format!("PUT {uri}"), &test.homeserver_id).await?,
         "an ignored event must store no event line"
     );
     assert!(!queued_for_retry(&uri).await?);
@@ -96,7 +98,7 @@ async fn test_v1_user_pubky_app_post_del_is_ignored() -> Result<()> {
     let uri = post_uri_builder(user_id.clone(), post_id);
     let del_line = format!("DEL {uri}");
     assert!(
-        !event_line_stored(&del_line).await?,
+        !event_line_stored(&del_line, &test.homeserver_id).await?,
         "an ignored event must store no event line"
     );
     assert!(!queued_for_retry(&uri).await?);
@@ -104,7 +106,7 @@ async fn test_v1_user_pubky_app_post_del_is_ignored() -> Result<()> {
     // Back to `v0`, then delete the post the homeserver no longer holds
     set_user_epoch(&user_id, "v0").await?;
     let event_handler = test.event_processor_runner.event_handler.clone();
-    retrieve_and_handle_event_line(&del_line, event_handler).await?;
+    retrieve_and_handle_event_line(&del_line, &test.homeserver_id, event_handler).await?;
     test.cleanup_user(&user_kp).await?;
     Ok(())
 }
@@ -158,7 +160,7 @@ async fn test_v0_user_social_v1_post_put_is_ignored() -> Result<()> {
     );
     for path in [&copy_path, &new_path] {
         assert!(
-            !event_line_stored(&line("PUT", &user_id, path)).await?,
+            !event_line_stored(&line("PUT", &user_id, path), &test.homeserver_id).await?,
             "an ignored event must store no event line"
         );
         assert!(!queued_for_retry(&uri(&user_id, path)).await?);
@@ -206,7 +208,7 @@ async fn test_v0_user_social_v1_post_del_is_ignored() -> Result<()> {
         "a v0 user's social/v1 DEL must not delete the post"
     );
     assert!(
-        !event_line_stored(&line("DEL", &user_id, &copy_path)).await?,
+        !event_line_stored(&line("DEL", &user_id, &copy_path), &test.homeserver_id).await?,
         "an ignored event must store no event line"
     );
     assert!(!queued_for_retry(&uri(&user_id, &copy_path)).await?);
@@ -256,7 +258,7 @@ async fn test_v0_user_flips_on_social_v1_profile_put() -> Result<()> {
         find_user_uri(&user_id).await,
         Some(v1_profile_uri(&user_id))
     );
-    assert!(event_line_stored(&line("PUT", &user_id, &profile_path)).await?);
+    assert!(event_line_stored(&line("PUT", &user_id, &profile_path), &test.homeserver_id).await?);
     assert_eq!(
         find_post_details(&user_id, &post_id).await?.content,
         "Watcher:EpochGate:Flip:Post"
@@ -450,7 +452,7 @@ async fn test_v1_user_social_v1_post_is_indexed() -> Result<()> {
         find_post_uri(&user_id, &post_id).await,
         Some(format!("pubky://{user_id}/pub/social/v1/posts/{post_id}"))
     );
-    assert!(event_line_stored(&line("PUT", &user_id, &version_path)).await?);
+    assert!(event_line_stored(&line("PUT", &user_id, &version_path), &test.homeserver_id).await?);
 
     test.del(&user_kp, &version_path).await?;
     assert!(
@@ -533,7 +535,13 @@ async fn test_v1_user_social_v1_follow_is_indexed() -> Result<()> {
         find_follow_relationship(&follower_id, &followee_id).await?,
         "a v1 user's social/v1 follow must create the edge"
     );
-    assert!(event_line_stored(&line("PUT", &follower_id, &follow_path)).await?);
+    assert!(
+        event_line_stored(
+            &line("PUT", &follower_id, &follow_path),
+            &test.homeserver_id
+        )
+        .await?
+    );
 
     test.del(&follower_kp, &follow_path).await?;
     assert!(
@@ -592,7 +600,7 @@ async fn test_v1_user_social_v1_post_tag_is_indexed() -> Result<()> {
         .expect("a v1 user's social/v1 tag must tag the post");
     assert_eq!(post_tag.taggers_count, 1);
     assert_eq!(post_tag.taggers, [tagger_id.as_str()]);
-    assert!(event_line_stored(&line("PUT", &tagger_id, &tag_path)).await?);
+    assert!(event_line_stored(&line("PUT", &tagger_id, &tag_path), &test.homeserver_id).await?);
 
     test.del(&tagger_kp, &tag_path).await?;
     assert!(

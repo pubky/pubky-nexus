@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::db::{exec_single_row, queries, PubkyClientError};
+use nexus_common::models::event::EventLine;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::{Epoch, UserDetails};
 use nexus_common::utils::test_utils::{default_ingestor_tests, random_pk, random_pubky_id};
@@ -1067,14 +1068,22 @@ async fn test_run_polls_and_fetches_through_the_client() -> Result<()> {
         cursor: 0,
     };
     homeserver.put_to_index().await?;
-    let hs_id = homeserver.id.to_string();
+    let hs_id = homeserver.id.clone();
     let processor = processor_with_client(homeserver, event_handler.clone(), client, store);
 
     processor.run().await?;
 
     let user = UserDetails::get_by_id(&user_id).await?;
     let cursor = stored_cursor(&hs_id).await?;
-    retrieve_and_handle_event_line(&format!("DEL {profile_uri}"), event_handler).await?;
+    // Uncapped: the shared event log is append-only and unbounded.
+    let (event_lines, _) = EventLine::get_from_index(None, usize::MAX).await?;
+    retrieve_and_handle_event_line(&format!("DEL {profile_uri}"), &hs_id, event_handler).await?;
+
+    let stored_line = EventLine::new(&format!("PUT {profile_uri}"), &hs_id);
+    assert!(
+        event_lines.iter().any(|line| line == stored_line.as_str()),
+        "the event line should be stored with the homeserver it was read from"
+    );
 
     assert_eq!(
         user.expect("the profile should be indexed").name,
@@ -1120,7 +1129,10 @@ async fn test_handler_from_config_resolves_homeservers_through_its_client() -> R
     let ParseResult::Parsed(event) = Event::parse_event(&format!("PUT {file_uri}"))? else {
         panic!("the file event should parse");
     };
-    let err = handler.handle(&event).await.unwrap_err();
+    let err = handler
+        .handle(&event, &random_pubky_id())
+        .await
+        .unwrap_err();
 
     assert!(
         matches!(&err, EventProcessorError::HsBlacklisted { hs_id } if *hs_id == blacklisted_hs.to_string()),

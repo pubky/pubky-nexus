@@ -19,6 +19,7 @@ use nexus_common::models::takedown::is_taken_down;
 use nexus_common::WatcherConfig;
 use opentelemetry::{global, metrics::Counter};
 use pubky::PubkyResource;
+use pubky_social_specs::PubkyId;
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, LazyLock},
@@ -55,7 +56,13 @@ use translation::{
 /// including mocked versions for testing.
 #[async_trait::async_trait]
 pub trait EventHandler: Send + Sync {
-    async fn handle(&self, event: &Event) -> Result<(), EventProcessorError>;
+    /// Handles `event`, read from the homeserver `homeserver_id`, whose key the stored event
+    /// line starts with.
+    async fn handle(
+        &self,
+        event: &Event,
+        homeserver_id: &PubkyId,
+    ) -> Result<(), EventProcessorError>;
 }
 
 /// Default implementation of `EventHandler` that uses the actual event handling logic.
@@ -107,7 +114,11 @@ impl DefaultEventHandler {
 
 #[async_trait::async_trait]
 impl EventHandler for DefaultEventHandler {
-    async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
+    async fn handle(
+        &self,
+        event: &Event,
+        homeserver_id: &PubkyId,
+    ) -> Result<(), EventProcessorError> {
         // Before any fetch. An ignored event stores no event line, and `Ok` moves the cursor
         // on and removes its retry entry. A deferred event, a `v0` user's `pubky.app` DEL or
         // `social/v1` write, waits on the flip as a tag waits on its post: queued with the
@@ -150,7 +161,7 @@ impl EventHandler for DefaultEventHandler {
             }
         }?;
 
-        event.to_event_line().store().await?;
+        event.to_event_line(homeserver_id).store().await?;
         Ok(())
     }
 }

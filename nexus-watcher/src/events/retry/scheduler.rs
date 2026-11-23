@@ -7,6 +7,7 @@ use crate::errors::EventProcessorError;
 use crate::events::Event;
 use nexus_common::db::PubkyClientError;
 use nexus_common::WatcherConfig;
+use pubky_social_specs::PubkyId;
 
 use super::{RedisRetryStore, RetryEvent, RetryStore};
 
@@ -89,7 +90,7 @@ impl RetryScheduler {
     pub async fn queue_missing_dep(
         &self,
         event: &Event,
-        origin_homeserver_id: &str,
+        origin_homeserver_id: &PubkyId,
     ) -> Result<(), EventProcessorError> {
         self.enqueue(
             event,
@@ -103,7 +104,7 @@ impl RetryScheduler {
     pub async fn queue_transient(
         &self,
         event: &Event,
-        origin_homeserver_id: &str,
+        origin_homeserver_id: &PubkyId,
     ) -> Result<(), EventProcessorError> {
         self.enqueue(
             event,
@@ -119,7 +120,7 @@ impl RetryScheduler {
         event: &Event,
         initial_backoff_ms: i64,
         reason: &str,
-        origin_homeserver_id: &str,
+        origin_homeserver_id: &PubkyId,
     ) -> Result<(), EventProcessorError> {
         let next_retry_at = Utc::now().timestamp_millis() + initial_backoff_ms;
         let retry_event = RetryEvent::new(event, next_retry_at, origin_homeserver_id);

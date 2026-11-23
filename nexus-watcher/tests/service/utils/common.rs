@@ -22,6 +22,7 @@ pub fn create_mock_handler(
         target_uri_substring: target_substring.map(str::to_string),
         handle_count: Arc::new(Mutex::new(0)),
         handled_uris: Arc::new(Mutex::new(Vec::new())),
+        handled_homeserver_ids: Arc::new(Mutex::new(Vec::new())),
     }
     .into()
 }

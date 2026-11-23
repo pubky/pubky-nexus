@@ -5,6 +5,7 @@ use super::target::EventTarget;
 use crate::errors::EventProcessorError;
 use crate::homeserver::HsStreamEvent;
 use nexus_common::models::event::EventLine;
+use pubky_social_specs::PubkyId;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use tracing::{debug, warn};
@@ -161,8 +162,10 @@ impl Event {
         }))
     }
 
-    pub fn to_event_line(&self) -> EventLine {
-        EventLine::new(self.event_line.clone())
+    /// The line Nexus stores for this event, read from `homeserver_id`. The key is typed, so
+    /// every stored line starts with a valid one: see [`EventLine`].
+    pub fn to_event_line(&self, homeserver_id: &PubkyId) -> EventLine {
+        EventLine::new(&self.event_line, homeserver_id)
     }
 }
 
@@ -510,6 +513,43 @@ mod tests {
                     other => panic!("{line}: expected the whole URI, got {other:?}"),
                 }
             }
+        }
+    }
+
+    /// Whatever the watcher stores, an address with spaces or key-shaped words included,
+    /// starts with the homeserver's key and reads back as the line received: the key is the
+    /// first field, where no file name can stand in for it. See [`EventLine`].
+    #[test]
+    fn a_stored_line_starts_with_the_homeserver_key_whatever_its_path_holds() {
+        const HS: &str = "8rsrmfrn1anbrzuxiffwy1174o58emf4qgbfk5h7s8a33r3bd8dy";
+        let homeserver = PubkyId::try_from(HS).unwrap();
+        let Ok(ParseResult::Parsed(parsed)) = Event::parse_event(&format!(
+            "PUT {}",
+            uri(&format!("pubky.app/files/{POST_ID}"))
+        )) else {
+            panic!("expected Parsed");
+        };
+
+        for path in [
+            "drive/My File 100%.txt".to_string(),
+            format!("drive/photo {USER}"),
+            format!("drive/photo {HS}"),
+        ] {
+            let uri = uri(&path);
+            let received = format!("PUT {uri}");
+            let event = Event {
+                uri: uri.clone(),
+                event_line: received.clone(),
+                ..parsed.clone()
+            };
+
+            let stored = event.to_event_line(&homeserver);
+
+            assert_eq!(
+                EventLine::split(stored.as_str()),
+                (received.as_str(), Some(HS)),
+                "{received}"
+            );
         }
     }
 

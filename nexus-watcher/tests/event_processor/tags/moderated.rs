@@ -203,7 +203,7 @@ async fn test_moderation_of_an_unresolved_target_is_a_no_op() -> Result<()> {
 
     let tag_event = format!("PUT pubky://{moderator_id}/pub/pubky.app/tags/{tag_id}");
     let event_handler = test.event_processor_runner.event_handler.clone();
-    retrieve_and_handle_event_line(&tag_event, event_handler)
+    retrieve_and_handle_event_line(&tag_event, &test.homeserver_id, event_handler)
         .await
         .unwrap_or_else(|err| panic!("moderating {url} should succeed: {err:?}"));
 

@@ -141,6 +141,8 @@ mod tests {
     use crate::errors::EventProcessorError;
     use crate::events::{Event, EventHandler};
     use crate::service::indexer::RunOutcome;
+    use nexus_common::utils::test_utils::random_pubky_id;
+    use pubky_social_specs::PubkyId;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::Mutex;
 
@@ -148,7 +150,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl EventHandler for NoopHandler {
-        async fn handle(&self, _event: &Event) -> Result<(), EventProcessorError> {
+        async fn handle(
+            &self,
+            _event: &Event,
+            _homeserver_id: &PubkyId,
+        ) -> Result<(), EventProcessorError> {
             Ok(())
         }
     }
@@ -157,6 +163,7 @@ mod tests {
     /// of its runs going at once.
     struct SlowProcessor {
         handler: Arc<dyn EventHandler>,
+        homeserver_id: PubkyId,
         work: Duration,
         slow_run_threshold: Duration,
         running: AtomicUsize,
@@ -167,6 +174,7 @@ mod tests {
         fn new(work: Duration, slow_run_threshold: Duration) -> Self {
             Self {
                 handler: Arc::new(NoopHandler),
+                homeserver_id: random_pubky_id(),
                 work,
                 slow_run_threshold,
                 running: AtomicUsize::new(0),
@@ -188,6 +196,10 @@ mod tests {
 
         fn instance_name(&self) -> &'static str {
             "SlowProcessor"
+        }
+
+        fn homeserver_id(&self) -> &PubkyId {
+            &self.homeserver_id
         }
 
         fn slow_run_threshold(&self) -> Option<Duration> {
@@ -330,6 +342,7 @@ mod tests {
     /// Processor whose every run stops at its budget.
     struct BudgetProcessor {
         handler: Arc<dyn EventHandler>,
+        homeserver_id: PubkyId,
     }
 
     #[async_trait::async_trait]
@@ -342,6 +355,10 @@ mod tests {
             "BudgetProcessor"
         }
 
+        fn homeserver_id(&self) -> &PubkyId {
+            &self.homeserver_id
+        }
+
         async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {
             Ok(RunOutcome::BudgetSpent)
         }
@@ -352,6 +369,7 @@ mod tests {
     async fn a_spent_budget_is_its_own_run_status() {
         let processor = Arc::new(BudgetProcessor {
             handler: Arc::new(NoopHandler),
+            homeserver_id: random_pubky_id(),
         });
 
         let result = processor.run().await;
