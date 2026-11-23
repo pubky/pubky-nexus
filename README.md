@@ -12,7 +12,7 @@ Pubky Nexus is the central bridge connecting Pubky homeservers with [Pubky-App�
 - **High Performance & Scalability**: Built in Rust, Nexus is optimized for speed and efficiency, handling complex social queries across distributed systems with minimal latency.
 - **Powerful Social Semantic Graph**: Nexus supports SSG-based interactions, fostering secure and trusted connections between users.
 - **Graph-Enhanced Search & Recommendations**: Nexus leverages Neo4j to offer deep insights, relationships, and recommendations based on the social graph.
-- **Flexible Caching Layer**: A Redis cache accelerates access to common queries and minimizes database load, ensuring a smooth user experience. Most requests can be served in less than 1 ms at constant time complexity with respect number of users.
+- **Fast Indexes**: Redis holds sorted sets, search indexes and caches derived from the graph, which serve feeds, rankings and search without walking the graph on every request.
 - **Rich Observability**: Easily explore the indexed data using [Redis Insight](https://redis.io/insight/) and visualize the graph database with [Neo4j Browser](https://browser.neo4j.io/).
 
 ## 🌐 Accessing the API
@@ -20,7 +20,7 @@ Pubky Nexus is the central bridge connecting Pubky homeservers with [Pubky-App�
 Nexus serves two versions of its REST API:
 
 - **`/v1`** is the current API, read by the `social/v1` clients. Every new feature lands here.
-- **`/v0`** is **frozen**: fixes only, no new routes or fields. It serves the clients that have not moved to `/v1` yet and goes away once they all have; that date is open.
+- **`/v0`** is **deprecated and frozen**: fixes only, no new routes or fields. It serves the clients that have not moved to `/v1` yet and goes away once they all have. Its removal is announced here, naming the release that removes it, at least one release ahead.
 
 The OpenAPI documents are `/api-docs/v0/openapi.json`, `/api-docs/v1/openapi.json` and, for the `/static` file routes that go with `/v0`, `/api-docs/static/openapi.json`. The Swagger UI offers all three:
 
@@ -31,247 +31,53 @@ You can explore available endpoints, test queries, and view schema definitions d
 
 ## 🏗️ Architecture Overview
 
-Nexus is composed of several core components:
+Nexus is one binary, `nexusd`, built from four crates:
 
-- **nexus-webapi**: The REST API server for handling client requests, querying databases, and returning responses to the Pubky-App frontend.
-- **nexus-watcher**: The event aggregator that listens to homeserver events, translating them into social graph updates within the Nexus databases.
-- **nexus-common**: A library crate containing common functionalities shared by `service` and `watcher`, including database connectors, models, and queries.
-- **nexusd**: Manages the execution of Nexus components, with the capability to perform database migrations and reindexing when required
+- **nexus-webapi**: the REST API, which answers client requests from Neo4j and Redis.
+- **nexus-watcher**: reads the events of Pubky homeservers and turns them into graph and index updates.
+- **nexus-common**: what the API and the watcher share: database connectors, models and queries.
+- **nexusd**: runs the API, the watcher and the scheduled jobs, and holds the database commands: migrations, mock data, clearing.
 
 ### Data Flow
 
 ![pubky-nexus-arch](docs/images/pubky-nexus-arch.png)
 
-1. **Event Ingestion**: The watcher ingests events from Pubky homeservers and indexes them into our social graph.
-2. **Indexing and Caching**: Relationships, common queries, and graph data are cached in Redis for high-speed access. Complex queries use Neo4j.
-3. **API Responses**: The service server reads from these indexes to respond to client queries efficiently.
+1. **Ingestion**: the watcher reads each homeserver's events and fetches the resources they name.
+2. **Storage**: Neo4j holds the social graph, the source of truth. Redis holds the indexes and caches derived from it, plus the watcher's cursors and retry queue.
+3. **Serving**: the API reads both to answer clients.
 
 ![pubky-nexus-graph](docs/images/pubky-nexus-graph.png)
 
 Nexus graph schema.
 
-## ⚙️ Setting Up the Development Environment
-
-To get started with Nexus, first set up the required databases: Neo4j and Redis.
-
-1. Clone the repository and navigate to the project directory.
-2. Copy the environment template and set up the Docker environment:
+## 🚀 Quick Start
 
 ```bash
-cd docker
-cp .env-sample .env
+# Neo4j, Redis and Redis Insight
+cd docker && cp .env-sample .env && docker compose up -d && cd ..
 
-# Lean stack: Neo4j + Redis + Redis Insight
-docker compose up -d
-
-# With Postgres (for watcher tests)
-docker compose --profile tests up -d
-```
-
-To always start Postgres without passing `--profile tests`, uncomment `COMPOSE_PROFILES=tests` in `.env`.
-
-3. Optionally, populate the Neo4j database with initial mock data. Follow [Running Tests](#-running-tests) section about setting up mock data.
-
-4. Run the Nexus service:
-
-```bash
-# Run with defaults values. The config file will default from $HOME/.pubky-nexus/config.toml
+# The API, the watcher and the scheduled jobs, with ~/.pubky-nexus/config.toml
 cargo run -p nexusd
-# Run from config file
-cargo run -p nexusd -- --config-dir="custom/config/folder"
-# There is also an option to run services individually
-# Useful to run a database clear command before start running the watcher
-# cargo run -p nexusd -- db clear --yes
-cargo run -p nexusd -- watcher
-cargo run -p nexusd -- api
 ```
 
-5. **Access Redis and Neo4j UIs and Swagger endpoint**:
-   - Swagger UI: [http://localhost:8080/swagger-ui](http://localhost:8080/swagger-ui)
-   - Redis Insight: [http://localhost:5540/0/browser](http://localhost:5540/0/browser)
-     - Note: on first run, an error popup is shown and a TOS popup. After you accept the TOS, the link will work.
-   - Neo4J Browser: [http://localhost:7474/browser/](http://localhost:7474/browser/)
+The Swagger UI is then at [http://localhost:8080/swagger-ui](http://localhost:8080/swagger-ui). Mock data, the tests, the benchmarks and the database UIs are in the [development guide](docs/guides/development.md).
 
-## ⏰ Scheduled Jobs
+## 📚 Documentation
 
-Nexusd can run background jobs on a cron schedule. Jobs are configured in `config.toml` under `[jobs.<name>]` sections:
-
-```toml
-[jobs.my_job]
-cron = "0 0 3 * * *"  # every day at 03:00 (UTC)
-```
-
-The `cron` expression is SECONDS-FIRST, not the standard 5-field crontab — always include the seconds field: `sec min hour day-of-month month day-of-week [year]`. The trailing year field is optional. The same format is used for every schedule, from coarse to per-second granularity:
-
-```toml
-[jobs.reindex]
-cron = "0 * * * * *"  # every minute at second 0
-```
-
-### Available Commands
-
-- **`nexusd jobs list`** — prints the names of all available jobs
-- **`nexusd jobs run <name>`** — runs a single job immediately (on demand), bypassing the schedule
-
-### Notes
-
-- A job with no `[jobs.<name>]` section or no `cron` key is unscheduled (won't run automatically) but can still be triggered on demand. The exceptions are `influencers-cache-all-time` and `most-followed-cache`, which run on their own schedules while their sections are absent.
-- `influencers-cache-all-time` is the only writer of the AllTime influencers ranking, the default `source=influencers` stream, so it runs once a day (02:04 UTC) with no configuration. A `[jobs.influencers-cache-all-time]` section with a `cron` changes the schedule. A section without one turns the job off, and then the ranking stops changing.
-- `most-followed-cache` is the only writer of the most-followed ranking, the `source=most_followed` stream, so it runs once a day (04:06 UTC) with no configuration. A `[jobs.most-followed-cache]` section with a `cron` changes the schedule. A section without one turns the job off, and then the ranking stops changing.
-- Scheduled jobs run only under `nexusd run`, the Docker image's default command, which also starts its own API and watcher. A deployment that runs `nexusd api` and `nexusd watcher` separately should either replace them with one `nexusd run`, or keep them and call `nexusd jobs run <name>` from an external cron. An on-demand run takes the same run lock as the scheduler.
-- The `nexusd run` daemon validates all `[jobs.*]` sections at startup — a typo'd section name fails fast rather than being silently ignored.
-- Running a job on demand with `nexusd jobs run` also validates the config, so a typo'd `[jobs.<name>]` section is caught regardless of how you invoke it.
-
-## 📈 Observability
-
-Nexus exports telemetry over OTLP. For local development, use either the bundled observability stack or a separately installed SigNoz instance.
-
-Configure the OTLP endpoint in _config.toml_:
-
-```toml
-[stack.otlp]
-name = "nexusd"
-endpoint = "http://localhost:4317"
-```
-
-OTLP export is disabled when `endpoint` is omitted. When configured, Nexus exports logs, traces, and metrics using `name` as the OpenTelemetry `service.name`.
-
-### Local observability stack
-
-The bundled stack runs independently of the database services and combines the OpenTelemetry Collector with Grafana, Tempo, Prometheus, and Loki.
-
-```bash
-docker compose -f docker/docker-compose.observability.yml up -d
-```
-
-#### Alerting rules
-
-Prometheus loads alerting rules from `docker/otel/alerts.yaml`, which is mounted into the container at `/etc/prometheus/alerts.yaml`. To use your own rules file, set `PROMETHEUS_ALERTS_FILE` in `docker/.env` (paths are resolved relative to the `docker/` folder):
-
-```bash
-PROMETHEUS_ALERTS_FILE=./otel/my-alerts.yaml
-```
-
-After editing the rules, reload Prometheus without restarting the stack:
-
-```bash
-curl -X POST http://localhost:9090/-/reload
-```
-
-Validate a rules file before mounting it:
-
-```bash
-docker run --rm -v "$PWD/docker/otel:/rules:ro" --entrypoint promtool prom/prometheus:v2.55.1 check rules /rules/alerts.yaml
-```
-
-Active alerts are listed at [http://localhost:9090/alerts](http://localhost:9090/alerts). Grafana also shows them under **Alerting > Alert rules** as data source-managed rules of the Prometheus datasource.
-
-### SigNoz
-
-SigNoz remains supported as an alternative OpenTelemetry backend. Follow the [SigNoz installation guide](https://signoz.io/docs/install), then replace the local endpoint above with the SigNoz OTLP endpoint. Its local dashboard is available at [http://localhost:3301](http://localhost:3301).
-
-## 📦 Data Migrations
-
-The Migration Manager is a purpose-built tool designed to simplify and standardize the process of performing data migrations in our backend system. It ensures a smooth transition during breaking changes to our data sources, such as Neo4j and Redis, by coordinating phased migrations with minimal disruption to the application. The manager tracks the status of each migration in the database, automates phase progression where possible, and provides a clear structure for developers to implement and manage migrations. This approach reduces the risk of data inconsistencies, ensures reliability during deployments, and keeps migration-related code isolated and easy to find.
-
-### Understanding Migration Phases
-
-The Migration Manager uses a phased approach to handle data migrations safely and systematically. Each phase serves a distinct purpose in transitioning data from the old source to the new source, ensuring consistency and minimal disruption. Here's an overview of the phases:
-
-- **Dual Write**: During this phase, all writes to the old source are mirrored to the new source. This ensures that both sources remain synchronized during normal application operations. Developers invoke `MigrationManager::dual_write` in the application logic (preferrably in the application data layer) for this purpose. Once dual writes are stable and verified, the migration can progress to the next phase.
-  **Note**: Mark a migration as ready for backfill phase using the `backfill_ready` in `default.config.toml`(_nexusd/src/migrations/default.config.toml_) by providing a comma separated list of migration ids.
-
-- **Backfill**: In this phase, any missing or historical data in the new source is backfilled from the old source. This ensures that the new source is fully populated and consistent with the old source. The Migration Manager handles this phase automatically when the migration is progressed.
-
-- **Cutover**: The application begins reading from the new source instead of the old source. For Redis, this often involves renaming keys (e.g., swapping the new key to the old key name). This phase ensures that the application is fully transitioned to the new source.
-
-- **Cleanup**: The old source is no longer needed and can be safely cleaned up. This includes removing old keys in Redis or deleting data in Neo4j that is no longer required.
-  Use the example at /examples/migration.rs as your guide.
-
-### Adding a new migration
-
-1. To create a new migration, use the migrations binary by running:
-
-```bash
-cargo run -p nexusd -- db migration new TagCountsReset
-```
-
-This will generate a new migration file in the `nexusd/src/migrations/catalog` directory.
-
-2. Next, register your migration in the `import_migrations` function in `nexusd/src/migrations/catalog/mod.rs` file, which ensures it is included in the migration lifecycle.
-
-3. Once registered, implement the required phases (dual_write, backfill, cutover, and cleanup) in the generated file `nexusd/src/migrations/catalog/tag_counts_reset_1739459180.rs`. Each phase serves a specific purpose in safely transitioning data between the old and new sources.
-
-### Run the migration
-
-After implementing your migration, run the migrations to execute pending migrations:
-
-```bash
-cargo run -p nexusd -- db migration run
-```
-
-The manager will automatically handle migrations in the appropriate order, progressing through phases as needed.
-
-## 🧪 Running Tests
-
-Running tests requires setting up mock data (`docker/test-graph/mocks`) into Neo4j and Redis.
-
-Use the `db` command to load the mock data:
-
-```bash
-# If you're using podman instead of docker, set this env variable before importing mock data
-# export CONTAINER_RUNTIME=podman
-cargo run -p nexusd -- db mock
-```
-
-Then to run the tests:
-
-```bash
-cargo nextest run -p nexus-common --no-fail-fast
-
-cargo nextest run -p nexus-webapi --no-fail-fast
-
-# nexus-watcher tests need Postgres (docker compose --profile tests up -d) and
-# TEST_PUBKY_CONNECTION_STRING from docker/.env-sample
-# export TEST_PUBKY_CONNECTION_STRING=postgres://test_user:test_pass@localhost:5432/postgres?pubky-test=true
-cargo nextest run -p nexus-watcher --no-fail-fast
-
-# nexusd trust-rank tests require the GDS plugin baked into the neo4j image
-# (docker/neo4j/Dockerfile); the docker compose stack builds it automatically.
-cargo nextest run -p nexusd --no-fail-fast
-```
-
-To test specific feature(s):
-
-```bash
-cargo nextest run -p nexus-watcher files::create --no-fail-fast
-```
-
-## 🚀 Benchmarking
-
-If you want to see the performance of the server you can run the benchmarks
-
-```bash
-# cargo bench -p nexus-webapi [--bench <endpoint>]
-cargo bench -p nexus-webapi
-# or if you want specific endpoint
-cargo bench -p nexus-webapi --bench user
-```
-
-## ⚠️ Troubleshooting
-
-If tests or the development environment seem out of sync, follow the [Running Tests](#-running-tests) steps to reload the mock data.
+- [Releases](https://github.com/pubky/pubky-nexus/releases): what changed in each version, generated from the commits, and what to do when upgrading.
+- Guides, in [docs/guides](docs/guides):
+  - [Development](docs/guides/development.md): the local environment, the tests and the benchmarks.
+  - [Homeservers](docs/guides/homeservers.md): how the watcher finds and indexes homeservers, and its config fields.
+  - [Scheduled jobs](docs/guides/jobs.md): the jobs `nexusd` runs on a schedule or on demand.
+  - [Data migrations](docs/guides/migrations.md): running them, and writing one.
+  - [Observability](docs/guides/observability.md): OTLP telemetry, the local Grafana stack and the alerting rules.
+  - [Versioning](docs/guides/versioning.md): what a version number promises, and the `/v1` contract.
+  - [Releasing](docs/guides/releasing.md): how a release is cut, and what a commit says for its release notes.
+- Decisions, in [docs/adr](docs/adr): why Nexus is built the way it is.
 
 ## 🤝 Contributing
 
-To contribute to Nexus, follow these steps:
-
-1. **Fork the Repository** and create a feature branch
-2. **Write Tests**: Ensure new features and changes are tested and benchmarked
-3. **Submit a Pull Request** and provide a description of the changes
-
-## 🌐 Useful Links
-
-- **Swagger API**:
-  - Staging: [https://nexus.staging.pubky.app/swagger-ui/](https://nexus.staging.pubky.app/swagger-ui/)
-  - Production: [https://nexus.pubky.app/swagger-ui/](https://nexus.pubky.app/swagger-ui/)
+1. **Fork the repository** and create a feature branch.
+2. **Set up** the environment from the [development guide](docs/guides/development.md).
+3. **Write tests**, and benchmarks where performance matters, for every change. Update the guide that covers what you changed.
+4. **Open a pull request** that describes the change.

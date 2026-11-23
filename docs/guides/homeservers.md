@@ -1,6 +1,6 @@
-# Nexus and HS Decentralization — Configuration Reference
+# Homeservers: configuration reference
 
-These are technical notes describing configuration fields related to Decentralization.
+How the watcher finds and indexes homeservers, and the config fields that drive it: the primary homeserver, the externally-hosted users, the user → homeserver resolution and the event retries.
 
 ---
 
@@ -236,10 +236,14 @@ catch both:
 | `nexus.task.hs-resolver.stale_users` | gauge | Subset of `mapped_users` whose mapping is currently stale. |
 | `nexus.task.hs-resolver.heartbeat_timestamp` | gauge, unit `s` | Unix time of the resolver's most recent progress: a user handled or a run finished. |
 
-Prometheus alerting rules for these metrics live in
-[`docker/otel/alerts.yaml`](../docker/otel/alerts.yaml), loaded by the local
-observability stack (metric names as translated by the Prometheus exporter;
-under SigNoz drop the `_total` / `_seconds` suffixes):
+> ⚠️ **No resolver alert ships yet.** [`docker/otel/alerts.yaml`](../../docker/otel/alerts.yaml),
+> which the local [observability stack](observability.md) loads, holds only the
+> Neo4j query error and cursor stall rules. A resolver outage raises no alert
+> until you add rules for these metrics yourself.
+
+The three alerts below are the ones these metrics are built for. Write them
+against the metric names as the Prometheus exporter translates them (under
+SigNoz, drop the `_total` / `_seconds` suffixes):
 
 - `NexusHsResolverUnresolvedRatio` — most previously-active mappings the
   resolver touched recently could not be resolved. Scoped to `mapping="active"`
@@ -257,8 +261,8 @@ under SigNoz drop the `_total` / `_seconds` suffixes):
   threshold assumes the default `hs_resolver_interval_ms`; scale it if you
   raise the interval.
 
-The two ratio alerts carry an absolute floor, so they need no retuning as the
-user base grows and stay quiet on tiny deployments.
+Give the two ratio alerts an absolute floor as well, so they need no retuning
+as the user base grows and stay quiet on tiny deployments.
 
 A burst of `marked_stale`, with either reason, is users changing their records,
 never an outage, and is worth a lower-severity notification.
@@ -269,7 +273,7 @@ never an outage, and is worth a lower-severity notification.
 
 Cross-cutting: applies to **all** indexing, driven by `RetryProcessor`. Backoff
 parameters and retry limits are selected per error via
-`EventRetryConfig::get_backoff_params` / `get_max_retries_for_err`: *transient*
+`RetryProcessor::backoff_params_for` / `max_retries_for`: *transient*
 errors and *missing-dependency* errors use separate values.
 
 ### `max_retries` / `max_dependency_retries` — retry limits
