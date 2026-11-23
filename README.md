@@ -81,15 +81,3 @@ The Swagger UI is then at [http://localhost:8080/swagger-ui](http://localhost:80
 2. **Set up** the environment from the [development guide](docs/guides/development.md).
 3. **Write tests**, and benchmarks where performance matters, for every change. Update the guide that covers what you changed.
 4. **Open a pull request** that describes the change.
-
-## 🏷️ Versioning
-
-Nexus 1.x serves `/v1` and reads the 1.x data model of [`pubky-social-specs`](https://github.com/pubky/pubky-social-specs). The two version numbers move independently. A release is published as the Docker image `synonymsoft/pubky-nexus:vX.Y.Z`, with a GitHub release of the same name.
-
-From 1.0.0 the version follows [semver](https://semver.org) for `/v1` only. `/v0` is deprecated and frozen, a published image tag is never pushed again, and the config file, the `nexusd` commands, the Rust crates and the stored data are not covered. What each of these promises, and which parts of a `/v1` response are part of the contract, is in [docs/guides/versioning.md](docs/guides/versioning.md).
-
-## 🌐 Useful Links
-
-- **Swagger API**:
-  - Staging: [https://nexus.staging.pubky.app/swagger-ui/](https://nexus.staging.pubky.app/swagger-ui/)
-  - Production: [https://nexus.pubky.app/swagger-ui/](https://nexus.pubky.app/swagger-ui/)
