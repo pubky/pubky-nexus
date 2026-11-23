@@ -1,6 +1,6 @@
 # Changelog
 
-Each version of Nexus has a section below, newest first. What a version number promises is in the [README](README.md), under Versioning; how a release is cut is in [docs/guides/releasing.md](docs/guides/releasing.md).
+Each version of Nexus has a section below, newest first. What a version number promises is in [docs/guides/versioning.md](docs/guides/versioning.md); how a release is cut is in [docs/guides/releasing.md](docs/guides/releasing.md).
 
 ## 1.0.0
 

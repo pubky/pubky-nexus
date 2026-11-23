@@ -4,7 +4,7 @@ A release is a version number in the manifests, a section in [CHANGELOG.md](../.
 
 ## Choosing the version
 
-The README says what a version number promises, under Versioning. Against that:
+[versioning.md](versioning.md) says what a version number promises. Against that:
 
 - **Major:** a `/v1` route, parameter or field is removed or changes meaning or type.
 - **Minor:** something is added to `/v1`, or `/v0` is removed after its announced release.

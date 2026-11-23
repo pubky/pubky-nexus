@@ -1,6 +1,6 @@
 # Documentation
 
-The [README](../README.md) says what Nexus is, how to reach its API and what a version promises; the API itself is described by its OpenAPI documents. This folder holds the rest: why Nexus is built the way it is, and how to run and release it.
+The [README](../README.md) says what Nexus is and how to reach its API; the API itself is described by its OpenAPI documents. This folder holds the rest: why Nexus is built the way it is, how to run it, and how it is versioned and released.
 
 | Folder | Holds | Changes |
 |---|---|---|
@@ -30,6 +30,7 @@ An ADR records one decision that shapes the code and that someone will later wan
 | [jobs.md](guides/jobs.md) | Operators | The jobs `nexusd` runs on a schedule or on demand, and how to configure them |
 | [migrations.md](guides/migrations.md) | Operators, contributors | Running the pending migrations before a release, how the phases advance, and writing a new migration |
 | [observability.md](guides/observability.md) | Operators | OTLP telemetry, the local Grafana stack, the alerting rules, SigNoz |
+| [versioning.md](guides/versioning.md) | Clients, operators, maintainers | What a version number promises for `/v1`, `/v0`, the Docker image and everything else, and which parts of a `/v1` response are the contract |
 | [releasing.md](guides/releasing.md) | Maintainers | Choosing a version, the release steps, the checks after the tag, and what to do with a bad release |
 
 A guide describes the code as it is, so a pull request that changes the behaviour or a config field a guide covers updates the guide too. Name a guide after what it covers, not after the project that introduced it.
