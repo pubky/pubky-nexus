@@ -8,7 +8,22 @@ The first stable release. Nexus 1.x serves the `/v1` API and reads the 1.x data 
 
 ### Upgrade
 
-- Before starting 1.0.0, run the pending migrations with `nexusd db migration run`. `nexusd db migration check` must then exit 0.
+Upgrade in this order. Several migrations in this release need every API and watcher stopped while they run, so plan for downtime.
+
+1. **Stop** every running `nexusd`: the API, the watcher and the jobs. An old watcher that keeps running during the migrations can write posts with no address, which then fail to load, or a deleted post that reads as live.
+2. **Point the migrations at the deployment.** `nexusd db migration run` and `check` read `migrations/config.toml` in the config folder, not `config.toml`. Its `[stack.db]` defaults to `localhost`, so set it to the deployment's Neo4j and Redis first. See [docs/guides/migrations.md](docs/guides/migrations.md).
+3. **Migrate** with the 1.0.0 binary: `nexusd db migration run`, then `nexusd db migration check`, which must exit 0.
+4. **Start** 1.0.0: the API first, then the watcher.
+
+There is no way back after step 3. A build older than these migrations reads the user documents `UserDetailsCacheRetire1792160000` removed as deleted users, which empties the user streams and rankings, and it reads every deleted post as a live one with empty content, since `PostDeletedFlag1790899200` marks them with a flag it does not know.
+
+Config:
+
+- `testnet` and `testnet_host` moved from `[watcher]` to `[stack.net]`. The watcher does not reject a field it does not know, so a value left under `[watcher]` is ignored without an error.
+- Coming from a 0.x config file, start from [`nexusd/default.config.toml`](nexusd/default.config.toml) and copy your values into it, rather than editing the old file.
+
+Also:
+
 - `/v0` is deprecated. It keeps working, frozen, until a later release announces its removal.
 - The Rust crates are no longer published to crates.io. 0.4.1 was the last version published there.
 

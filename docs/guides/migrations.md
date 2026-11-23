@@ -26,14 +26,14 @@ A migration implements the `Migration` trait in `nexusd/src/migrations/manager.r
 
 | Phase | What happens | How it moves on |
 |---|---|---|
-| `dual_write` | The application writes to the old and the new place. | When the new writes are stable, add the migration's id to `backfill_ready` in `migrations/config.toml`. The next `run` moves it to `backfill`. |
-| `backfill` | `backfill()` copies the existing data to the new place. | The `run` that completes it moves it on. |
+| `dual_write` | The application writes to the old and the new place. | When the new writes are stable, add the migration's id to `backfill_ready` in `migrations/config.toml`. The next `run` sets it to `backfill` and goes straight on to the next row. |
+| `backfill` | `backfill()` copies the existing data to the new place. | In that same `run`: when `backfill()` succeeds, the migration moves to `cutover`. Remove its id from `backfill_ready` before the following `run`. |
 | `cutover` | `cutover()` switches the reads to the new place. | The next `run`. |
 | `cleanup` | `cleanup()` removes the old data. | The next `run`, which marks it `done`. |
 
 Each `run` executes at most one phase of a migration, so a multi-stage migration takes several runs, with a deployment between them where the code changes.
 
-> ⚠️ Remove a migration from `backfill_ready` once it has moved on. Every `run` sets the migrations listed there back to `backfill`, even when they are `done`.
+> ⚠️ Remove a migration from `backfill_ready` right after the `run` that ran its backfill. Every `run` sets the migrations listed there back to `backfill` and runs the backfill again, even when they are at `cutover` or `done`, so a migration left on the list never runs its `cutover()`.
 
 ## Writing a migration
 

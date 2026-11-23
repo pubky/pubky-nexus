@@ -28,7 +28,9 @@ A change to the config file, the `nexusd` commands or the stored data does not d
    git push <remote> vX.Y.Z
    ```
 
-   The tag starts `.github/workflows/docker.yml`, which builds the image for `linux/amd64` and `linux/arm64` and pushes `synonymsoft/pubky-nexus:vX.Y.Z` and `synonymsoft/pubky-nexus:latest`. There is no approval step: pushing the tag publishes.
+   The tag starts `.github/workflows/docker.yml`, which builds the image for `linux/amd64` and `linux/arm64` and pushes it under three tags: `synonymsoft/pubky-nexus:vX.Y.Z`, `synonymsoft/pubky-nexus:latest` and the full hash of the tagged commit. There is no approval step: pushing the tag publishes.
+
+   The tags come from the shared `build_and_push` action in `pubky/ci-workflows`, which `docker.yml` uses at its `main` branch. The commit-hash tag is that action's default. A change to the action can change the tags without a change in this repository.
 6. **GitHub release.** Create it from the tag by hand, with the release's changelog section as its text:
 
    ```bash

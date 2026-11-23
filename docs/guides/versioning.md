@@ -12,7 +12,7 @@ From 1.0.0, the version follows [semver](https://semver.org) for the parts liste
 |---|---|
 | `/v1` | Follows semver, as set out below. |
 | `/v0` | Deprecated and frozen: fixes only, no new routes or fields. It can be removed in a 1.x minor release, announced in the changelog at least one release ahead. |
-| Docker image | A `synonymsoft/pubky-nexus:vX.Y.Z` image is never pushed again once published. `latest` moves with each release. |
+| Docker image | A `synonymsoft/pubky-nexus:vX.Y.Z` image is never pushed again once published. `latest` moves with each release. Each release is also tagged with its commit hash, which carries no promise beyond naming that build. |
 | Everything else | Not covered: the config file, the `nexusd` commands, the Rust crates (not published) and the data Nexus stores in Neo4j and Redis. A change to the config file or to the commands is still listed under **Upgrade** in the release's changelog section. |
 
 ## The `/v1` contract

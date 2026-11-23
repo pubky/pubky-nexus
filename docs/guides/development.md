@@ -2,9 +2,14 @@
 
 Setting up a local Nexus, running the tests and the benchmarks.
 
-## Setting up the environment
+## Prerequisites
 
-To get started with Nexus, first set up the required databases: Neo4j and Redis.
+- **Rust:** the toolchain pinned in `rust-toolchain.toml`. `rustup` installs it on the first `cargo` command.
+- **Docker** (or Podman) with Compose, for Neo4j, Redis and, for the watcher tests, Postgres.
+- **cargo-nextest:** `cargo install cargo-nextest --locked`. The tests run only through it: `.config/nextest.toml` keeps apart the tests that share Redis keys, which `cargo test` would run at the same time.
+- **ImageMagick:** the media code calls its `convert` and `identify` commands, so the `nexus-webapi` media tests fail without it.
+
+## Setting up the environment
 
 1. Clone the repository and navigate to the project directory.
 2. Copy the environment template and set up the Docker environment:
@@ -22,23 +27,22 @@ docker compose --profile tests up -d
 
 To always start Postgres without passing `--profile tests`, uncomment `COMPOSE_PROFILES=tests` in `.env`.
 
-3. Optionally, populate the Neo4j database with initial mock data. See [Running the tests](#running-the-tests) for loading the mock data.
-
-4. Run the Nexus service:
+3. Run Nexus:
 
 ```bash
-# Run with defaults values. The config file will default from $HOME/.pubky-nexus/config.toml
+# The API, the watcher and the scheduled jobs. Reads ~/.pubky-nexus/config.toml,
+# which is created from nexusd/default.config.toml when it is missing
 cargo run -p nexusd
-# Run from config file
+# The same, with the config.toml in another folder
 cargo run -p nexusd -- --config-dir="custom/config/folder"
-# There is also an option to run services individually
-# Useful to run a database clear command before start running the watcher
-# cargo run -p nexusd -- db clear --yes
+# One service at a time
 cargo run -p nexusd -- watcher
 cargo run -p nexusd -- api
 ```
 
-5. **Access Redis and Neo4j UIs and Swagger endpoint**:
+With the default config, the watcher indexes the live Synonym homeserver (`[watcher] homeserver`, with `[stack.net] testnet = false`) into your local databases. At start it also stores the `[features]` switches, which turn the trust filter off by default. Both change data the tests rely on, so load the mock data again before running the tests (next section).
+
+4. **Access Redis and Neo4j UIs and Swagger endpoint**:
    - Swagger UI: [http://localhost:8080/swagger-ui](http://localhost:8080/swagger-ui)
    - Redis Insight: [http://localhost:5540/0/browser](http://localhost:5540/0/browser)
      - Note: on first run, an error popup is shown and a TOS popup. After you accept the TOS, the link will work.
@@ -46,17 +50,19 @@ cargo run -p nexusd -- api
 
 ## Running the tests
 
-Running tests requires setting up mock data (`docker/test-graph/mocks`) into Neo4j and Redis.
-
-Use the `db` command to load the mock data:
+The tests read the mock data in `docker/test-graph/mocks`. Load it into Neo4j and Redis before the first run, and again after running the watcher against a real homeserver:
 
 ```bash
 # If you're using podman instead of docker, set this env variable before importing mock data
 # export CONTAINER_RUNTIME=podman
 cargo run -p nexusd -- db mock
+# Only one of the two databases
+cargo run -p nexusd -- db mock --mock-type graph   # or redis
 ```
 
-Then to run the tests:
+> ⚠️ `db mock` and `db clear --yes` delete everything first: every node in the Neo4j graph and every key in the Redis database (`FLUSHDB`), including the watcher's cursors and retry queue. They act on the databases in `~/.pubky-nexus/config.toml`, or in the folder given with `--config-dir`. Check that both point at `localhost` before running either.
+
+Then run the tests, in this order:
 
 ```bash
 cargo nextest run -p nexus-common --no-fail-fast
@@ -72,6 +78,8 @@ cargo nextest run -p nexus-watcher --no-fail-fast
 # (docker/neo4j/Dockerfile); the docker compose stack builds it automatically.
 cargo nextest run -p nexusd --no-fail-fast
 ```
+
+Run the `nexusd` suite last. Its trust recompute rewrites the `trust` of every user in the graph, and the other suites check graph state. If they fail after it, load the mock data again.
 
 To test specific feature(s):
 

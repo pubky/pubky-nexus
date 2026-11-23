@@ -3,15 +3,17 @@
 Nexusd can run background jobs on a cron schedule. Jobs are configured in `config.toml` under `[jobs.<name>]` sections:
 
 ```toml
-[jobs.my_job]
+[jobs.hot-tags-cache-today]
 cron = "0 0 3 * * *"  # every day at 03:00 (UTC)
 ```
+
+The name after `jobs.` must be one that `nexusd jobs list` prints. `nexusd` refuses to start on a section that names no job.
 
 The `cron` expression is SECONDS-FIRST, not the standard 5-field crontab — always include the seconds field: `sec min hour day-of-month month day-of-week [year]`. The trailing year field is optional. The same format is used for every schedule, from coarse to per-second granularity:
 
 ```toml
-[jobs.reindex]
-cron = "0 * * * * *"  # every minute at second 0
+[jobs.influencers-cache-today]
+cron = "0 0 * * * *"  # every hour, at minute 0 and second 0
 ```
 
 ## Available Commands
