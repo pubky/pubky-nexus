@@ -121,6 +121,18 @@ impl RetryProcessor {
 
         let ev_uri = &retry_event.event_uri;
 
+        // The entry is what its origin homeserver said. A user mapped to another homeserver
+        // since is read there, so handling it would index what they left behind.
+        if !self
+            .event_handler
+            .retries(&event, &origin_homeserver_id)
+            .await?
+        {
+            return self
+                .remove_if_current(index_key, retry_event.nonce, ev_uri)
+                .await;
+        }
+
         // In principle, it's possible to check if `origin_homeserver_id` is blacklisted before
         // handling the event. A retry entry may have been queued before that HS got blacklisted.
         // Retrying those pre-existing events is acceptable for now. Newly discovered events from a

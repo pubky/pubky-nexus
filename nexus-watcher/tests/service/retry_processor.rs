@@ -22,7 +22,9 @@ use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::post::{PostCounts, PostDetails};
 use nexus_common::models::traits::Collection;
-use nexus_common::models::user::{Epoch, UserCounts, UserDetails, UserIngestor};
+use nexus_common::models::user::{
+    set_user_homeserver, set_user_homeserver_stale, Epoch, UserCounts, UserDetails, UserIngestor,
+};
 use nexus_common::utils::test_utils::{default_ingestor_tests, random_pubky_id};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{
@@ -442,6 +444,101 @@ async fn test_retry_handles_event_from_its_origin_homeserver() -> Result<()> {
     assert_eq!(handler.get_handled_homeserver_ids(), vec![HS_IDS[1]]);
 
     let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+/// Runs one retry pass, through the real handler, over a single ready entry: the PUT of a
+/// post its homeserver still serves, of a new user mapped to `mapped_to`, read from
+/// `origin`. Returns whether the post was indexed and whether the entry is still queued.
+async fn retry_a_post_of_a_mapped_user(
+    mapped_to: &PubkyId,
+    stale: bool,
+    origin: &PubkyId,
+) -> Result<(bool, bool)> {
+    setup().await?;
+
+    let user = random_pubky_id();
+    let user_id = user.to_string();
+    UserDetails::from_pubky(user).put_to_graph().await?;
+    set_user_homeserver(&user_id, mapped_to).await?;
+    if stale {
+        set_user_homeserver_stale(&user_id, true, None).await?;
+    }
+
+    let post = PubkyAppPost {
+        content: "Retry:Mapping:Post".to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    };
+    let post_id = post.create_id();
+    let event_uri = post_uri_builder(user_id.clone(), post_id.clone());
+    let client =
+        MockHomeserverClient::default().with_resource(&event_uri, serde_json::to_vec(&post)?);
+    let files = tempfile::TempDir::new()?;
+    let store = new_in_memory_store();
+    store
+        .put(&RetryEvent {
+            origin_homeserver_id: origin.to_string(),
+            ..ready_put_entry(&event_uri, 0)
+        })
+        .await?;
+
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(10, 50, 60, 3600, 60, 3600),
+        default_handler(client, &files, store.clone()),
+        shutdown_rx,
+    );
+    processor.run_internal().await?;
+
+    let indexed = PostDetails::get_from_graph(&user_id, &post_id)
+        .await?
+        .is_some();
+    let queued = store.get(&IndexKey::for_uri(&event_uri)).await?.is_some();
+    exec_single_row(queries::del::delete_user(&user_id)).await?;
+    Ok((indexed, queued))
+}
+
+/// A user mapped to another homeserver than the one an entry was read from is read
+/// there, and what they hold arrives through that homeserver's stream. The entry is what
+/// the old homeserver said, a reply they have since deleted included, so it is removed
+/// and nothing is indexed.
+#[tokio_shared_rt::test(shared)]
+async fn test_retry_of_a_user_mapped_to_another_homeserver_is_removed_and_nothing_indexed(
+) -> Result<()> {
+    let (origin, elsewhere) = (random_pubky_id(), random_pubky_id());
+
+    let outcome = retry_a_post_of_a_mapped_user(&elsewhere, false, &origin).await?;
+
+    assert_eq!(outcome, (false, false), "(indexed, still queued)");
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_retry_of_a_user_mapped_to_the_origin_homeserver_is_handled() -> Result<()> {
+    let origin = random_pubky_id();
+
+    let outcome = retry_a_post_of_a_mapped_user(&origin, false, &origin).await?;
+
+    assert_eq!(outcome, (true, false), "(indexed, still queued)");
+    Ok(())
+}
+
+/// A stale mapping still points to the origin homeserver, and a record that names it again
+/// makes the user read there once more, past this event. Removing the entry would lose
+/// it, so it is retried as before.
+#[tokio_shared_rt::test(shared)]
+async fn test_retry_of_a_user_with_a_stale_mapping_to_the_origin_homeserver_is_handled(
+) -> Result<()> {
+    let origin = random_pubky_id();
+
+    let outcome = retry_a_post_of_a_mapped_user(&origin, true, &origin).await?;
+
+    assert_eq!(outcome, (true, false), "(indexed, still queued)");
     Ok(())
 }
 
