@@ -17,6 +17,7 @@ use pubky_social_specs::PubkyId;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
+use super::homeserver::HsMapping;
 use super::{RunOutcome, TEventProcessor};
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
@@ -235,6 +236,22 @@ impl KeyBasedEventProcessor {
             .await?;
 
         let user_id = user_pk.z32();
+        if stream_events.is_empty() {
+            return Ok(());
+        }
+
+        // The run listed its users when it started and reaches each one later, so the
+        // mapping may have changed since. Events fetched from a homeserver the user is no
+        // longer read on are left alone, cursor included: after a move they may be the
+        // wipe of what the user took along.
+        if !self.reads_user(&user_id).await? {
+            info!(
+                %user_id, action = "skip_user",
+                "User is no longer mapped to this homeserver; leaving the fetched events unread",
+            );
+            return Ok(());
+        }
+
         let (latest_cursor, result) = self
             .process_user_events(hs_id, &user_id, cursor.id(), stream_events, deadline)
             .await;
@@ -249,6 +266,12 @@ impl KeyBasedEventProcessor {
         }
 
         result
+    }
+
+    /// Whether `user_id` is read on this homeserver right now: mapped to it, and not stale.
+    async fn reads_user(&self, user_id: &str) -> Result<bool, EventProcessorError> {
+        let mapping = HsMapping::stored(user_id, &self.homeserver_id).await?;
+        Ok(matches!(mapping, Some(HsMapping::Current { stale: false })))
     }
 
     /// Processes already-fetched events for a single user stream.

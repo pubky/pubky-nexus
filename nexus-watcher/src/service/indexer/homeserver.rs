@@ -66,6 +66,27 @@ pub enum HsMapping {
     Other { hs_id: String },
 }
 
+impl HsMapping {
+    /// Reads a user's `HOSTED_BY` mapping relative to the homeserver `hs_id` from the graph,
+    /// or `None` if the user has no edge.
+    pub(super) async fn stored(user_id: &str, hs_id: &str) -> GraphResult<Option<Self>> {
+        let query = queries::get::get_user_homeserver(user_id);
+        let Some(row) = fetch_row_from_graph(query).await? else {
+            return Ok(None);
+        };
+        let stored_hs_id: String = row.get("homeserver_id")?;
+        let stale: bool = row.get("stale")?;
+
+        if stored_hs_id == hs_id {
+            Ok(Some(Self::Current { stale }))
+        } else {
+            Ok(Some(Self::Other {
+                hs_id: stored_hs_id,
+            }))
+        }
+    }
+}
+
 /// A homeserver response, split into its event lines and the cursor closing the batch.
 ///
 /// The homeserver sends the cursor line last, but that is positional convention
@@ -226,7 +247,7 @@ impl HsEventProcessor {
             return Ok(hs_mapping.clone());
         }
 
-        let mapping = match self.stored_hs_mapping(user_id).await? {
+        let mapping = match HsMapping::stored(user_id.as_ref(), &self.homeserver.id).await? {
             Some(stored) => stored,
             None => self.published_hs_mapping(user_id).await,
         };
@@ -261,23 +282,6 @@ impl HsEventProcessor {
                 hs_id: hs_id.to_string(),
             },
             None => HsMapping::Unresolved,
-        }
-    }
-
-    /// Reads a user's `HOSTED_BY` mapping relative to this processor's HS from the graph, or
-    /// `None` if the user has no edge yet.
-    async fn stored_hs_mapping(&self, user_id: &PubkyId) -> GraphResult<Option<HsMapping>> {
-        let query = queries::get::get_user_homeserver(user_id.as_ref());
-        let Some(row) = fetch_row_from_graph(query).await? else {
-            return Ok(None);
-        };
-        let hs_id: String = row.get("homeserver_id")?;
-        let stale: bool = row.get("stale")?;
-
-        if hs_id.as_str() == self.homeserver.id.as_ref() {
-            Ok(Some(HsMapping::Current { stale }))
-        } else {
-            Ok(Some(HsMapping::Other { hs_id }))
         }
     }
 
