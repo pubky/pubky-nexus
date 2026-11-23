@@ -1,4 +1,4 @@
-name: Build and Publish Docker Image
+name: Release
 
 on:
   push:
@@ -16,6 +16,20 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+
+      - name: Check the tag matches the crate versions
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          rustup toolchain install
+          expected="${TAG#v}"
+          mismatched=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r --arg v "$expected" '.packages[] | select(.version != $v) | "\(.name) \(.version)"')
+          if [ -n "$mismatched" ]; then
+            echo "::error::Tag $TAG does not match the version of these crates:"
+            echo "$mismatched"
+            exit 1
+          fi
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v4
@@ -38,3 +52,26 @@ jobs:
           image: pubky-nexus
           cache_from: type=gha
           cache_to: type=gha,mode=max
+
+  # Notes from the conventional commits since the previous tag; the action reads them through the API, so no checkout.
+  release:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Generate the release notes
+        id: notes
+        uses: requarks/changelog-action@v1
+        with:
+          token: ${{ github.token }}
+          tag: ${{ github.ref_name }}
+          excludeTypes: ""
+          useGitmojis: false
+          writeToFile: false
+
+      - name: Create the GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          body: ${{ steps.notes.outputs.changes }}

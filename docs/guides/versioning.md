@@ -2,7 +2,7 @@
 
 Nexus 1.x serves `/v1` and reads the 1.x data model of [`pubky-social-specs`](https://github.com/pubky/pubky-social-specs). The two version numbers move independently.
 
-A release is published as the Docker image `synonymsoft/pubky-nexus:vX.Y.Z`, with a GitHub release of the same name. What changed in each version is in [CHANGELOG.md](../../CHANGELOG.md); how a release is cut is in [releasing.md](releasing.md).
+A release is published as the Docker image `synonymsoft/pubky-nexus:vX.Y.Z`, with a GitHub release of the same name. What changed in each version is in its release notes, generated from the commits; how a release is cut is in [releasing.md](releasing.md).
 
 ## What a version number promises
 
@@ -11,9 +11,9 @@ From 1.0.0, the version follows [semver](https://semver.org) for the parts liste
 | Area | Promise |
 |---|---|
 | `/v1` | Follows semver, as set out below. |
-| `/v0` | Deprecated and frozen: fixes only, no new routes or fields. It can be removed in a 1.x minor release, announced in the changelog at least one release ahead. |
+| `/v0` | Deprecated and frozen: fixes only, no new routes or fields. It can be removed in a 1.x minor release, announced in the README at least one release ahead. |
 | Docker image | A `synonymsoft/pubky-nexus:vX.Y.Z` image is never pushed again once published. `latest` moves with each release. Each release is also tagged with its commit hash, which carries no promise beyond naming that build. |
-| Everything else | Not covered: the config file, the `nexusd` commands, the Rust crates (not published) and the data Nexus stores in Neo4j and Redis. A change to the config file or to the commands is still listed under **Upgrade** in the release's changelog section. |
+| Everything else | Not covered: the config file, the `nexusd` commands, the Rust crates (not published) and the data Nexus stores in Neo4j and Redis. What an operator has to do for them still heads the release notes ([releasing.md](releasing.md)). |
 
 ## The `/v1` contract
 

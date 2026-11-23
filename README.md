@@ -20,7 +20,7 @@ Pubky Nexus is the central bridge connecting Pubky homeservers with [Pubky-App�
 Nexus serves two versions of its REST API:
 
 - **`/v1`** is the current API, read by the `social/v1` clients. Every new feature lands here.
-- **`/v0`** is **deprecated and frozen**: fixes only, no new routes or fields. It serves the clients that have not moved to `/v1` yet and goes away once they all have. Its removal is announced in [CHANGELOG.md](CHANGELOG.md) at least one release ahead.
+- **`/v0`** is **deprecated and frozen**: fixes only, no new routes or fields. It serves the clients that have not moved to `/v1` yet and goes away once they all have. Its removal is announced here, naming the release that removes it, at least one release ahead.
 
 The OpenAPI documents are `/api-docs/v0/openapi.json`, `/api-docs/v1/openapi.json` and, for the `/static` file routes that go with `/v0`, `/api-docs/static/openapi.json`. The Swagger UI offers all three:
 
@@ -64,7 +64,7 @@ The Swagger UI is then at [http://localhost:8080/swagger-ui](http://localhost:80
 
 ## 📚 Documentation
 
-- [CHANGELOG.md](CHANGELOG.md): what changed in each version, and what to do when upgrading.
+- [Releases](https://github.com/pubky/pubky-nexus/releases): what changed in each version, generated from the commits, and what to do when upgrading.
 - Guides, in [docs/guides](docs/guides):
   - [Development](docs/guides/development.md): the local environment, the tests and the benchmarks.
   - [Homeservers](docs/guides/homeservers.md): how the watcher finds and indexes homeservers, and its config fields.
@@ -72,7 +72,7 @@ The Swagger UI is then at [http://localhost:8080/swagger-ui](http://localhost:80
   - [Data migrations](docs/guides/migrations.md): running them, and writing one.
   - [Observability](docs/guides/observability.md): OTLP telemetry, the local Grafana stack and the alerting rules.
   - [Versioning](docs/guides/versioning.md): what a version number promises, and the `/v1` contract.
-  - [Releasing](docs/guides/releasing.md): how a release is cut.
+  - [Releasing](docs/guides/releasing.md): how a release is cut, and what a commit says for its release notes.
 - Decisions, in [docs/adr](docs/adr): why Nexus is built the way it is.
 
 ## 🤝 Contributing

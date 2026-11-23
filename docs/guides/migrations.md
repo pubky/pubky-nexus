@@ -11,7 +11,7 @@ nexusd db migration run     # runs them
 
 Both read `migrations/config.toml` under the config folder, `~/.pubky-nexus/` or the one given with `--config-dir`, not the `config.toml` the API and the watcher use. It holds `backfill_ready` (below) and its own `[stack]`, with the database addresses. It is created from defaults on the first run, and those point at `localhost`: on a server, set its `[stack.db]` to the deployment's Neo4j and Redis before running anything.
 
-- **When:** before starting a release that registers new migrations. A release's section in [CHANGELOG.md](../../CHANGELOG.md) says so under **Upgrade**, with any order or downtime a migration needs.
+- **When:** before starting a release that registers new migrations. `check` lists them; one that needs downtime says so in the release notes ([releasing.md](releasing.md)).
 - **Nothing checks for you.** The API and the watcher start with migrations pending and may then serve wrong data, so run `check` as part of a deployment.
 - **State:** each migration's progress is a `:Migration` node in Neo4j, with its `id` and `phase`. A migration whose node says `done` is not run again. A failed migration keeps its phase and is retried by the next `run`.
 - **Order:** migrations run in the order they are registered, which is the order they were added.

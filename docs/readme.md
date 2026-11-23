@@ -31,7 +31,7 @@ An ADR records one decision that shapes the code and that someone will later wan
 | [migrations.md](guides/migrations.md) | Operators, contributors | Running the pending migrations before a release, how the phases advance, and writing a new migration |
 | [observability.md](guides/observability.md) | Operators | OTLP telemetry, the local Grafana stack, the alerting rules, SigNoz |
 | [versioning.md](guides/versioning.md) | Clients, operators, maintainers | What a version number promises for `/v1`, `/v0`, the Docker image and everything else, and which parts of a `/v1` response are the contract |
-| [releasing.md](guides/releasing.md) | Maintainers | Choosing a version, the release steps, the checks after the tag, and what to do with a bad release |
+| [releasing.md](guides/releasing.md) | Maintainers, contributors | Choosing a version, what a commit says for the release notes, the release steps, the checks after the tag, and what to do with a bad release |
 
 A guide describes the code as it is, so a pull request that changes the behaviour or a config field a guide covers updates the guide too. Name a guide after what it covers, not after the project that introduced it.
 
