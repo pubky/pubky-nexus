@@ -69,9 +69,13 @@ struct PageUris {
 /// The lines were written by the v0 watcher, so they are read with its frozen reader, not the
 /// watcher's current router: that one skips another app's tag file (`/pub/mapky/tags/…`), whose
 /// edges indexed before still need their file's address.
+///
+/// A line stored since the watcher keeps the homeserver key starts with it ([`EventLine`]); the
+/// address is read from the line as the homeserver sent it.
 fn fold_page(lines: &[String]) -> PageUris {
     let mut page = PageUris::default();
     for line in lines {
+        let (line, _) = EventLine::split(line);
         let Some(("PUT", uri)) = line.split_once(' ') else {
             continue;
         };
@@ -274,6 +278,7 @@ mod tests {
     use super::*;
     use pubky_social_specs::legacy_v0::traits::HashId;
     use pubky_social_specs::legacy_v0::PubkyAppTag;
+    use pubky_social_specs::PubkyId;
 
     const TAGGER: &str = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy";
     const AUTHOR: &str = "4snwyct86m383rsduhw5xgcxpw7c63j3pq8x4ycqikxgik8y64ro";
@@ -353,6 +358,28 @@ mod tests {
             PageUris {
                 edges: BTreeMap::from([(key(&universal), tag_uri("mapky", &universal))]),
                 profiles: BTreeMap::new(),
+            }
+        );
+    }
+
+    /// A line stored with the homeserver key is read as the line the homeserver sent: the key
+    /// is no part of the address.
+    #[test]
+    fn a_keyed_line_gives_its_edge_and_user_the_file_path() {
+        let homeserver =
+            PubkyId::try_from("8rsrmfrn1anbrzuxiffwy1174o58emf4qgbfk5h7s8a33r3bd8dy").unwrap();
+        let stored = |line: String| EventLine::new(&line, &homeserver).as_str().to_string();
+        let id = tag_id("keyed");
+        let profile = format!("pubky://{TAGGER}/pub/pubky.app/profile.json");
+        let page = fold_page(&[
+            stored(format!("PUT {}", tag_uri("mapky", &id))),
+            stored(format!("PUT {profile}")),
+        ]);
+        assert_eq!(
+            page,
+            PageUris {
+                edges: BTreeMap::from([(key(&id), tag_uri("mapky", &id))]),
+                profiles: BTreeMap::from([(TAGGER.to_string(), profile)]),
             }
         );
     }

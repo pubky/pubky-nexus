@@ -124,10 +124,12 @@ pub(super) async fn cleanup_v1_user(
 }
 
 /// Whether the shared event log holds `line`.
-async fn event_line_stored(line: &str) -> Result<bool> {
+async fn event_line_stored(line: &str, homeserver_id: &PubkyId) -> Result<bool> {
     // Uncapped: the shared event log is append-only and unbounded.
     let (lines, _) = EventLine::get_from_index(None, usize::MAX).await?;
-    Ok(lines.iter().any(|stored| stored == line))
+    // Stored with the key of the homeserver the event was read from
+    let stored_line = EventLine::new(line, homeserver_id);
+    Ok(lines.iter().any(|stored| stored == stored_line.as_str()))
 }
 
 /// Whether the retry queue holds an entry for `uri`.
@@ -223,7 +225,7 @@ async fn test_v1_file_is_ignored_at_v0_and_stored_at_v1() -> Result<()> {
 
     assert_not_stored(&test, &user_id, &file).await;
     assert!(
-        !event_line_stored(&format!("PUT {uri}")).await?,
+        !event_line_stored(&format!("PUT {uri}"), &test.homeserver_id).await?,
         "an ignored event must store no event line"
     );
     assert!(!queued_for_retry(&uri).await?);
@@ -232,7 +234,7 @@ async fn test_v1_file_is_ignored_at_v0_and_stored_at_v1() -> Result<()> {
     file.put(&mut test, &user_kp).await?;
 
     assert_stored(&test, &user_id, &file).await?;
-    assert!(event_line_stored(&format!("PUT {uri}")).await?);
+    assert!(event_line_stored(&format!("PUT {uri}"), &test.homeserver_id).await?);
     assert!(
         !test.temp_dir.path().join(&user_id).exists(),
         "a v1 file must not create a legacy owner folder"
@@ -276,6 +278,7 @@ async fn test_v1_file_over_the_file_cap_is_dropped_and_not_retried() -> Result<(
     file.upload(&mut test, &user_kp).await?;
     let err = retrieve_and_handle_event_line(
         &format!("PUT {uri}"),
+        &test.homeserver_id,
         test.event_processor_runner.event_handler.clone(),
     )
     .await
@@ -319,6 +322,7 @@ async fn test_v1_file_whose_bytes_do_not_match_its_hash_is_dropped() -> Result<(
     file.upload(&mut test, &user_kp).await?;
     let err = retrieve_and_handle_event_line(
         &format!("PUT {uri}"),
+        &test.homeserver_id,
         test.event_processor_runner.event_handler.clone(),
     )
     .await
@@ -362,7 +366,7 @@ async fn test_v1_file_del_removes_only_its_folder_and_a_reupload_works() -> Resu
     assert_not_stored(&test, &user_id, &png).await;
     assert_stored(&test, &user_id, &bin).await?;
     assert!(
-        event_line_stored(&format!("DEL {}", png.uri(&user_id))).await?,
+        event_line_stored(&format!("DEL {}", png.uri(&user_id)), &test.homeserver_id).await?,
         "a handled DEL stores its event line"
     );
 
@@ -431,7 +435,7 @@ async fn test_v1_file_replay_fetches_nothing_when_main_exists_and_fills_a_missin
 
     // Over a homeserver that serves nothing: a replay that fetched would fail.
     let (handler, client) = handler_over_mock(test.temp_dir.path());
-    retrieve_and_handle_event_line(&line, handler.clone())
+    retrieve_and_handle_event_line(&line, &test.homeserver_id, handler.clone())
         .await
         .expect("a replay of a file on disk succeeds without a fetch");
     assert!(
@@ -447,15 +451,19 @@ async fn test_v1_file_replay_fetches_nothing_when_main_exists_and_fills_a_missin
         .path()
         .join(file_folder(&user_id, &file.filename));
     fs::remove_dir_all(&folder).await?;
-    retrieve_and_handle_event_line(&line, handler)
+    retrieve_and_handle_event_line(&line, &test.homeserver_id, handler)
         .await
         .expect_err("a replay of a missing file fetches, and this homeserver has nothing");
     assert_eq!(client.blob_fetches().await, vec![file.uri(&user_id)]);
 
     // Over the real homeserver, the replay fills the file in.
-    retrieve_and_handle_event_line(&line, test.event_processor_runner.event_handler.clone())
-        .await
-        .expect("a replay of a missing file fills it in");
+    retrieve_and_handle_event_line(
+        &line,
+        &test.homeserver_id,
+        test.event_processor_runner.event_handler.clone(),
+    )
+    .await
+    .expect("a replay of a missing file fills it in");
     assert_stored(&test, &user_id, &file).await?;
 
     file.del(&mut test, &user_kp).await?;

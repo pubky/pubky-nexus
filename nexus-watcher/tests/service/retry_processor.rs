@@ -70,6 +70,11 @@ fn create_test_config(
 /// Origin homeserver carried on test retry events.
 const TEST_HOMESERVER_ID: &str = HS_IDS[0];
 
+/// [`TEST_HOMESERVER_ID`] as the handler takes it.
+fn test_homeserver_id() -> PubkyId {
+    PubkyId::try_from(TEST_HOMESERVER_ID).expect("a valid key")
+}
+
 /// Test helper to create a test RetryEvent with a valid URI
 fn create_test_retry_event(
     post_id: &str,
@@ -401,6 +406,98 @@ async fn test_retry_success_removes_from_queue() -> Result<()> {
     assert!(
         store.get(&resource_key).await?.is_none(),
         "Event should be removed from index after successful retry"
+    );
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+// ============================================================================
+// Retry hands the event to the handler with its origin homeserver
+// ============================================================================
+
+#[tokio_shared_rt::test(shared)]
+async fn test_retry_handles_event_from_its_origin_homeserver() -> Result<()> {
+    setup().await?;
+
+    let post_id = "originhs01";
+    let store = new_in_memory_store();
+    let now = Utc::now().timestamp_millis();
+    let mut retry_event = create_test_retry_event(post_id, EventType::Put, 0, now - 1000);
+    retry_event.origin_homeserver_id = HS_IDS[1].to_string();
+    store.put(&retry_event).await?;
+
+    let handler = create_mock_handler(Ok(()), Some(post_id));
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(10, 50, 60, 3600, 60, 3600),
+        handler.clone(),
+        shutdown_rx,
+    );
+
+    let _ = processor.run_internal().await;
+
+    // The handler stores the event line with this key
+    assert_eq!(handler.get_handled_homeserver_ids(), vec![HS_IDS[1]]);
+
+    let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+/// An entry whose origin homeserver is no public key can't give its event line a key: it is
+/// removed like a corrupted entry, without reaching the handler, and the batch goes on.
+#[tokio_shared_rt::test(shared)]
+async fn test_retry_entry_whose_origin_homeserver_is_no_key_is_removed_unhandled() -> Result<()> {
+    setup().await?;
+
+    let corrupted_id = "originhs02";
+    let sound_id = "originhs03";
+    let store = new_in_memory_store();
+    let now = Utc::now().timestamp_millis();
+    let mut corrupted = create_test_retry_event(corrupted_id, EventType::Put, 0, now - 1000);
+    corrupted.origin_homeserver_id = "test_hs".to_string();
+    store.put(&corrupted).await?;
+    store
+        .put(&create_test_retry_event(
+            sound_id,
+            EventType::Put,
+            0,
+            now - 1000,
+        ))
+        .await?;
+
+    let handler = create_mock_handler(Ok(()), None);
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(10, 50, 60, 3600, 60, 3600),
+        handler.clone(),
+        shutdown_rx,
+    );
+
+    processor.run_internal().await?;
+
+    assert!(
+        store.get(&create_index_key(corrupted_id)).await?.is_none(),
+        "the entry without a usable origin homeserver is removed"
+    );
+    assert!(
+        store.get(&create_index_key(sound_id)).await?.is_none(),
+        "the sound entry of the same batch is handled and removed"
+    );
+    assert_eq!(
+        handler.get_handled_homeserver_ids(),
+        vec![TEST_HOMESERVER_ID],
+        "only the sound entry reaches the handler"
+    );
+    assert!(
+        handler
+            .get_handled_uris()
+            .iter()
+            .all(|uri| uri.ends_with(sound_id)),
+        "{:?}",
+        handler.get_handled_uris()
     );
 
     let _ = shutdown_tx.send(true);
@@ -1794,7 +1891,12 @@ async fn seed_v0_user_with_content(
     let files = tempfile::TempDir::new()?;
     let handler = default_handler(client.clone(), &files, store.clone());
     for uri in &event_uris {
-        retrieve_and_handle_event_line(&format!("PUT {uri}"), handler.clone()).await?;
+        retrieve_and_handle_event_line(
+            &format!("PUT {uri}"),
+            &test_homeserver_id(),
+            handler.clone(),
+        )
+        .await?;
     }
     Ok(SeededContent {
         user_id,
@@ -2104,13 +2206,22 @@ async fn test_a_failed_migration_step_comes_out_of_the_handler_as_flip_failed() 
         &files,
         store.clone(),
     );
-    retrieve_and_handle_event_line(&format!("PUT {post_uri}"), handler.clone()).await?;
+    retrieve_and_handle_event_line(
+        &format!("PUT {post_uri}"),
+        &test_homeserver_id(),
+        handler.clone(),
+    )
+    .await?;
     let indexed_at = find_post_details(&user_id, &post_id).await?.indexed_at;
     corrupt_post_indexed_at(&user_id, &post_id).await?;
 
-    let err = retrieve_and_handle_event_line(&format!("PUT {flip_uri}"), handler.clone())
-        .await
-        .expect_err("a failed step must fail the flip");
+    let err = retrieve_and_handle_event_line(
+        &format!("PUT {flip_uri}"),
+        &test_homeserver_id(),
+        handler.clone(),
+    )
+    .await
+    .expect_err("a failed step must fail the flip");
 
     match &err {
         EventProcessorError::FlipFailed { step, source } => {
@@ -2143,7 +2254,8 @@ async fn test_a_failed_migration_step_comes_out_of_the_handler_as_flip_failed() 
         find_post_details(&user_id, &post_id).await?.content,
         "Retry:FlipFailed:Post"
     );
-    retrieve_and_handle_event_line(&format!("PUT {flip_uri}"), handler).await?;
+    retrieve_and_handle_event_line(&format!("PUT {flip_uri}"), &test_homeserver_id(), handler)
+        .await?;
 
     assert_eq!(find_user_epoch(&user_id).await.as_deref(), Some("v1"));
     assert_eq!(find_user_uri(&user_id).await, Some(flip_uri));
@@ -2679,7 +2791,12 @@ async fn test_pubky_app_dels_of_a_v0_user_are_deferred_while_their_flip_is_queue
     let store = new_in_memory_store();
     let files = tempfile::TempDir::new()?;
     let handler = default_handler(client.clone(), &files, store.clone());
-    retrieve_and_handle_event_line(&format!("PUT {post_uri}"), handler.clone()).await?;
+    retrieve_and_handle_event_line(
+        &format!("PUT {post_uri}"),
+        &test_homeserver_id(),
+        handler.clone(),
+    )
+    .await?;
     corrupt_post_indexed_at(&user_id, &post_id).await?;
     let runner = primary_runner(client, handler.clone(), store.clone()).await?;
 
@@ -2710,9 +2827,13 @@ async fn test_pubky_app_dels_of_a_v0_user_are_deferred_while_their_flip_is_queue
         );
 
         // What the runner queued: a missing dependency naming the flip
-        let err = retrieve_and_handle_event_line(&format!("DEL {uri}"), handler.clone())
-            .await
-            .expect_err("a deferred DEL is an error, so the runner queues it");
+        let err = retrieve_and_handle_event_line(
+            &format!("DEL {uri}"),
+            &test_homeserver_id(),
+            handler.clone(),
+        )
+        .await
+        .expect_err("a deferred DEL is an error, so the runner queues it");
         assert!(
             matches!(&err, EventProcessorError::MissingDependency { dependency } if *dependency == vec![flip_uri.clone()]),
             "{uri}: {err:?}"
@@ -2782,7 +2903,12 @@ async fn test_a_social_v1_write_behind_a_failed_flip_is_held_and_indexed_once_th
     let store = new_in_memory_store();
     let files = tempfile::TempDir::new()?;
     let handler = default_handler(client.clone(), &files, store.clone());
-    retrieve_and_handle_event_line(&format!("PUT {post_uri}"), handler.clone()).await?;
+    retrieve_and_handle_event_line(
+        &format!("PUT {post_uri}"),
+        &test_homeserver_id(),
+        handler.clone(),
+    )
+    .await?;
     // The flip's posts step fails on this row; the graph answers every other query
     let indexed_at = find_post_details(&user_id, &post_id).await?.indexed_at;
     corrupt_post_indexed_at(&user_id, &post_id).await?;
@@ -2884,7 +3010,12 @@ async fn test_deferred_dels_are_ignored_and_leave_the_queue_once_the_flip_lands(
         &files,
         store.clone(),
     );
-    retrieve_and_handle_event_line(&format!("PUT {post_uri}"), handler.clone()).await?;
+    retrieve_and_handle_event_line(
+        &format!("PUT {post_uri}"),
+        &test_homeserver_id(),
+        handler.clone(),
+    )
+    .await?;
 
     // The queue as the outage left it: the flip due first, the deferred DELs behind it
     let now = Utc::now().timestamp_millis();
@@ -2960,7 +3091,12 @@ async fn held_del_queue(
         files,
         store.clone(),
     );
-    retrieve_and_handle_event_line(&format!("PUT {post_uri}"), handler.clone()).await?;
+    retrieve_and_handle_event_line(
+        &format!("PUT {post_uri}"),
+        &test_homeserver_id(),
+        handler.clone(),
+    )
+    .await?;
 
     store
         .put(&RetryEvent {

@@ -84,8 +84,8 @@ impl TEventProcessor for KeyBasedEventProcessor {
         Some(&self.retry_scheduler)
     }
 
-    fn homeserver_id(&self) -> Option<&str> {
-        Some(self.homeserver_id.as_ref())
+    fn homeserver_id(&self) -> &PubkyId {
+        &self.homeserver_id
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {

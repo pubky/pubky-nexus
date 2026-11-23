@@ -91,9 +91,10 @@ async fn handle_over_mock(
         files_path.to_path_buf(),
         new_in_memory_store(),
     ));
-    let err = retrieve_and_handle_event_line(&format!("PUT {file_uri}"), handler)
-        .await
-        .expect_err("a file with an unreadable source must be rejected");
+    let err =
+        retrieve_and_handle_event_line(&format!("PUT {file_uri}"), &random_pubky_id(), handler)
+            .await
+            .expect_err("a file with an unreadable source must be rejected");
     Ok((err, client.blob_fetches().await))
 }
 
@@ -174,6 +175,7 @@ async fn test_file_whose_blob_does_not_match_its_id_is_dropped() -> Result<()> {
     let file_uri = file_uri_builder(user_id.clone(), file_id.clone());
     let err = retrieve_and_handle_event_line(
         &format!("PUT {file_uri}"),
+        &test.homeserver_id,
         test.event_processor_runner.event_handler.clone(),
     )
     .await

@@ -4,13 +4,14 @@ mod key_based;
 pub use homeserver::HsEventProcessor;
 pub use key_based::KeyBasedEventProcessor;
 
-use std::{fmt::Display, sync::Arc, time::Duration};
+use std::{fmt::Display, future::Future, sync::Arc, time::Duration};
 
 use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
 use crate::events::{Event, ParseResult};
 use crate::service::SLOW_RUN_THRESHOLD;
+use pubky_social_specs::PubkyId;
 use tracing::{debug, error, trace, warn, Instrument};
 
 /// How a run of an event processor ended when it did not fail.
@@ -72,78 +73,30 @@ pub trait TEventProcessor: Send + Sync + 'static {
     fn instance_name(&self) -> &'static str;
 
     /// Returns the retry scheduler used by [`Self::handle_error`] to enqueue failed
-    /// events for later retry.  Returns `None` when the processor bypasses
-    /// [`Self::handle_error`] and manages retries on its own (e.g. [`RetryProcessor`](crate::events::retry::RetryProcessor)).
+    /// events for later retry. Returns `None` for a processor that queues no retries, as the
+    /// test mocks do: [`Self::handle_error`] then drops a retryable failure.
     fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
         None
     }
 
-    fn homeserver_id(&self) -> Option<&str> {
-        None
-    }
+    /// The homeserver this processor reads events from. Every event line it stores starts with
+    /// this key ([`EventLine`](nexus_common::models::event::EventLine)), and every retry entry
+    /// it queues carries it as the origin homeserver.
+    fn homeserver_id(&self) -> &PubkyId;
 
-    /// Runs [`Self::run_internal`] on its own task, and waits for it to end.
-    ///
-    /// A run that takes longer than [`Self::slow_run_threshold`] is logged as slow, again after
-    /// each further threshold, and still waited for: it is not stopped, so the next run cannot
-    /// start next to it. A run that never returns therefore holds up its loop for good.
+    /// Runs [`Self::run_internal`] on its own task, and waits for it to end: see
+    /// [`run_on_own_task`].
     async fn run(self: Arc<Self>) -> Result<(), RunError> {
         let slow_run_threshold = self.slow_run_threshold().unwrap_or(SLOW_RUN_THRESHOLD);
-
         let instance_name = self.instance_name();
-        let homeserver_id = self.homeserver_id().map(str::to_owned);
-        let homeserver = homeserver_id.as_deref().map(tracing::field::display);
-        let span = tracing::info_span!(
-            "event_processor.run",
-            service = %instance_name,
-            homeserver,
-        );
-        let started = tokio::time::Instant::now();
-        let mut handle = tokio::spawn(self.run_internal().instrument(span));
-
-        let join_result = loop {
-            match tokio::time::timeout(slow_run_threshold, &mut handle).await {
-                Ok(join_result) => break join_result,
-                Err(_) => warn!(
-                    service = %instance_name,
-                    homeserver,
-                    running_for_secs = started.elapsed().as_secs(),
-                    "Event processor run is slow; waiting for it to finish"
-                ),
-            }
-        };
-
-        // The JoinError can be:
-        // - join_error.is_panic() => panic by the inner future
-        // - join_error.is_cancelled() => inner future was abruptly interrupted, for example
-        //   - JoinHandle::abort() is called on the handle
-        //   - the Tokio runtime is shut down
-        // In our model, we don't trigger such interruptions. Instead we use the shutdown signal
-        // to gracefully stop the event processing loop. Therefore we consider all JoinErrors as panics.
-        let run_internal_result = join_result
-            .inspect_err(|je| {
-                error!(
-                    service = %instance_name,
-                    homeserver,
-                    error = ?je,
-                    "Event processor JoinError"
-                )
-            })
-            .map_err(|_| RunError::Panicked)?;
-
-        match run_internal_result {
-            Ok(RunOutcome::Completed) => Ok(()),
-            Ok(RunOutcome::BudgetSpent) => Err(RunError::BudgetSpent),
-            Err(e) => {
-                error!(
-                    service = %instance_name,
-                    homeserver,
-                    error = ?e,
-                    "Event processor failed"
-                );
-                Err(RunError::Internal(e))
-            }
-        }
+        let homeserver_id = self.homeserver_id().clone();
+        run_on_own_task(
+            instance_name,
+            Some(&homeserver_id),
+            slow_run_threshold,
+            self.run_internal(),
+        )
+        .await
     }
 
     /// Runs the event processor asynchronously.
@@ -212,14 +165,7 @@ pub trait TEventProcessor: Send + Sync + 'static {
             return Ok(());
         };
 
-        let Some(homeserver_id) = self.homeserver_id() else {
-            warn!(
-                event.uri = %event.uri,
-                "Retryable error but no origin homeserver to persist; skipping retry"
-            );
-            return Ok(());
-        };
-
+        let homeserver_id = self.homeserver_id();
         if error.is_missing_dependency() {
             scheduler.queue_missing_dep(event, homeserver_id).await
         } else {
@@ -270,7 +216,12 @@ pub trait TEventProcessor: Send + Sync + 'static {
             }
         }
 
-        if let Err(e) = self.event_handler().handle(event).await {
+        // The handler stores the line with the key of the homeserver the event was read from.
+        if let Err(e) = self
+            .event_handler()
+            .handle(event, self.homeserver_id())
+            .await
+        {
             span.record("otel.status_code", "ERROR");
             span.record("otel.status_message", tracing::field::display(&e));
 
@@ -280,5 +231,74 @@ pub trait TEventProcessor: Send + Sync + 'static {
         }
 
         Ok(())
+    }
+}
+
+/// Runs `run_internal`, a run of the processor `instance_name`, on its own task, and waits for
+/// it to end.
+///
+/// A run that takes longer than `slow_run_threshold` is logged as slow, again after each
+/// further threshold, and still waited for: it is not stopped, so the next run cannot start
+/// next to it. A run that never returns therefore holds up its loop for good.
+///
+/// `homeserver` is the homeserver the run is bound to, named in its span. The retry processor,
+/// whose run retries every homeserver's entries, names none.
+pub(crate) async fn run_on_own_task(
+    instance_name: &'static str,
+    homeserver: Option<&PubkyId>,
+    slow_run_threshold: Duration,
+    run_internal: impl Future<Output = Result<RunOutcome, EventProcessorError>> + Send + 'static,
+) -> Result<(), RunError> {
+    let homeserver = homeserver.map(tracing::field::display);
+    let span = tracing::info_span!(
+        "event_processor.run",
+        service = %instance_name,
+        homeserver,
+    );
+    let started = tokio::time::Instant::now();
+    let mut handle = tokio::spawn(run_internal.instrument(span));
+
+    let join_result = loop {
+        match tokio::time::timeout(slow_run_threshold, &mut handle).await {
+            Ok(join_result) => break join_result,
+            Err(_) => warn!(
+                service = %instance_name,
+                homeserver,
+                running_for_secs = started.elapsed().as_secs(),
+                "Event processor run is slow; waiting for it to finish"
+            ),
+        }
+    };
+
+    // The JoinError can be:
+    // - join_error.is_panic() => panic by the inner future
+    // - join_error.is_cancelled() => inner future was abruptly interrupted, for example
+    //   - JoinHandle::abort() is called on the handle
+    //   - the Tokio runtime is shut down
+    // In our model, we don't trigger such interruptions. Instead we use the shutdown signal
+    // to gracefully stop the event processing loop. Therefore we consider all JoinErrors as panics.
+    let run_internal_result = join_result
+        .inspect_err(|je| {
+            error!(
+                service = %instance_name,
+                homeserver,
+                error = ?je,
+                "Event processor JoinError"
+            )
+        })
+        .map_err(|_| RunError::Panicked)?;
+
+    match run_internal_result {
+        Ok(RunOutcome::Completed) => Ok(()),
+        Ok(RunOutcome::BudgetSpent) => Err(RunError::BudgetSpent),
+        Err(e) => {
+            error!(
+                service = %instance_name,
+                homeserver,
+                error = ?e,
+                "Event processor failed"
+            );
+            Err(RunError::Internal(e))
+        }
     }
 }

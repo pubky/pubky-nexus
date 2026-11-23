@@ -371,7 +371,7 @@ async fn test_replayed_flip_batch_sends_no_edit_notification_for_a_short_post_wi
     // The batch read again: the copy, now of a `v1` user
     let line = format!("PUT pubky://{author_id}{copy_path}");
     let event_handler = test.event_processor_runner.event_handler.clone();
-    retrieve_and_handle_event_line(&line, event_handler).await?;
+    retrieve_and_handle_event_line(&line, &test.homeserver_id, event_handler).await?;
 
     let notifications = Notification::get_by_id(&replier_id, Pagination::default()).await?;
     assert!(
