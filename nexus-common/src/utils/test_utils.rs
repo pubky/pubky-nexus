@@ -85,6 +85,9 @@ pub enum ReferenceFault {
     /// In a root post's list writes, after its timelines and before it leaves its author's
     /// replies.
     BeforeRepliesRemoval,
+    /// In a post's hard delete, after its steps that run once (the parent's score, the
+    /// notifications) and before its cached details and lists go.
+    BeforeDetailsDelete,
 }
 
 /// Faults armed by [`fail_references`], per point and author.

@@ -150,6 +150,26 @@ pub fn create_post(
     Ok(cypher_query)
 }
 
+/// Claims the steps of a post's delete that must run once, the parent's score and the "a reply
+/// was deleted" notifications: `first` is true for the first claim of the post node and false for
+/// every later one. The claim is a property of the node, so it goes with the node's graph delete,
+/// and no other writer sets or clears it: a PUT handled between a delete that stopped half-way and
+/// its retry leaves it. No row when the graph has no such post. The first `SET` takes the node's
+/// write lock before the claim is read, so two writers cannot both read it unset.
+pub fn claim_post_delete(author_id: &str, post_id: &str) -> Query {
+    Query::new(
+        "claim_post_delete",
+        "MATCH (:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+         SET p.delete_claiming = true
+         WITH p, p.delete_claimed IS NULL AS first
+         SET p.delete_claimed = true
+         REMOVE p.delete_claiming
+         RETURN first",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
+}
+
 /// Creates a `MENTIONED` relationship between a post and a user
 /// # Arguments
 /// * `author_id` - The unique identifier of the user who authored the post

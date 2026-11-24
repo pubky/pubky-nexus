@@ -221,6 +221,12 @@ impl PostDetails {
         post_id: &str,
         parent_post_key_wrapper: Option<(String, String)>,
     ) -> RedisResult<()> {
+        #[cfg(any(test, feature = "test-utils"))]
+        crate::utils::test_utils::reference_fault(
+            crate::utils::test_utils::ReferenceFault::BeforeDetailsDelete,
+            author_id,
+        )
+        .map_err(|e| crate::db::kv::RedisError::IoError(Box::new(e)))?;
         // Delete post details on Redis
         Self::remove_from_index_multiple_json(&[&[author_id, post_id]]).await?;
         // The replies are not indexed in the global feeds
