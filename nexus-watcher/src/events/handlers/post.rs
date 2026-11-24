@@ -30,20 +30,25 @@ static POST_LOCKS: LazyLock<StripedLocks> = LazyLock::new(|| StripedLocks::new(1
 /// The lock of one post, keyed by its author and id, which every handler of the post knows
 /// before it reads the graph. A PUT of any of its version files and its DEL hold it from their
 /// first read of the post's external references to their last resource changes feed append.
-/// The live runners and the retry processor run in parallel: without it, a handler paused
+///
+/// The live runners and the retry processor run in parallel. Without the lock, a handler paused
 /// between its post write and its references could, once another version's handler finished,
 /// replace that version's references with its own, or append an outbox that a concurrent
 /// delete already published and retracted. With it, the post's references are the ones of the
-/// version handled last (the handlers do not compare versions). The locks are a fixed set of
-/// stripes, as [`super::tag::lock_tagger`]'s, picked by [`super::utils::lock_stripe`]: two posts that share
-/// one only wait for each other, and nobody can pick a post id that shares another's. A crash
-/// releases it. It orders the handlers of one watcher process. A PUT looks up the unknown
-/// authors of its collection items before it takes the lock: they take network round trips,
-/// and no other handler of the post depends on them.
+/// version handled last (the handlers do not compare versions).
+///
+/// The locks are a fixed set of stripes, as [`super::tag::lock_tagger`]'s, picked by
+/// [`super::utils::lock_stripe`]: two posts that share one only wait for each other, and nobody
+/// can pick a post id that shares another's. A crash releases it. It orders the handlers of one
+/// watcher process.
+///
+/// A PUT looks up the unknown authors of its collection items before it takes the lock: they
+/// take network round trips, and no other handler of the post depends on them.
 pub async fn lock_post(author_id: &str, post_id: &str) -> MutexGuard<'static, ()> {
     POST_LOCKS.lock((author_id, post_id)).await
 }
 
+/// [`sync_put_at`] for a post read from the address it is stored under.
 pub async fn sync_put(
     post: PostInput,
     key: ResourceKey,
@@ -53,6 +58,14 @@ pub async fn sync_put(
     sync_put_at(post, key, ingestor, &source_uri).await
 }
 
+/// Indexes a PUT of `post`, keyed by `key`, under the post lock ([`lock_post`]): the post write
+/// ([`sync_put_details`]), then its external references and their feed lines
+/// ([`references::sync`]), then the cached relationships and lists read back from the graph
+/// when the references or the lists need it.
+///
+/// `source_uri` is the address of the file the event names, the one the homeserver sent. The
+/// feed lines of the post's references carry its path as their `object_path`: for a `social/v1`
+/// post that is the version file, which can differ from the post's address in `post.uri`.
 pub async fn sync_put_at(
     post: PostInput,
     key: ResourceKey,
@@ -152,12 +165,16 @@ fn reject_unsupported_parent(post: &PostInput) -> Result<(), EventProcessorError
 /// another app's object) than its Resource reply edge, as
 /// [`EventProcessorError::PostParentChanged`], never retried: an edit may not add, drop or move
 /// either parent. Both are set when the post is created, so delete can read them back from the
-/// graph. Compares keys, and an external parent by its Resource id: a parent written differently
+/// graph.
+///
+/// It compares keys, and an external parent by its Resource id: a parent written differently
 /// but naming the same post or the same normalized URL is no change, and so is a parent Nexus
-/// never references. The external parent is compared only once the post's references were
-/// reconciled: a post indexed before posts referenced Resources has no Resource reply edge, and
-/// its PUT gains the one it names. A `tombstone` write never changes the Resource edges, so its
-/// external parent is not compared either.
+/// never references.
+///
+/// The external parent is compared only once the post's references were reconciled: a post
+/// indexed before posts referenced Resources has no Resource reply edge, and its PUT gains the
+/// one it names. A `tombstone` write never changes the Resource edges, so its external parent
+/// is not compared either.
 fn reject_parent_change(
     named: &PostParents,
     stored: &PostParents,
@@ -291,7 +308,9 @@ async fn sync_put_details(
                 // missing dependency for a write that committed. Re-run idempotent
                 // index writes and notifications; scores are intentionally skipped
                 // (prefer drift over duplicates).
-                // A tombstone's parents leave its external reply out: the graph tells.
+                // Whether the post is a reply, when this PUT knows it. A tombstone's input names
+                // only its post parents, so a tombstoned reply to an external target would read
+                // as a root post: for a tombstone, its Resource reply edge in the graph decides.
                 let is_reply = (!post_details.deleted).then_some(is_reply);
                 recover_post_index_state(&author_id, &post_id, is_reply).await?;
             }
