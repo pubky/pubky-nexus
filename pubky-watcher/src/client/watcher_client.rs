@@ -31,13 +31,17 @@ const USER_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
 /// processor needs from it.
 #[derive(Debug, Clone)]
 pub struct HsStreamEvent {
+    /// Whether the event wrote or deleted the resource ([`EventMethod`]).
     pub event_type: EventMethod,
+    /// The event's position in the user's stream; the next read starts after it.
     pub cursor: u64,
     owner: PublicKey,
     uri: String,
 }
 
 impl HsStreamEvent {
+    /// The event `event_type` on `resource` at `cursor`; [`Self::owner`] is the resource's
+    /// owner.
     pub fn new(event_type: EventMethod, resource: &PubkyResource, cursor: u64) -> Self {
         Self {
             event_type,

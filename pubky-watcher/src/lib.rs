@@ -20,6 +20,8 @@
 //! Homeservers and users are [`pubky::PublicKey`]s in the client. The crate brings no
 //! database, metrics or application config with it.
 
+#![warn(missing_docs)]
+
 mod client;
 mod events;
 mod processor;

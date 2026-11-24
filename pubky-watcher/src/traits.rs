@@ -8,15 +8,20 @@ pub enum LineParseOutcome<E> {
     /// A well-formed line the application ignores.
     Skipped,
     /// A line naming a resource the application does not recognise.
-    Unrecognized { reason: String },
+    Unrecognized {
+        /// Why the resource was not recognised, for the log.
+        reason: String,
+    },
 }
 
 /// Parses a homeserver event line (`PUT <uri>` / `DEL <uri>`) into the application's event
 /// type. A line that cannot be parsed at all is an error; the processor logs it and moves on,
 /// since event lines come from untrusted homeservers.
 pub trait ParseFromLine: Sized {
+    /// Why a line could not be parsed at all. Logged, never returned to the caller.
     type Error: std::fmt::Display;
 
+    /// Parses `line`, one of a batch's [`EventBatch::event_lines`](crate::EventBatch).
     fn parse_line(line: &str) -> Result<LineParseOutcome<Self>, Self::Error>;
 }
 
@@ -26,6 +31,8 @@ pub trait ParseFromLine: Sized {
 /// application starts the next one from the cursor it last persisted.
 #[async_trait::async_trait]
 pub trait EventHandler<E, Err>: Send + Sync {
+    /// Handles `event`. An error fails the run as
+    /// [`WatcherError::Handler`](crate::WatcherError::Handler).
     async fn handle(&self, event: &E) -> Result<(), Err>;
 }
 

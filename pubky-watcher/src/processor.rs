@@ -1,3 +1,11 @@
+//! One run over one homeserver: [`TEventProcessor`] reads a homeserver's events and hands
+//! each to the application, on its own task ([`run_on_own_task`]), with opt-in retry through
+//! [`dispatch_retryable_error`].
+//!
+//! Implement it when the [`Watcher`](crate::Watcher) builders are not enough: your own
+//! cursor store, your own event type, retries, or many homeservers under a
+//! [`TEventProcessorRunner`](crate::TEventProcessorRunner).
+
 use std::fmt::{Debug, Display};
 use std::{future::Future, sync::Arc, time::Duration};
 
@@ -24,13 +32,16 @@ pub enum RunOutcome {
 /// Why an event processor run did not complete.
 #[derive(Debug)]
 pub enum RunError<Err> {
+    /// [`TEventProcessor::run_internal`] failed with the processor's own error.
     Internal(Err),
+    /// The run's task panicked: see [`run_on_own_task`].
     Panicked,
     /// The run stopped at its budget, see [`RunOutcome::BudgetSpent`]
     BudgetSpent,
 }
 
 impl<Err> RunError<Err> {
+    /// Whether the run panicked ([`RunError::Panicked`]).
     pub fn is_panic(&self) -> bool {
         matches!(self, RunError::Panicked)
     }

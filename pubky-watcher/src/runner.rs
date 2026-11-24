@@ -1,4 +1,9 @@
 //! Running processors across many homeservers.
+//!
+//! Use a [`TEventProcessorRunner`] when one application watches many homeservers: each
+//! cycle it lists them, skips those in backoff, builds and runs one processor per
+//! homeserver, one after the other, and reports how each turn ended in
+//! [`RunAllProcessorsStats`].
 
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
@@ -12,28 +17,39 @@ use super::processor::{RunError, TEventProcessor};
 /// How one homeserver's turn in a runner cycle ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProcessorRunStatus {
+    /// [`TEventProcessorRunner::build`] failed, so no processor ran.
     FailedToBuild,
+    /// The processor's run completed.
     Ok,
+    /// The processor's run failed ([`RunError::Internal`]).
     Error,
+    /// The processor's run panicked ([`RunError::Panicked`]).
     Panic,
+    /// The processor's run stopped at its budget ([`RunError::BudgetSpent`]).
     BudgetSpent,
+    /// [`TEventProcessorRunner::backoff_hs_should_skip`] skipped the homeserver.
     Skipped,
 }
 
 /// One homeserver's turn in a runner cycle.
 pub struct ProcessorRunStats {
+    /// The homeserver's ID, as [`TEventProcessorRunner::pre_run`] listed it.
     pub hs_id: String,
+    /// How long building and running its processor took; zero when it was skipped.
     pub duration: Duration,
+    /// How the turn ended.
     pub status: ProcessorRunStatus,
 }
 
 /// Every homeserver's turn in a runner cycle, in order.
 #[derive(Default)]
 pub struct RunAllProcessorsStats {
+    /// One [`ProcessorRunStats`] per homeserver, in the order they ran.
     pub stats: Vec<ProcessorRunStats>,
 }
 
 impl RunAllProcessorsStats {
+    /// Records the turn of `hs_id`, which took `duration` and ended with `status`.
     pub fn add_run_result(
         &mut self,
         hs_id: String,

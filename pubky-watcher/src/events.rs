@@ -71,6 +71,8 @@ impl ParseFromLine for HomeserverEvent {
 /// wins, being the position the homeserver ends the batch at.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventBatch<'a> {
+    /// The event lines, in the order the homeserver sent them, for
+    /// [`ParseFromLine::parse_line`](crate::ParseFromLine::parse_line).
     pub event_lines: Vec<&'a str>,
     /// Raw, still unparsed value of the batch's cursor line, if it carried one.
     pub cursor: Option<&'a str>,

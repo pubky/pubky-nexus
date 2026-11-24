@@ -31,11 +31,15 @@ pub struct HsError {
     /// its owner's key. Not a [`PublicKey`], which also holds the decoded key and would make
     /// every error several times larger.
     pub hs: String,
+    /// The operation the call made.
     pub op: HsOp,
+    /// Why the call failed.
     pub kind: HsErrorKind,
 }
 
 impl HsError {
+    /// A failure of the [`HsOp`] `op` on `hs` (the homeserver, or the owner of the resource
+    /// or blob), for the reason `kind`.
     pub fn new(hs: &PublicKey, op: HsOp, kind: HsErrorKind) -> Self {
         Self {
             hs: hs.z32(),
@@ -48,9 +52,16 @@ impl HsError {
 /// The homeserver operation a call made.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HsOp {
+    /// A read of the homeserver's `/events/` feed
+    /// ([`HomeserverEventSource::poll_events`](super::HomeserverEventSource::poll_events)).
     PollEvents,
+    /// A read of a user's `/events-stream`
+    /// ([`KeyEventSource::user_events`](super::KeyEventSource::user_events)).
     UserEvents,
+    /// A read of a `PUT` event's resource
+    /// ([`ResourceReader::get_resource`](super::ResourceReader::get_resource)).
     GetResource,
+    /// A read of a file's blob ([`ResourceReader::get_blob`](super::ResourceReader::get_blob)).
     GetBlob,
 }
 
@@ -61,21 +72,35 @@ pub enum HsOp {
 /// it can reach a log line or a span.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum HsErrorKind {
+    /// The homeserver answered `404 Not Found`, with the start of its body.
     #[error("HTTP 404: {0}")]
     NotFound(String),
+    /// The homeserver answered `429 Too Many Requests`, with the start of its body.
     #[error("HTTP 429: {0}")]
     RateLimited(String),
+    /// The homeserver answered a `5xx` status, with the start of its body.
     #[error("HTTP {0}: {1}")]
     ServerError(u16, String),
     /// Any other non-2xx status.
     #[error("HTTP {0}: {1}")]
     Rejected(u16, String),
+    /// The request, its response body included, took longer than the client's timeout
+    /// ([`DEFAULT_REQUEST_TIMEOUT`](super::DEFAULT_REQUEST_TIMEOUT) by default).
     #[error("timed out")]
     Timeout,
+    /// The homeserver could not be reached, or its response could not be read
+    /// ([`HsErrorKind::transport`]).
     #[error("transport failed: {0}")]
     Transport(String),
+    /// The response is larger than the cap for its kind of read: see
+    /// [`ResourceReader`](super::ResourceReader).
     #[error("{got} bytes, over the {max} byte limit")]
-    TooLarge { got: u64, max: u64 },
+    TooLarge {
+        /// The size the homeserver announced, or the bytes read before stopping.
+        got: u64,
+        /// The cap the read was under.
+        max: u64,
+    },
     /// The SDK refused the request, could not decode the answer, or could not resolve a
     /// key: neither a status nor a transport failure. A failed fetch is retried; a failed
     /// event-stream request skips its user for the run, cursor kept, and unlike a transport
@@ -104,6 +129,8 @@ impl HsErrorKind {
         Self::Transport(capped(error))
     }
 
+    /// A request that could not be built, keeping at most 4 KiB of `error`'s message
+    /// ([`HsErrorKind::Malformed`]).
     pub fn malformed(error: impl Display) -> Self {
         Self::Malformed(capped(error))
     }
