@@ -133,15 +133,15 @@ impl PostDetails {
 
     /// Caches the details and, unless `is_edit`, puts the post in the lists it belongs in: a
     /// root post in the timelines, a reply in its parent's replies and the author's. A reply to
-    /// an external target has no `parent_key_wrapper`: `external_reply` says whether the post
-    /// is one, when the caller knows (the handler of a new post, before its Resource reply edge
+    /// an external target has no `parent_key_wrapper`: `is_reply` says whether the post is a
+    /// reply, when the caller knows (the handler of a new post, before its Resource reply edge
     /// is written); `None` reads it from the graph.
     pub async fn put_to_index(
         &self,
         author_id: &str,
         parent_key_wrapper: Option<(String, String)>,
         is_edit: bool,
-        external_reply: Option<bool>,
+        is_reply: Option<bool>,
     ) -> ModelResult<()> {
         self.put_index_json(&[author_id, &self.id], None, None)
             .await?;
@@ -151,7 +151,7 @@ impl PostDetails {
         }
         // External replies have no native post key. Graph recovery must still
         // keep them out of root timelines and restore the author's replies set.
-        let external_reply = match (&parent_key_wrapper, external_reply) {
+        let external_reply = match (&parent_key_wrapper, is_reply) {
             (Some(_), _) => false,
             (None, Some(known)) => known,
             (None, None) => Self::is_reply_in_graph(author_id, &self.id).await?,
@@ -242,9 +242,11 @@ impl PostDetails {
                     post_id,
                 )
                 .await?;
-                PostStream::remove_from_replies_per_user_sorted_set(author_id, post_id).await?;
             }
         }
+        // Always: a reply to an external target has no parent key but is in its author's
+        // replies, and so can be a root post whose PUT stopped half-way.
+        PostStream::remove_from_replies_per_user_sorted_set(author_id, post_id).await?;
         Ok(())
     }
 

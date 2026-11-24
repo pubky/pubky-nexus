@@ -7,6 +7,7 @@
 //! nor the stored models they build name a spec type.
 
 use chrono::Utc;
+use nexus_common::models::event::resource_changes::ResourceChangeKind;
 use nexus_common::models::file::{FileDetails, FileUrls};
 use nexus_common::models::post::{PostDetails, PostParent, PostParents};
 use nexus_common::models::user::{Epoch, UserDetails};
@@ -141,6 +142,23 @@ impl PostInput {
                 ReferenceTarget::Post(key) => Some((key.owner_id.clone(), key.resource_id.clone())),
                 _ => None,
             })
+            .collect()
+    }
+
+    /// The external targets the post references, as the author wrote them, each with the kind
+    /// of its reference: the parent, the embed and the collection items that name another
+    /// scheme's URL or another app's public object. Only those are Resources; native posts keep
+    /// their own edges, and nothing else a post can name is projected at all.
+    pub fn external_references(&self) -> Vec<(&str, ResourceChangeKind)> {
+        let parent = self.parent.iter().map(|r| (r, ResourceChangeKind::Reply));
+        let embed = self.embed.iter().map(|r| (r, ResourceChangeKind::Embed));
+        let items = self.collection_items.iter();
+        let items = items.map(|r| (r, ResourceChangeKind::Collection));
+        parent
+            .chain(embed)
+            .chain(items)
+            .filter(|(reference, _)| matches!(reference.target, ReferenceTarget::Foreign))
+            .map(|(reference, kind)| (reference.uri.as_str(), kind))
             .collect()
     }
 }
@@ -326,6 +344,32 @@ mod tests {
             ],
             "post items in curator order, every other item dropped"
         );
+    }
+
+    #[test]
+    fn external_references_keep_foreign_targets_only_with_their_kind() {
+        let foreign = |uri: &str| reference(uri, ReferenceTarget::Foreign);
+        let native = reference(
+            &format!("pubky://{AUTHOR}/pub/pubky.app/posts/{POST_ID}"),
+            ReferenceTarget::Post(key()),
+        );
+        let mut collection = post(Some(foreign("https://a.example")), Some(native.clone()));
+        collection.kind = PostKind::Collection;
+        collection.collection_items = vec![
+            native,
+            foreign("https://b.example"),
+            reference("pubky://x/pub/pubky.app/follows/y", ReferenceTarget::Other),
+            foreign("nostr:note1"),
+        ];
+        assert_eq!(
+            collection.external_references(),
+            vec![
+                ("https://a.example", ResourceChangeKind::Reply),
+                ("https://b.example", ResourceChangeKind::Collection),
+                ("nostr:note1", ResourceChangeKind::Collection),
+            ]
+        );
+        assert!(post(None, None).external_references().is_empty());
     }
 
     #[test]

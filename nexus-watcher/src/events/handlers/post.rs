@@ -6,7 +6,7 @@ use nexus_common::db::queries::get::post_is_safe_to_delete;
 use nexus_common::db::{
     exec_single_row, execute_graph_operation, fetch_key_from_graph, OperationOutcome,
 };
-use nexus_common::models::event::resource_changes::{ResourceChange, ResourceChangeKind};
+use nexus_common::models::event::resource_changes::ResourceChange;
 use nexus_common::models::notification::{Notification, PostChangedSource, PostChangedType};
 use nexus_common::models::post::{
     collection_item_keys, sync_collected_edges, PostCounts, PostDetails, PostParent, PostParents,
@@ -16,18 +16,16 @@ use nexus_common::models::resource::references;
 use nexus_common::models::user::UserIngestor;
 use pubky_social_specs::PubkyId;
 use std::sync::LazyLock;
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::sync::MutexGuard;
 use tracing::{debug, Instrument};
 
 use super::utils::{
-    bounded, fail_on_permanent_ingest_error, lock_stripe, post_kind, post_relationships_is_reply,
+    bounded, fail_on_permanent_ingest_error, post_kind, post_relationships_is_reply, StripedLocks,
 };
 use crate::events::inputs::{PostInput, PostKind, Reference, ReferenceTarget, ResourceKey};
 
 /// Locks shared by the handlers of posts: see [`lock_post`].
-const POST_LOCK_STRIPES: usize = 1024;
-static POST_LOCKS: LazyLock<Vec<Mutex<()>>> =
-    LazyLock::new(|| (0..POST_LOCK_STRIPES).map(|_| Mutex::new(())).collect());
+static POST_LOCKS: LazyLock<StripedLocks> = LazyLock::new(|| StripedLocks::new(1024));
 
 /// The lock of one post, keyed by its author and id, which every handler of the post knows
 /// before it reads the graph. A PUT of any of its version files and its DEL hold it from their
@@ -37,15 +35,13 @@ static POST_LOCKS: LazyLock<Vec<Mutex<()>>> =
 /// replace that version's references with its own, or append an outbox that a concurrent
 /// delete already published and retracted. With it, the post's references are the ones of the
 /// version handled last (the handlers do not compare versions). The locks are a fixed set of
-/// stripes, as [`super::tag::lock_tagger`]'s, picked by [`lock_stripe`]: two posts that share
+/// stripes, as [`super::tag::lock_tagger`]'s, picked by [`super::utils::lock_stripe`]: two posts that share
 /// one only wait for each other, and nobody can pick a post id that shares another's. A crash
 /// releases it. It orders the handlers of one watcher process. A PUT looks up the unknown
 /// authors of its collection items before it takes the lock: they take network round trips,
 /// and no other handler of the post depends on them.
 pub async fn lock_post(author_id: &str, post_id: &str) -> MutexGuard<'static, ()> {
-    POST_LOCKS[lock_stripe((author_id, post_id), POST_LOCK_STRIPES)]
-        .lock()
-        .await
+    POST_LOCKS.lock((author_id, post_id)).await
 }
 
 pub async fn sync_put(
@@ -66,49 +62,28 @@ pub async fn sync_put_at(
     reject_unsupported_parent(&post)?;
     ingest_collection_item_authors(&post, ingestor).await;
     let _post_lock = lock_post(key.owner_id.as_ref(), &key.resource_id).await;
-    let mut lines: Vec<ResourceChange> = Vec::new();
-    for (target, kind) in post
-        .parent
-        .iter()
-        .map(|r| (r, ResourceChangeKind::Reply))
-        .chain(post.embed.iter().map(|r| (r, ResourceChangeKind::Embed)))
-        .chain(
-            post.collection_items
-                .iter()
-                .map(|r| (r, ResourceChangeKind::Collection)),
-        )
-    {
-        // Only an external target is a Resource: another scheme's URL or another app's
-        // public object. Native posts keep their own edges; profiles, files, tags,
-        // bookmarks, private paths and anything else Nexus never references are not
-        // projected at all.
-        if matches!(target.target, ReferenceTarget::Foreign) {
-            lines.push(references::reference(
-                &key.owner_id,
-                source_uri,
-                &target.uri,
-                kind,
-            )?);
-        }
-    }
+    let lines = post
+        .external_references()
+        .into_iter()
+        .map(|(uri, kind)| references::reference(&key.owner_id, source_uri, uri, kind))
+        .collect::<Result<Vec<ResourceChange>, _>>()?;
     // Whether the post replies to anything: once its write and its references are in, the graph
     // says the same, so the first run and a retry decide from the same fact.
     let is_reply = is_reply_input(&post);
     let post_details = post.clone().into_details(&key);
-    let projected = post.clone().into_details(&key);
     let ResourceKey {
         owner_id: author_id,
         resource_id: post_id,
     } = key;
     sync_put_details(
         post,
-        post_details,
+        &post_details,
         author_id.clone(),
         post_id.clone(),
         ingestor,
     )
     .await?;
-    let touched = references::sync(&projected, lines).await?;
+    let touched = references::sync(&post_details, lines).await?;
     // What follows reads only facts a retry after a failure past this point finds the same.
     let lists_disagree = PostStream::is_in_author_replies(&author_id, &post_id).await? != is_reply;
     // A post that became a root post is ranked again from its counts, before its lists are read
@@ -121,14 +96,21 @@ pub async fn sync_put_at(
     // The cached relationships and lists are read back from the graph when the post has or had
     // a Resource edge, when its lists disagree with what it is, or when its cached relationships
     // still name an external target (an edit that dropped the last one, retried).
-    let cached_external = PostRelationships::get_from_index(&author_id, &post_id)
-        .await?
-        .is_some_and(|cached| cached.embedded.is_some() || cached.replied_external);
-    if touched || lists_disagree || cached_external {
+    if touched || lists_disagree || cached_names_external(&author_id, &post_id).await? {
         PostRelationships::reindex(&author_id, &post_id).await?;
         PostDetails::reindex(&author_id, &post_id).await?;
     }
     Ok(())
+}
+
+/// Whether the post's cached relationships name an external target.
+async fn cached_names_external(
+    author_id: &str,
+    post_id: &str,
+) -> Result<bool, EventProcessorError> {
+    Ok(PostRelationships::get_from_index(author_id, post_id)
+        .await?
+        .is_some_and(|cached| cached.embedded.is_some() || cached.replied_external))
 }
 
 /// Whether `post` is indexed as a reply: its parent is a post, or an external target it has a
@@ -182,19 +164,17 @@ fn reject_parent_change(
     tombstone: bool,
 ) -> Result<(), EventProcessorError> {
     let external = stored.references_reconciled && !tombstone;
-    let keys = |parents| (parent_keys(parents), external_parent(parents, external));
-    let (named, stored) = (keys(named), keys(stored));
-    if named == stored {
+    let external_changed = external && named.replied_resource != stored.replied_resource;
+    if parent_keys(named) == parent_keys(stored) && !external_changed {
         return Ok(());
     }
     Err(EventProcessorError::PostParentChanged(bounded(&format!(
-        "The edit names ((parent, embed), external parent) {named:?}, but the post was created with {stored:?}"
+        "The edit names (parent, embed) {:?} and external parent {:?}, but the post was created with {:?} and {:?}",
+        parent_keys(named),
+        named.replied_resource,
+        parent_keys(stored),
+        stored.replied_resource,
     ))))
-}
-
-/// The Resource id of the external reply parent, when `compared`.
-fn external_parent(parents: &PostParents, compared: bool) -> Option<Option<&str>> {
-    compared.then_some(parents.replied_resource.as_deref())
 }
 
 /// The keys of the reply parent and the repost embed.
@@ -230,7 +210,7 @@ fn put_change(existing: &PostDetails, incoming: &PostDetails) -> Option<bool> {
 #[tracing::instrument(name = "post.put", skip_all, fields(user_id = %author_id, post_id = %post_id))]
 async fn sync_put_details(
     post: PostInput,
-    post_details: PostDetails,
+    post_details: &PostDetails,
     author_id: PubkyId,
     post_id: String,
     ingestor: &UserIngestor,
@@ -290,9 +270,9 @@ async fn sync_put_details(
                 // this, and leave the old edges in the graph for good.
                 if was_collection || is_collection {
                     let items = post.collected_posts();
-                    sync_collected_edges(&author_id, &post_id, &items, Some(&post_details)).await?;
+                    sync_collected_edges(&author_id, &post_id, &items, Some(post_details)).await?;
                 }
-                if let Some(notify) = put_change(&existing_details, &post_details) {
+                if let Some(notify) = put_change(&existing_details, post_details) {
                     sync_edit(
                         stored.unwrap_or_default().replied,
                         author_id.clone(),
@@ -312,8 +292,8 @@ async fn sync_put_details(
                 // index writes and notifications; scores are intentionally skipped
                 // (prefer drift over duplicates).
                 // A tombstone's parents leave its external reply out: the graph tells.
-                let external_reply = (!post_details.deleted).then_some(is_reply);
-                recover_post_index_state(&author_id, &post_id, external_reply).await?;
+                let is_reply = (!post_details.deleted).then_some(is_reply);
+                recover_post_index_state(&author_id, &post_id, is_reply).await?;
             }
         }
         return Ok(());
@@ -358,7 +338,7 @@ async fn sync_put_details(
 
     if is_collection {
         let items = post.collected_posts();
-        sync_collected_edges(&author_id, &post_id, &items, Some(&post_details)).await?;
+        sync_collected_edges(&author_id, &post_id, &items, Some(post_details)).await?;
     }
 
     // SAVE TO INDEX - PHASE 1, create the post counts
@@ -521,12 +501,12 @@ async fn sync_put_details(
 /// absent, so one already delivered is neither duplicated nor re-surfaced, and
 /// before `PostDetails`: once it is indexed, a retry takes the edit path.
 ///
-/// `external_reply` is whether the post replies to an external target, when the PUT knows it:
-/// its Resource reply edge is written after this, so the graph cannot tell yet.
+/// `is_reply` is whether the post is a reply, when the PUT knows it: the Resource reply edge of
+/// a reply to an external target is written after this, so the graph cannot tell yet.
 async fn recover_post_index_state(
     author_id: &PubkyId,
     post_id: &str,
-    external_reply: Option<bool>,
+    is_reply: Option<bool>,
 ) -> Result<(), EventProcessorError> {
     debug!("Recovering post index state from graph");
 
@@ -605,7 +585,7 @@ async fn recover_post_index_state(
     // Reindex all Redis state from graph truth.
     let (details_result, relationships_result, counts_result) = nexus_common::traced_join!(
         tracing::info_span!("index.write", phase = "post_recovery");
-        post_details.put_to_index(author_id, reply, false, external_reply),
+        post_details.put_to_index(author_id, reply, false, is_reply),
         PostRelationships::reindex(author_id, post_id),
         PostCounts::reindex(author_id, post_id)
     );
@@ -622,7 +602,7 @@ async fn sync_edit(
     replied: Option<PostParent>,
     author_id: PubkyId,
     post_id: String,
-    post_details: PostDetails,
+    post_details: &PostDetails,
     notify: bool,
     was_kind: PostKind,
 ) -> Result<(), EventProcessorError> {
@@ -796,10 +776,6 @@ pub async fn del(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), EventP
     // The feed writes before the graph, as for a tag: a retry reads the references again and
     // retracts them again; a tombstone keeps its edges and retracts nothing more.
     references::retract(&key.owner_id, &key.resource_id).await?;
-    del_inner(key, ingestor).await
-}
-
-async fn del_inner(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), EventProcessorError> {
     debug!("Deleting post");
 
     // The post's stored address: a tombstone keeps it, and a hard delete reports it.
@@ -850,9 +826,9 @@ async fn del_inner(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), Even
             // still ingest the parent's author; pass on ingestor to enforce the real blacklist.
             sync_put_details(
                 tombstone,
-                tombstone_details,
-                key.owner_id.clone(),
-                key.resource_id.clone(),
+                &tombstone_details,
+                key.owner_id,
+                key.resource_id,
                 ingestor,
             )
             .await?;
@@ -1028,10 +1004,8 @@ pub async fn sync_del(
         indexing_results.1?;
     }
 
-    // External replies have no native parent wrapper, but still own this membership: removed
-    // always, as the ranking above.
-    PostStream::remove_from_replies_per_user_sorted_set(&author_id, &post_id).await?;
-    // PHASE 4: Final Redis cleanup of PostDetails (idempotent JSON DEL + ZREM).
+    // PHASE 4: Final Redis cleanup of PostDetails and its lists, the author's replies included
+    // (idempotent JSON DEL + ZREM).
     PostDetails::delete_from_index(&author_id, &post_id, reply_parent_post_key_wrapper)
         .instrument(tracing::info_span!("index.delete", phase = "post_details"))
         .await?;
