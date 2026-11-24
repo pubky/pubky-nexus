@@ -62,6 +62,7 @@ impl RetryScheduler {
                 PubkyClientError::NotFound404 { .. }
                 | PubkyClientError::RequestRejected { .. }
                 | PubkyClientError::AuthenticationFailed(..)
+                | PubkyClientError::CredentialRefreshFailed(..)
                 | PubkyClientError::BuildFailed(..)
                 | PubkyClientError::ParseFailed(..) => false,
             },

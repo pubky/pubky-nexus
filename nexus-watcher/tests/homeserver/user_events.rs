@@ -13,10 +13,9 @@ use nexus_common::types::DynError;
 use pubky::{Keypair, PublicKey};
 use pubky_social_specs::legacy_v0::PubkyAppUser;
 use pubky_social_specs::PubkyId;
-use pubky_testnet::pubky_homeserver::quota_config::{
-    GlobPattern, HttpMethod, LimitKeyType, PathLimit,
+use pubky_testnet::pubky_homeserver::{
+    ConfigToml, GlobPattern, HttpMethod, LimitKeyType, MockDataDir, PathLimit,
 };
-use pubky_testnet::pubky_homeserver::{ConfigToml, ConnectionString, MockDataDir};
 
 fn profile(name: &str) -> PubkyAppUser {
     PubkyAppUser {
@@ -77,15 +76,9 @@ async fn test_user_events_come_from_the_homeserver_after_the_cursor() -> Result<
 async fn homeserver_allowing_one_stream_request_a_second(
     test: &mut WatcherTest,
 ) -> Result<PublicKey, DynError> {
+    // No database URL: `MockDataDir` takes the stack's test database from
+    // `TEST_PUBKY_CONNECTION_STRING`, as the testnet does for its own homeservers.
     let mut config = ConfigToml::default_test_config();
-    // The stack's test database, read as the testnet reads it for its own homeservers: an
-    // unset or unparsable `TEST_PUBKY_CONNECTION_STRING` leaves the default in place.
-    let stack_database = std::env::var("TEST_PUBKY_CONNECTION_STRING")
-        .ok()
-        .and_then(|raw| ConnectionString::new(&raw).ok());
-    if let Some(connection_string) = stack_database {
-        config.general.database_url = connection_string;
-    }
     config.drive.rate_limits.push(PathLimit {
         path: GlobPattern::new("/events-stream"),
         method: HttpMethod::from(http::Method::GET),
