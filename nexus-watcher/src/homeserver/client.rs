@@ -149,6 +149,18 @@ impl PubkyHomeserverClient {
         self.request(url).await
     }
 
+    /// The primary-style `/events/` poll of `hs`, not sent yet. As for content, the SDK picks
+    /// the transport.
+    async fn events_request(
+        &self,
+        hs: &PubkyId,
+        cursor: u64,
+        limit: u16,
+    ) -> Result<reqwest::RequestBuilder, HsErrorKind> {
+        let url = events_url(hs, cursor, limit)?;
+        self.request(url).await
+    }
+
     /// A GET of `url`, a homeserver's or a user's, with the transport the SDK resolves for it.
     async fn request(&self, url: Url) -> Result<reqwest::RequestBuilder, HsErrorKind> {
         self.pubky
@@ -250,14 +262,8 @@ impl HomeserverClient for PubkyHomeserverClient {
         cursor: u64,
         limit: u16,
     ) -> Result<Vec<String>, HsError> {
-        // TODO: move to `request_async`, which falls back to the homeserver's ICANN domain
-        // when its direct endpoint is unreachable.
-        let send = self
-            .pubky
-            .client()
-            .request(Method::GET, &events_url(hs, cursor, limit))
-            .send();
-        poll_events_with(hs, send).await
+        let poll = async { send(self.events_request(hs, cursor, limit).await?).await };
+        poll_events_with(hs, poll).await
     }
 
     async fn user_events(
@@ -296,16 +302,15 @@ async fn send(request: reqwest::RequestBuilder) -> Result<reqwest::Response, HsE
         .map_err(|e| HsErrorKind::from_reqwest(&e))
 }
 
-/// Reads the lines of the `/events/` poll `send` makes, labelling a failure as `hs`'s poll.
+/// Reads the lines of the `/events/` poll `poll` makes, labelling a failure as `hs`'s poll.
 async fn poll_events_with(
     hs: &PubkyId,
-    send: impl Future<Output = Result<reqwest::Response, reqwest::Error>>,
+    poll: impl Future<Output = Result<reqwest::Response, HsErrorKind>>,
 ) -> Result<Vec<String>, HsError> {
-    let error = |kind| HsError::new(hs, HsOp::PollEvents, kind);
-    let response = send
+    let lines = async { event_lines_from_response(poll.await?).await };
+    lines
         .await
-        .map_err(|e| error(HsErrorKind::from_reqwest(&e)))?;
-    event_lines_from_response(response).await.map_err(error)
+        .map_err(|kind| HsError::new(hs, HsOp::PollEvents, kind))
 }
 
 /// Fetches a user's events with `fetch`, retrying while rate limited, and labels a failure
@@ -388,8 +393,11 @@ where
 }
 
 /// The primary-style `/events/` URL of `hs`, from `cursor` on, for at most `limit` events.
-fn events_url(hs: &PubkyId, cursor: u64, limit: u16) -> String {
-    format!("https://{hs}/events/?cursor={cursor}&limit={limit}")
+fn events_url(hs: &PubkyId, cursor: u64, limit: u16) -> Result<Url, HsErrorKind> {
+    Url::parse(&format!(
+        "https://{hs}/events/?cursor={cursor}&limit={limit}"
+    ))
+    .map_err(HsErrorKind::malformed)
 }
 
 /// The storage URL of `resource`, `https://<host>/storage/<owner>/<path>`. The host is `hs`
@@ -475,7 +483,7 @@ mod tests {
     #[test]
     fn events_url_carries_the_cursor_and_limit() {
         assert_eq!(
-            events_url(&hs_id(), 42, 17),
+            events_url(&hs_id(), 42, 17).unwrap().as_str(),
             format!("https://{HS_ID}/events/?cursor=42&limit=17")
         );
     }
@@ -604,6 +612,30 @@ mod tests {
         assert_eq!(owners, [owner.z32().as_str()]);
     }
 
+    // --- events_request ---
+
+    /// The poll of a homeserver whose direct endpoint refuses connections goes to its ICANN
+    /// domain too, with the cursor and limit it was asked with.
+    #[tokio::test]
+    async fn events_of_a_homeserver_unreachable_directly_are_polled_over_its_icann_domain() {
+        let homeserver = pubky::Keypair::random();
+        let hs = PubkyId::from(homeserver.public_key());
+        let icann_port = refusing_port();
+        let client = client_knowing(&homeserver, refusing_port(), ("localhost", icann_port));
+
+        let request = client
+            .events_request(&hs, 42, 17)
+            .await
+            .expect("a request")
+            .build()
+            .expect("a built request");
+
+        assert_eq!(request.url().host_str(), Some("localhost"));
+        assert_eq!(request.url().port(), Some(icann_port));
+        assert_eq!(request.url().path(), "/events/");
+        assert_eq!(request.url().query(), Some("cursor=42&limit=17"));
+    }
+
     // --- successful ---
 
     /// A 2xx response is handed on with its body unread.
@@ -648,9 +680,9 @@ mod tests {
     /// transport failure.
     #[tokio::test]
     async fn unanswered_poll_is_a_transport_failure_of_the_homeserver() {
-        let error = poll_events_with(&hs_id(), async { Err(transport_error().await) })
-            .await
-            .unwrap_err();
+        let unanswered = async { Err(HsErrorKind::from_reqwest(&transport_error().await)) };
+
+        let error = poll_events_with(&hs_id(), unanswered).await.unwrap_err();
 
         assert_eq!(error.hs, HS_ID);
         assert_eq!(error.op, HsOp::PollEvents);
