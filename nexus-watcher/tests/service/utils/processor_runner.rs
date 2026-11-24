@@ -1,6 +1,8 @@
 use crate::service::utils::processor::MockEventProcessor;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
+use nexus_watcher::errors::EventProcessorError;
+use nexus_watcher::events::Event;
 use nexus_watcher::service::indexer::NexusEventProcessor;
 use nexus_watcher::service::TEventProcessorRunner;
 use std::sync::Arc;
@@ -56,7 +58,7 @@ impl MockEventProcessorRunner {
 }
 
 #[async_trait::async_trait]
-impl TEventProcessorRunner for MockEventProcessorRunner {
+impl TEventProcessorRunner<Event, EventProcessorError> for MockEventProcessorRunner {
     fn shutdown_rx(&self) -> Receiver<bool> {
         self.shutdown_rx.clone()
     }

@@ -1,6 +1,7 @@
 use super::{HomeserverBackoff, TEventProcessorRunner, UserNotFoundBackoff, UserResumePoints};
+use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
-use crate::events::EventHandler;
+use crate::events::{Event, EventHandler};
 use crate::nexus_client::NexusHomeserverClient;
 use crate::service::indexer::{KeyBasedEventProcessor, NexusEventProcessor};
 use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
@@ -140,7 +141,7 @@ impl KeyBasedEventProcessorRunner {
 }
 
 #[async_trait::async_trait]
-impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
+impl TEventProcessorRunner<Event, EventProcessorError> for KeyBasedEventProcessorRunner {
     fn shutdown_rx(&self) -> Receiver<bool> {
         self.shutdown_rx.clone()
     }

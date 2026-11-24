@@ -1,6 +1,7 @@
 use super::TEventProcessorRunner;
+use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
-use crate::events::EventHandler;
+use crate::events::{Event, EventHandler};
 use crate::nexus_client::NexusHomeserverClient;
 use crate::service::indexer::{HsEventProcessor, NexusEventProcessor};
 use crate::service::stats::{ProcessedStats, RunAllProcessorsStats};
@@ -52,7 +53,7 @@ impl HsEventProcessorRunner {
 }
 
 #[async_trait::async_trait]
-impl TEventProcessorRunner for HsEventProcessorRunner {
+impl TEventProcessorRunner<Event, EventProcessorError> for HsEventProcessorRunner {
     fn shutdown_rx(&self) -> Receiver<bool> {
         self.shutdown_rx.clone()
     }
