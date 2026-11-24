@@ -30,7 +30,7 @@ impl ResolveError {
 #[async_trait::async_trait]
 pub trait HomeserverResolver: Send + Sync {
     /// The signed packet `user` publishes, or `None` when no packet is found. A DHT or relay
-    /// failure is an error, so `None` means no record, not an unknown.
+    /// failure is a [`ResolveError`], so `None` means no record, not an unknown.
     async fn resolve_record(&self, user: &PublicKey) -> Result<Option<SignedPacket>, ResolveError>;
 }
 

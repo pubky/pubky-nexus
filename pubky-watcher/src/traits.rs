@@ -33,7 +33,9 @@ pub enum LineParseOutcome<E> {
 /// since event lines come from untrusted homeservers.
 /// [`HomeserverEvent`](crate::HomeserverEvent) implements it.
 pub trait ParseFromLine: Sized {
-    /// Why a line could not be parsed at all. Logged, never returned to the caller.
+    /// Why a line could not be parsed at all. Logged by
+    /// [`TEventProcessor::process_event_line`](crate::TEventProcessor::process_event_line),
+    /// never returned to the caller.
     type Error: std::fmt::Display;
 
     /// Parses `line`, one of a batch's [`EventBatch::event_lines`](crate::EventBatch).
@@ -60,12 +62,16 @@ pub trait EventHandler<E, Err>: Send + Sync {
 pub trait RetryableError: std::fmt::Display + Send + Sync {
     /// Whether processing should stop, and the error be returned to the caller, instead of
     /// being handled as one event's failure.
+    /// [`dispatch_retryable_error`](crate::dispatch_retryable_error) checks it first.
     fn should_not_retry_now(&self) -> bool;
 
-    /// Whether the event failed because something it depends on is not indexed yet.
+    /// Whether the event failed because something it depends on is not indexed yet. Such an
+    /// event goes to [`EventRetryScheduler::queue_missing_dep`], any other to
+    /// [`EventRetryScheduler::queue_transient`].
     fn is_missing_dependency(&self) -> bool;
 
-    /// Whether the event is worth retrying later. One that is not is dropped.
+    /// Whether the event is worth retrying later. One that is not is dropped instead of
+    /// reaching the [`EventRetryScheduler`].
     fn should_enqueue_for_retry(&self) -> bool;
 }
 
@@ -77,9 +83,11 @@ pub trait RetryableError: std::fmt::Display + Send + Sync {
 /// dependency and another transient failure differently.
 #[async_trait::async_trait]
 pub trait EventRetryScheduler<E, Err>: Send + Sync {
-    /// Queues an event that failed because of a missing dependency.
+    /// Queues an event that failed because of a missing dependency
+    /// ([`RetryableError::is_missing_dependency`]).
     async fn queue_missing_dep(&self, event: &E) -> Result<(), Err>;
 
-    /// Queues an event that failed with another transient error.
+    /// Queues an event that failed with another error worth retrying
+    /// ([`RetryableError::should_enqueue_for_retry`]).
     async fn queue_transient(&self, event: &E) -> Result<(), Err>;
 }

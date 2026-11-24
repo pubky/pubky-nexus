@@ -23,8 +23,7 @@ pub const CURSOR_PREFIX: &str = "cursor: ";
 /// [`ParseFromLine`] for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HomeserverEvent {
-    /// `PUT` or `DEL`.
-    /// See [`EventMethod`].
+    /// `PUT` or `DEL`, as an [`EventMethod`].
     pub method: EventMethod,
     /// The resource's `pubky://` URI, as the line carries it.
     /// A `PUT`'s resource is read with
@@ -110,13 +109,13 @@ impl<'a> EventBatch<'a> {
         }
     }
 
-    /// Whether the batch carried anything other than its cursor line.
+    /// Whether the batch carried anything other than its cursor line: whether
+    /// [`Self::event_lines`] is non-empty.
     ///
     /// Deliberately counts *every* non-cursor line, including ones that later
     /// parse as skipped or unrecognized: those still legitimately advance the
     /// cursor, so narrowing this to "lines that reached a handler" would let a
     /// non-advancing cursor through and re-open the replay loop.
-    /// See [`Self::event_lines`].
     pub fn has_events(&self) -> bool {
         !self.event_lines.is_empty()
     }

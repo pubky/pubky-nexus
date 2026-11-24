@@ -115,11 +115,12 @@ where
     E: Send + Sync + 'static,
     Err: Display + Debug + Send + Sync + 'static,
 {
-    /// Returns a short service label for monitoring and tracing spans (e.g. `HsEventProcessor`).
+    /// A short service label (e.g. `HsEventProcessor`), named in the span and logs of
+    /// [`Self::run`].
     fn instance_name(&self) -> &'static str;
 
-    /// The ID of the homeserver this processor reads events from, named in its run's span
-    /// and logs.
+    /// The ID of the homeserver this processor reads events from, named in the span and logs
+    /// of [`Self::run`].
     fn homeserver_id(&self) -> &str;
 
     /// Runs [`Self::run_internal`] on its own task, and waits for it to end: see
@@ -137,9 +138,9 @@ where
         .await
     }
 
-    /// Runs the event processor once.
+    /// Runs the event processor once; [`Self::run`] calls it on its own task.
     ///
-    /// Returns how the run ended, or the error it failed with.
+    /// Returns how the run ended ([`RunOutcome`]), or the error it failed with.
     async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, Err>;
 
     /// How long a run of this event processor may take before it is logged as slow.
@@ -149,7 +150,8 @@ where
         None
     }
 
-    /// Hands `event` to the application's handler.
+    /// Hands `event` to the application's handler, from [`Self::handle_event`] once
+    /// [`Self::should_process_event`] accepted it.
     async fn handle(&self, event: &E) -> Result<(), Err>;
 
     /// Parses a single event line and dispatches to [`Self::handle_event`]. A line that does

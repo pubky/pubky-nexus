@@ -20,8 +20,7 @@ use super::processor::{RunError, TEventProcessor};
 pub enum ProcessorRunStatus {
     /// [`TEventProcessorRunner::build`] failed, so no processor ran.
     FailedToBuild,
-    /// The processor's run completed.
-    /// See [`status_from_run_result`].
+    /// The processor's run completed ([`status_from_run_result`] of `Ok`).
     Ok,
     /// The processor's run failed ([`RunError::Internal`]).
     Error,
@@ -41,8 +40,7 @@ pub struct ProcessorRunStats {
     /// How long building and running its processor took; zero when it was skipped.
     /// Measured by [`TEventProcessorRunner::run`].
     pub duration: Duration,
-    /// How the turn ended.
-    /// See [`ProcessorRunStatus`].
+    /// How the turn ended, as a [`ProcessorRunStatus`].
     pub status: ProcessorRunStatus,
 }
 
@@ -75,49 +73,45 @@ impl RunAllProcessorsStats {
         self.stats.iter().filter(|ps| ps.status == status).count()
     }
 
-    /// Number of homeservers where processing were successful
-    /// Turns that ended [`ProcessorRunStatus::Ok`].
+    /// Number of homeservers whose run completed ([`ProcessorRunStatus::Ok`]).
     pub fn count_ok(&self) -> usize {
         self.count(ProcessorRunStatus::Ok)
     }
 
-    /// Number of homeservers where processing failed with Err
-    /// Turns that ended [`ProcessorRunStatus::Error`].
+    /// Number of homeservers whose run failed with an error ([`ProcessorRunStatus::Error`]).
     pub fn count_error(&self) -> usize {
         self.count(ProcessorRunStatus::Error)
     }
 
-    /// Number of homeservers where processing panicked
-    /// Turns that ended [`ProcessorRunStatus::Panic`].
+    /// Number of homeservers whose run panicked ([`ProcessorRunStatus::Panic`]).
     pub fn count_panic(&self) -> usize {
         self.count(ProcessorRunStatus::Panic)
     }
 
     /// Number of homeservers whose run stopped at its budget
-    /// Turns that ended [`ProcessorRunStatus::BudgetSpent`].
+    /// ([`ProcessorRunStatus::BudgetSpent`]).
     pub fn count_budget_spent(&self) -> usize {
         self.count(ProcessorRunStatus::BudgetSpent)
     }
 
-    /// Number of homeservers where processing failed to start
-    /// Turns that ended [`ProcessorRunStatus::FailedToBuild`].
+    /// Number of homeservers whose processor could not be built
+    /// ([`ProcessorRunStatus::FailedToBuild`]).
     pub fn count_failed_to_build(&self) -> usize {
         self.count(ProcessorRunStatus::FailedToBuild)
     }
 
-    /// Number of homeservers skipped due to backoff
-    /// Turns that ended [`ProcessorRunStatus::Skipped`].
+    /// Number of homeservers skipped because they were in backoff
+    /// ([`ProcessorRunStatus::Skipped`]).
     pub fn count_skipped(&self) -> usize {
         self.count(ProcessorRunStatus::Skipped)
     }
 }
 
-/// Wrapper around `RunAllProcessorsStats` which indicates they've been processed
-/// Returned by [`TEventProcessorRunner::run`] from [`TEventProcessorRunner::post_run`].
+/// A cycle's [`RunAllProcessorsStats`] once [`TEventProcessorRunner::post_run`] has processed
+/// them. [`TEventProcessorRunner::run`] returns it.
 pub struct ProcessedStats(pub RunAllProcessorsStats);
 
-/// The status a processor run that ended with `result` is recorded with.
-/// Maps a [`RunError`] onto a [`ProcessorRunStatus`].
+/// The [`ProcessorRunStatus`] a processor run that ended with `result` is recorded with.
 pub fn status_from_run_result<Err>(result: Result<(), RunError<Err>>) -> ProcessorRunStatus {
     match result {
         Ok(_) => ProcessorRunStatus::Ok,
@@ -148,7 +142,7 @@ where
     /// implementor picks the type.
     type Error: Display + Debug + Send + Sync + 'static;
 
-    /// Returns the shutdown signal receiver
+    /// The shutdown signal: once it is `true`, [`Self::run`] stops before the next homeserver.
     fn shutdown_rx(&self) -> Receiver<bool>;
 
     /// Creates and returns a new event processor instance for the specified homeserver.
@@ -158,10 +152,11 @@ where
     ///   fetch and process events from.
     ///
     /// # Returns
-    /// A reference to the event processor instance, ready to be executed with its `run` method.
+    /// A reference to the event processor instance, ready to be executed with its
+    /// [`TEventProcessor::run`] method.
     ///
     /// # Errors
-    /// Returns an error if the event processor couldn't be built
+    /// Returns an error if the event processor couldn't be built.
     async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor<E, Err>>, Self::Error>;
 
     /// Pre-processing step before the main run loop.
@@ -172,14 +167,15 @@ where
     /// the HS IDs in backoff are skipped.
     async fn pre_run(&self) -> Result<Vec<String>, Self::Error>;
 
-    /// Maximum number of HS IDs built and run per cycle. HS IDs skipped by backoff don't count.
+    /// Maximum number of HS IDs built and run per cycle. HS IDs skipped by
+    /// [`Self::backoff_hs_should_skip`] don't count.
     ///
     /// No limit by default. Runners that cap the targets per run should overwrite this.
     fn poll_limit(&self) -> usize {
         usize::MAX
     }
 
-    /// Post-processing of the run results.
+    /// Post-processing of a cycle's [`RunAllProcessorsStats`], at the end of [`Self::run`].
     ///
     /// No-op default implementation. Callers that perform post-processing should overwrite this.
     async fn post_run(&self, stats: RunAllProcessorsStats) -> ProcessedStats {
@@ -189,7 +185,7 @@ where
     /// Main run loop: builds and runs event processors for the relevant targets.
     ///
     /// # Returns
-    /// Statistics about the event processor run results, summarized as [`ProcessedStats`]
+    /// Statistics about the event processor run results, summarized as [`ProcessedStats`].
     async fn run(&self) -> Result<ProcessedStats, Self::Error> {
         let hs_ids = self.pre_run().await?;
         let poll_limit = self.poll_limit();
@@ -239,7 +235,9 @@ where
         false
     }
 
-    /// Called after a HS is processed (build + run), to update its backoff status.
+    /// Called by [`Self::run`] after a HS is processed (build + run), with the
+    /// [`ProcessorRunStatus`] of its turn, to update the backoff that
+    /// [`Self::backoff_hs_should_skip`] checks.
     ///
     /// No-op default implementation. Runners that use backoff should overwrite as needed.
     async fn backoff_hs_record_result(&self, _hs_id: &str, _status: &ProcessorRunStatus) {}

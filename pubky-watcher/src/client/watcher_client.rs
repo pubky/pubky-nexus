@@ -59,8 +59,7 @@ impl HsStreamEvent {
         &self.owner
     }
 
-    /// The resource's `pubky://` URI.
-    /// Its owner is [`Self::owner`].
+    /// The resource's `pubky://` URI, whose owner is [`Self::owner`].
     pub fn uri(&self) -> &str {
         &self.uri
     }
@@ -99,7 +98,8 @@ pub trait HomeserverEventSource: Send + Sync + 'static {
 pub trait KeyEventSource: Send + Sync + 'static {
     /// Per-user `GET /events-stream?user=<pk>:<cursor>&limit=&path=<path>`, not live: the
     /// user's events after `cursor` whose resource path starts with `path` (e.g. `/pub/`).
-    /// At most `limit` events are returned. A rate-limited request is retried.
+    /// At most `limit` events are returned, each an [`HsStreamEvent`]. A rate-limited request
+    /// is retried.
     async fn user_events(
         &self,
         hs: &PublicKey,
@@ -118,11 +118,12 @@ pub trait KeyEventSource: Send + Sync + 'static {
 #[async_trait::async_trait]
 pub trait ResourceReader: Send + Sync + 'static {
     /// The JSON resource at `resource`, capped at 2 MiB, from the homeserver
-    /// its owner publishes.
+    /// its owner publishes. A larger one fails with [`HsErrorKind::TooLarge`].
     async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError>;
 
-    /// The blob at `resource`, capped at the client's `max_file_size`, from the homeserver
-    /// its owner publishes.
+    /// The blob at `resource`, capped at the client's `max_file_size`
+    /// ([`WatcherClient::with_max_file_size`], [`DEFAULT_MAX_FILE_SIZE`] by default), from the
+    /// homeserver its owner publishes.
     async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError>;
 }
 

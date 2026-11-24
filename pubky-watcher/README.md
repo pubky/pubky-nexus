@@ -122,7 +122,9 @@ as it was first extracted:
 - `HsErrorKind::from_sdk` and `HsErrorKind::from_reqwest` are no longer public.
 - `WatcherClient::mainnet()` and `testnet()` fail with `ClientError` instead of
   `pubky::Error`, and `HomeserverResolver::resolve_record` with the crate's `ResolveError`
-  instead of pkarr's. Both expose the SDK's error only as their `source()`.
+  instead of pkarr's. Neither names an SDK type: the SDK's error is reachable only as their
+  `source()`. `ResolveError`'s message still keeps the SDK's wording and includes the source's
+  text ("Failed to resolve the DHT record: …"), so logs that print it read as before.
 
 ## Dependencies
 

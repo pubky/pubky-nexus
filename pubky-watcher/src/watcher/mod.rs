@@ -39,25 +39,20 @@ pub const DEFAULT_EVENTS_LIMIT: u16 = 100;
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum ConfigError {
-    /// The events limit is zero, so a run could never read an event.
-    /// See [`HomeserverWatcherBuilder::events_limit`] and
-    /// [`KeyStreamWatcherBuilder::events_limit`].
+    /// The events limit ([`HomeserverWatcherBuilder::events_limit`],
+    /// [`KeyStreamWatcherBuilder::events_limit`]) is zero, so a run could never read an event.
     #[error("the events limit must be greater than zero")]
     ZeroEventsLimit,
-    /// A key stream was given no users to read.
-    /// The users are the ones given to [`Watcher::key_stream`].
+    /// [`Watcher::key_stream`] was given no users to read.
     #[error("a key stream needs at least one user")]
     NoUsers,
-    /// A key stream was given `user` more than once, each with its own cursor.
-    /// The users are the ones given to [`Watcher::key_stream`].
+    /// [`Watcher::key_stream`] was given `user` more than once, each with its own cursor.
     #[error("a key stream cannot list a user twice")]
     DuplicateUser {
         /// The user listed twice.
-        /// As given to [`Watcher::key_stream`].
         user: PublicKey,
     },
-    /// The key stream's path does not start with `/`.
-    /// See [`KeyStreamWatcherBuilder::path`].
+    /// The key stream's path ([`KeyStreamWatcherBuilder::path`]) does not start with `/`.
     #[error("the event-stream path must start with '/'")]
     InvalidPath {
         /// The path given to [`KeyStreamWatcherBuilder::path`].
@@ -104,7 +99,6 @@ pub enum ProtocolError {
     #[error("the homeserver sent no events but moved the cursor from {requested} to {got}")]
     CursorMovedWithoutEvents {
         /// The cursor the run asked from.
-        /// See [`HomeserverWatcher::run`].
         requested: u64,
         /// The cursor the homeserver sent.
         /// The batch's cursor line ([`EventBatch::cursor`](crate::EventBatch::cursor)).
@@ -115,10 +109,8 @@ pub enum ProtocolError {
     #[error("the stream of {} returned {got} events, more than the {limit} requested", .user.z32())]
     TooManyEvents {
         /// The user whose stream it was.
-        /// One of the users given to [`Watcher::key_stream`].
         user: PublicKey,
         /// The events the stream held.
-        /// See [`KeyStreamWatcherBuilder::events_limit`].
         got: usize,
         /// The events the run asked for.
         /// Set by [`KeyStreamWatcherBuilder::events_limit`].
@@ -130,10 +122,8 @@ pub enum ProtocolError {
     #[error("the stream of {} returned an event of {}", .user.z32(), .owner.z32())]
     ForeignEvent {
         /// The user whose stream it was.
-        /// One of the users given to [`Watcher::key_stream`].
         user: PublicKey,
-        /// The owner of the event.
-        /// See [`HsStreamEvent::owner`](crate::HsStreamEvent::owner).
+        /// The owner of the event ([`HsStreamEvent::owner`](crate::HsStreamEvent::owner)).
         owner: PublicKey,
     },
 }
@@ -155,12 +145,10 @@ fn cursor_not_advanced(user: Option<&PublicKey>, requested: u64, got: u64) -> St
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum WatcherError<Err> {
-    /// A homeserver call failed.
-    /// See [`HsError`].
+    /// A homeserver call failed, with an [`HsError`].
     #[error(transparent)]
     Homeserver(#[from] HsError),
-    /// The homeserver's answer breaks the events protocol.
-    /// See [`ProtocolError`].
+    /// The homeserver's answer breaks the events protocol, as a [`ProtocolError`] says.
     #[error(transparent)]
     Protocol(#[from] ProtocolError),
     /// The handler failed on an event; the events before it were handled.
@@ -189,9 +177,9 @@ pub struct WatchOutcome {
     /// The events handed to the handler.
     /// Each went to the handler's [`EventHandler::handle`](crate::EventHandler::handle).
     pub processed_events: usize,
-    /// Whether the run handled everything it read. A run stopped by shutdown returns `false`,
-    /// with the cursor it started from, so the next run reads the batch again.
-    /// See [`HomeserverWatcher::run`].
+    /// Whether the run handled everything it read. A run stopped by the shutdown signal given
+    /// to [`HomeserverWatcherBuilder::build`] returns `false`, with the cursor it started from,
+    /// so the next run reads the batch again.
     pub completed: bool,
 }
 

@@ -38,11 +38,9 @@ pub struct HsError {
     /// its owner's key. Not a [`PublicKey`], which also holds the decoded key and would make
     /// every error several times larger.
     pub hs: String,
-    /// The operation the call made.
-    /// See [`HsOp`].
+    /// The [`HsOp`] the call made.
     pub op: HsOp,
-    /// Why the call failed.
-    /// See [`HsErrorKind`].
+    /// Why the call failed, as an [`HsErrorKind`].
     pub kind: HsErrorKind,
 }
 

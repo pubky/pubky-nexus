@@ -133,9 +133,9 @@ pub struct KeyStreamOutcome {
     /// The events handed to the handler.
     /// Each went to the handler's [`EventHandler::handle`].
     pub processed_events: usize,
-    /// Whether the run read every user. A run stopped by shutdown returns `false`; each
-    /// user's cursor is still safe to persist.
-    /// See [`KeyStreamWatcher::run`].
+    /// Whether the run read every user. A run stopped by the shutdown signal given to
+    /// [`KeyStreamWatcherBuilder::build`] returns `false`; each user's cursor is still safe
+    /// to persist.
     pub completed: bool,
 }
 
