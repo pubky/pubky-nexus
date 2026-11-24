@@ -37,6 +37,7 @@ pub async fn sync_put(
     files_path: &Path,
     ingestor: &UserIngestor,
     client: &dyn HomeserverClient,
+    homeserver: &PubkyId,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing file");
 
@@ -47,6 +48,7 @@ pub async fn sync_put(
         files_path,
         ingestor,
         client,
+        homeserver,
     )
     .await?;
 
@@ -61,6 +63,10 @@ pub async fn sync_put(
 /// The translator has already parsed `src` into [`FileInput::blob`], so what is left is the
 /// I/O: refuse a blob hosted on a blacklisted homeserver, fetch it, check the bytes against the
 /// id in the address, write them. A mismatch is spec validation and never retried.
+///
+/// `user_id`'s own blob is read from `homeserver`, the one that delivered the file's event.
+/// That homeserver need not host another user, so another user's blob is read from the
+/// homeserver its owner publishes.
 // TODO: Move it into its own process, server, etc
 #[tracing::instrument(name = "file.ingest", skip_all, fields(user_id = %user_id, file_id = %file_id))]
 async fn ingest(
@@ -70,6 +76,7 @@ async fn ingest(
     files_path: &Path,
     ingestor: &UserIngestor,
     client: &dyn HomeserverClient,
+    homeserver: &PubkyId,
 ) -> Result<(), EventProcessorError> {
     // Refuse to download content hosted on a blacklisted HS
     ingestor
@@ -78,7 +85,11 @@ async fn ingest(
         .inspect_err(|e| warn!("Aborting file ingest: source {}: {e}", file.src))?;
 
     let source: PubkyResource = file.src.parse()?;
-    let bytes = read_blob(client.get_blob(&source).await?, &file.blob.blob_id)?;
+    let delivered_by = (file.blob.owner_id == *user_id).then_some(homeserver);
+    let bytes = read_blob(
+        client.get_blob(delivered_by, &source).await?,
+        &file.blob.blob_id,
+    )?;
 
     let full_path = files_path.join(file_folder(user_id.as_ref(), file_id));
     write_main_variant(&full_path, &bytes)
@@ -97,8 +108,8 @@ async fn write_main_variant(dir: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 /// Stores the `social/v1` file `key` names, whose address is the hash of its bytes: downloads
-/// it from its owner's homeserver, checks it against `hash` and writes it as `main`. No graph
-/// write: a v1 file has no metadata and no node.
+/// it from `homeserver`, the one that delivered its event, checks it against `hash` and writes
+/// it as `main`. No graph write: a v1 file has no metadata and no node.
 ///
 /// In order: a `main` already on disk ends it with no fetch, since an address names exact bytes
 /// and every write checks the hash, so a replayed batch costs nothing; the owner's homeserver
@@ -115,6 +126,7 @@ pub async fn sync_put_v1(
     files_path: &Path,
     ingestor: &UserIngestor,
     client: &dyn HomeserverClient,
+    homeserver: &PubkyId,
 ) -> Result<(), EventProcessorError> {
     let folder = files_path.join(file_folder(key.owner_id.as_ref(), &key.resource_id));
     if fs::try_exists(main_path(&folder))
@@ -133,7 +145,7 @@ pub async fn sync_put_v1(
 
     let source: PubkyResource =
         file_uri_builder(key.owner_id.to_string(), key.resource_id.clone()).parse()?;
-    let bytes = read_v1_file(client.get_blob(&source).await?, hash).await?;
+    let bytes = read_v1_file(client.get_blob(Some(homeserver), &source).await?, hash).await?;
 
     write_v1_main(files_path, &folder, &bytes)
         .await

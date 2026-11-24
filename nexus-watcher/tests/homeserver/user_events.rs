@@ -6,26 +6,16 @@
 
 use std::time::{Duration, Instant};
 
+use super::profile;
 use crate::event_processor::utils::watcher::{
     retrieve_and_handle_event_line, unrank_user, WatcherTest,
 };
 use nexus_common::types::DynError;
 use pubky::{Keypair, PublicKey};
-use pubky_social_specs::legacy_v0::PubkyAppUser;
 use pubky_social_specs::PubkyId;
 use pubky_testnet::pubky_homeserver::{
     ConfigToml, GlobPattern, HttpMethod, LimitKeyType, MockDataDir, PathLimit,
 };
-
-fn profile(name: &str) -> PubkyAppUser {
-    PubkyAppUser {
-        bio: None,
-        image: None,
-        links: None,
-        name: name.to_string(),
-        status: None,
-    }
-}
 
 /// A user's events come from the homeserver they are asked of, not the one their PKARR
 /// record names, and a later request from the last cursor returns only the events after it.

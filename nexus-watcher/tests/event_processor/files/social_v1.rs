@@ -402,6 +402,7 @@ async fn test_v1_file_of_a_blacklisted_homeserver_is_refused() -> Result<()> {
         test.temp_dir.path(),
         &ingestor,
         test.event_processor_runner.client.as_ref(),
+        &test.homeserver_id,
     )
     .await
     .expect_err("a v1 file of a blacklisted homeserver must be refused");

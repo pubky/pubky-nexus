@@ -46,6 +46,10 @@ pub struct MockHomeserverClient {
     /// asserts no download happened reads this.
     blob_fetches: Mutex<Vec<String>>,
 
+    /// The homeserver each `get_resource` and `get_blob` was asked of, `None` when the fetch
+    /// was left to the owner's record, with the URI asked for, in fetch order.
+    fetched_from: Mutex<Vec<(Option<String>, String)>>,
+
     /// The user whose record every lookup is answered with, and the homeserver
     /// it names, if any. None by default.
     homeserver_of: Option<(Keypair, Option<PubkyId>)>,
@@ -137,6 +141,17 @@ impl MockHomeserverClient {
     pub async fn blob_fetches(&self) -> Vec<String> {
         self.blob_fetches.lock().await.clone()
     }
+
+    /// The homeserver each resource and blob fetch was asked of, `None` when it was left to
+    /// the owner's record, with the URI asked for, in fetch order.
+    pub async fn fetched_from(&self) -> Vec<(Option<String>, String)> {
+        self.fetched_from.lock().await.clone()
+    }
+
+    async fn record_fetch(&self, hs: Option<&PubkyId>, resource: &PubkyResource) {
+        let asked = (hs.map(ToString::to_string), resource.to_pubky_url());
+        self.fetched_from.lock().await.push(asked);
+    }
 }
 
 /// A 404 for `resource`, labelled with its owner's key, as the real client labels a failed
@@ -210,11 +225,21 @@ impl HomeserverClient for MockHomeserverClient {
         result.map_err(|kind| HsError::new(hs, HsOp::UserEvents, kind))
     }
 
-    async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
+    async fn get_resource(
+        &self,
+        hs: &PubkyId,
+        resource: &PubkyResource,
+    ) -> Result<Vec<u8>, HsError> {
+        self.record_fetch(Some(hs), resource).await;
         self.serve(resource, HsOp::GetResource)
     }
 
-    async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
+    async fn get_blob(
+        &self,
+        hs: Option<&PubkyId>,
+        resource: &PubkyResource,
+    ) -> Result<Vec<u8>, HsError> {
+        self.record_fetch(hs, resource).await;
         self.blob_fetches.lock().await.push(resource.to_pubky_url());
         self.serve(resource, HsOp::GetBlob)
     }

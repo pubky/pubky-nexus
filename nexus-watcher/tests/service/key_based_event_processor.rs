@@ -1100,12 +1100,20 @@ impl HomeserverClient for MappingChangesDuringFetch {
         self.inner.user_events(hs, user, cursor, limit).await
     }
 
-    async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
-        self.inner.get_resource(resource).await
+    async fn get_resource(
+        &self,
+        hs: &PubkyId,
+        resource: &PubkyResource,
+    ) -> Result<Vec<u8>, HsError> {
+        self.inner.get_resource(hs, resource).await
     }
 
-    async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
-        self.inner.get_blob(resource).await
+    async fn get_blob(
+        &self,
+        hs: Option<&PubkyId>,
+        resource: &PubkyResource,
+    ) -> Result<Vec<u8>, HsError> {
+        self.inner.get_blob(hs, resource).await
     }
 }
 
