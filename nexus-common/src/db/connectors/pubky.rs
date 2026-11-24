@@ -1,5 +1,5 @@
-use pubky::errors::{AuthError, BuildError, PkarrError, RequestError};
-use pubky::{CredentialRefreshError, Pubky, PubkyHttpClient, StatusCode};
+use pubky::errors::{AuthError, BuildError, PkarrError};
+use pubky::{CredentialRefreshError, Pubky, PubkyHttpClient};
 use std::{sync::Arc, time::Duration};
 use thiserror::Error;
 
@@ -48,37 +48,6 @@ pub enum PubkyClientError {
     ParseFailed(#[from] url::ParseError),
 }
 
-impl From<pubky::Error> for PubkyClientError {
-    fn from(err: pubky::Error) -> Self {
-        match err {
-            pubky::Error::Request(RequestError::Server { status, message }) => match status {
-                StatusCode::NOT_FOUND => Self::NotFound404 { message },
-                StatusCode::TOO_MANY_REQUESTS => Self::TooManyRequests429 { message },
-                s if s.is_server_error() => Self::ServerError5xx { message },
-                s if s.is_client_error() && s != StatusCode::REQUEST_TIMEOUT => {
-                    Self::RequestRejected {
-                        status: s.as_u16(),
-                        message,
-                    }
-                }
-                _ => Self::RequestFailed { message },
-            },
-            pubky::Error::Request(RequestError::Transport(e)) => Self::RequestFailed {
-                message: e.to_string(),
-            },
-            pubky::Error::Request(
-                RequestError::Validation { message } | RequestError::DecodeJson { message },
-            ) => Self::RequestFailed { message },
-
-            pubky::Error::Pkarr(e) => e.into(),
-            pubky::Error::Authentication(e) => e.into(),
-            pubky::Error::CredentialRefresh(e) => e.into(),
-            pubky::Error::Build(e) => e.into(),
-            pubky::Error::Parse(e) => e.into(),
-        }
-    }
-}
-
 /// Builds the Pubky SDK client the `[stack.net]` settings describe: for the testnet relay on
 /// [`NetConfig::testnet_host`] when [`NetConfig::testnet`] is set, otherwise for mainnet, with
 /// every HTTP request, its response body included, bounded by
@@ -123,6 +92,6 @@ fn build_pubky_with(
 
     let client = client_builder
         .build()
-        .map_err(|e| PubkyClientError::from(pubky::Error::from(e)))?;
+        .map_err(PubkyClientError::BuildFailed)?;
     Ok(Arc::new(Pubky::with_client(client)))
 }

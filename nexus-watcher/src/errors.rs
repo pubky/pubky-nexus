@@ -167,12 +167,6 @@ impl From<PubkyClientError> for EventProcessorError {
     }
 }
 
-impl From<pubky::Error> for EventProcessorError {
-    fn from(e: pubky::Error) -> Self {
-        PubkyClientError::from(e).into()
-    }
-}
-
 /// Maps a homeserver call's failure onto the variants the processors classify.
 ///
 /// The `/events-stream` request is the homeserver itself, so a 5xx, a transport
@@ -326,9 +320,8 @@ impl RetryableError for EventProcessorError {
 mod tests {
     use super::*;
     use crate::events::retry::RetryScheduler;
-    use pubky::errors::{AuthError, BuildError, PkarrError, RequestError};
+    use pubky::errors::{PkarrError, RequestError};
     use pubky::CredentialRefreshError;
-    use reqwest::StatusCode;
 
     #[test]
     fn event_stream_5xx_is_not_retry_now() {
@@ -354,9 +347,9 @@ mod tests {
     /// is not in production: never retried, and the run goes on.
     #[test]
     fn credential_refresh_failure_is_not_retried() {
-        let err = EventProcessorError::from(pubky::Error::from(CredentialRefreshError::Request {
-            status: None,
-        }));
+        let err = EventProcessorError::from(PubkyClientError::CredentialRefreshFailed(
+            CredentialRefreshError::Request { status: None },
+        ));
         assert!(
             !RetryScheduler::should_enqueue_related_event(&err),
             "{err:?}"
@@ -383,21 +376,6 @@ mod tests {
             .unwrap_err()
     }
 
-    /// A `reqwest::Error` that `is_timeout()`: a request to a local socket nothing answers
-    /// on, with a timeout shorter than its patience.
-    async fn timeout_error() -> reqwest::Error {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let url = format!("http://{}/", listener.local_addr().unwrap());
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_millis(50))
-            .no_proxy()
-            .build()
-            .unwrap();
-        let error = client.get(url).send().await.unwrap_err();
-        assert!(error.is_timeout(), "{error:?}");
-        error
-    }
-
     /// A homeserver SDK failure that the client calls `Sdk` (validation) is retried like a
     /// failed request; one building the request (`Malformed`) never is, and does not stop
     /// the run.
@@ -415,77 +393,6 @@ mod tests {
         assert!(RetryScheduler::should_enqueue_related_event(&retried));
         assert!(!RetryScheduler::should_enqueue_related_event(&dropped));
         assert!(!dropped.should_not_retry_now());
-    }
-
-    /// On a fetch, the client's classification and `PubkyClientError::from` decide the same
-    /// for every SDK error, a build error and a timed-out request included: whether the run
-    /// stops, whether the event is retried, and whether it was a 404. The compiler cannot
-    /// check the two lists against each other, so this does.
-    #[tokio::test]
-    async fn sdk_classification_agrees_with_the_shared_converter() {
-        let server = |status: u16| {
-            pubky::Error::from(RequestError::Server {
-                status: StatusCode::from_u16(status).unwrap(),
-                message: "nope".into(),
-            })
-        };
-        // Two of each, the SDK's error not being `Clone`.
-        let pair = |make: &dyn Fn() -> pubky::Error| (make(), make());
-        let mut pairs = vec![
-            pair(&|| server(404)),
-            pair(&|| server(429)),
-            pair(&|| server(503)),
-            pair(&|| server(400)),
-            pair(&|| server(403)),
-            pair(&|| server(408)),
-            pair(&|| {
-                pubky::Error::from(RequestError::Validation {
-                    message: "bad".into(),
-                })
-            }),
-            pair(&|| {
-                pubky::Error::from(RequestError::DecodeJson {
-                    message: "bad".into(),
-                })
-            }),
-            pair(&|| pubky::Error::from(PkarrError::InvalidRecord("bad".into()))),
-            pair(&|| pubky::Error::from(reqwest::Url::parse("https://").unwrap_err())),
-            pair(&|| pubky::Error::from(AuthError::Validation("bad".into()))),
-        ];
-        pairs.push((
-            pubky::Error::from(RequestError::Transport(transport_error().await)),
-            pubky::Error::from(RequestError::Transport(transport_error().await)),
-        ));
-        pairs.push((
-            pubky::Error::from(RequestError::Transport(timeout_error().await)),
-            pubky::Error::from(RequestError::Transport(timeout_error().await)),
-        ));
-        pairs.push((
-            pubky::Error::from(BuildError::Http(transport_error().await)),
-            pubky::Error::from(BuildError::Http(transport_error().await)),
-        ));
-
-        for (via_client, via_converter) in pairs {
-            let label = via_converter.to_string();
-            let via_client = hs_error(HsOp::GetResource, HsErrorKind::from_sdk(via_client));
-            let via_converter = EventProcessorError::from(PubkyClientError::from(via_converter));
-
-            assert_eq!(
-                via_client.should_not_retry_now(),
-                via_converter.should_not_retry_now(),
-                "{label}"
-            );
-            assert_eq!(
-                RetryScheduler::should_enqueue_related_event(&via_client),
-                RetryScheduler::should_enqueue_related_event(&via_converter),
-                "{label}"
-            );
-            assert_eq!(
-                via_client.is_not_found(),
-                via_converter.is_not_found(),
-                "{label}"
-            );
-        }
     }
 
     /// A transport failure stops the run on the event stream, and is retried on a fetch.
