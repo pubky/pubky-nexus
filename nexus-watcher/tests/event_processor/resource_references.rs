@@ -2208,3 +2208,241 @@ async fn an_unreadable_outbox_blocks_no_put_delete_or_takedown_of_its_post() -> 
     handle(format!("DEL pubky://{author}/pub/pubky.app/profile.json")).await?;
     Ok(())
 }
+
+/// A deleted post's view names nothing it relates to, whether its author deleted it or a
+/// moderator took it down, and whatever keeps its tombstone (a reply, a tag, a mention): no parent
+/// (a URL here), no embed, no repost and no mention, from the cached relationships or the graph. The
+/// tombstone keeps its edges and its cached relationships, the gate of its later hard delete.
+/// A live post's view is unchanged.
+#[tokio_shared_rt::test(shared)]
+async fn a_deleted_posts_view_names_no_relationships() -> Result<()> {
+    use super::posts::utils::test_user;
+    use super::utils::watcher::HomeserverHashIdPath;
+    use nexus_common::models::post::PostView;
+    use pubky_social_specs::legacy_v0::{
+        post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind, PubkyAppTag,
+    };
+
+    let mut test = WatcherTest::setup(None).await?;
+    let author_kp = Keypair::random();
+    let author = test
+        .create_user(
+            &author_kp,
+            &test_user("Watcher:DeletedRelationships:Author", "author"),
+        )
+        .await?;
+    let other_kp = Keypair::random();
+    let other = test
+        .create_user(
+            &other_kp,
+            &test_user("Watcher:DeletedRelationships:Other", "other"),
+        )
+        .await?;
+    let moderator_recovery_file =
+        tokio::fs::read("./tests/event_processor/utils/moderator_key.pkarr").await?;
+    let moderator_kp =
+        pubky::recovery_file::decrypt_recovery_file(&moderator_recovery_file, "password")?;
+    test.create_user(
+        &moderator_kp,
+        &test_user("Watcher:DeletedRelationships:Moderator", "moderator"),
+    )
+    .await?;
+    let reply_target = format!("https://example.com/deleted-relationships/reply/{author}");
+    let embed_target = format!("https://example.com/deleted-relationships/embed/{author}");
+    let replied = normalize_uri(&reply_target).map_err(anyhow::Error::msg)?.0;
+    let embedded = normalize_uri(&embed_target).map_err(anyhow::Error::msg)?.0;
+    let mention = format!("mentions pubky{other}");
+    let post = |content: &str, parent: Option<&str>, embed: Option<&str>| PubkyAppPost {
+        content: content.to_string(),
+        kind: PubkyAppPostKind::Short,
+        parent: parent.map(str::to_string),
+        embed: embed.map(|uri| PubkyAppPostEmbed {
+            kind: PubkyAppPostKind::Short,
+            uri: uri.to_string(),
+        }),
+        attachments: None,
+        lock: None,
+    };
+    let tag = |id: &str, label: &str| PubkyAppTag {
+        uri: post_uri_builder(author.clone(), id.to_string()),
+        label: label.to_string(),
+        created_at: chrono::Utc::now().timestamp_millis(),
+    };
+
+    // A live post replying to a URL, embedding another and mentioning a user: its view names all
+    let (live, live_path) = test
+        .create_post(
+            &author_kp,
+            &post(&mention, Some(&reply_target), Some(&embed_target)),
+        )
+        .await?;
+    let view = PostView::get_by_id(&author, &live, None, None, None)
+        .await?
+        .expect("the live post");
+    assert_eq!(
+        view.relationships.replied.as_deref(),
+        Some(replied.as_str())
+    );
+    assert!(view.relationships.replied_external);
+    assert_eq!(
+        view.relationships.embedded.as_deref(),
+        Some(embedded.as_str())
+    );
+    assert_eq!(
+        view.relationships
+            .mentioned
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        [other.as_str()]
+    );
+
+    // Posts the author or a moderator deletes, each kept as a tombstone by a reply or a tag, and
+    // one kept by its mention (a post that mentions a user is never hard-deleted)
+    #[derive(Clone, Copy, PartialEq)]
+    enum Keeper {
+        Reply,
+        Tag,
+        Mention,
+    }
+    let mut deleted = Vec::new();
+    let mut keepers = Vec::new();
+    for (case, parent, embed, keeper, taken_down) in [
+        (
+            "deleted reply to a URL",
+            Some(&reply_target),
+            None,
+            Keeper::Reply,
+            false,
+        ),
+        (
+            "deleted post with an embed",
+            None,
+            Some(&embed_target),
+            Keeper::Tag,
+            false,
+        ),
+        (
+            "taken down reply to a URL",
+            Some(&reply_target),
+            None,
+            Keeper::Reply,
+            true,
+        ),
+        (
+            "taken down post with an embed",
+            None,
+            Some(&embed_target),
+            Keeper::Tag,
+            true,
+        ),
+        (
+            "deleted post with a mention",
+            None,
+            None,
+            Keeper::Mention,
+            false,
+        ),
+    ] {
+        let content = match keeper {
+            Keeper::Mention => mention.as_str(),
+            _ => "kept by a reply or a tag",
+        };
+        let (id, path) = test
+            .create_post(
+                &author_kp,
+                &post(
+                    content,
+                    parent.map(String::as_str),
+                    embed.map(String::as_str),
+                ),
+            )
+            .await?;
+        match keeper {
+            Keeper::Reply => {
+                let child = PubkyAppPost {
+                    parent: Some(post_uri_builder(author.clone(), id.clone())),
+                    ..super::posts::utils::short_post("keeps the tombstone")
+                };
+                let (_, child_path) = test.create_post(&author_kp, &child).await?;
+                keepers.push((author_kp.clone(), child_path));
+            }
+            Keeper::Tag => {
+                let keeper = tag(&id, "keeps_the_tombstone");
+                let tag_path = keeper.hs_path();
+                test.put(&other_kp, &tag_path, &keeper).await?;
+                keepers.push((other_kp.clone(), tag_path));
+            }
+            Keeper::Mention => {}
+        }
+        if taken_down {
+            let takedown = tag(&id, "label_to_moderate");
+            test.put(&moderator_kp, &takedown.hs_path(), &takedown)
+                .await?;
+        } else {
+            test.del(&author_kp, &path).await?;
+        }
+        deleted.push((case, id, path, keeper));
+    }
+
+    for (case, id, _, keeper) in &deleted {
+        let details = PostDetails::get_by_id(&author, id)
+            .await?
+            .unwrap_or_else(|| panic!("{case}: kept as a tombstone"));
+        assert!(details.deleted, "{case}");
+        let cached = PostRelationships::get_from_index(&author, id)
+            .await?
+            .unwrap_or_else(|| panic!("{case}: the hard delete's gate stays"));
+        assert!(
+            cached.replied.is_some() || cached.embedded.is_some() || !cached.mentioned.is_empty(),
+            "{case}: the tombstone keeps its edges"
+        );
+        assert_eq!(
+            *keeper == Keeper::Mention,
+            !cached.mentioned.is_empty(),
+            "{case}"
+        );
+        let none = |view: PostView| {
+            let relationships = view.relationships;
+            assert_eq!(relationships.replied, None, "{case}");
+            assert!(!relationships.replied_external, "{case}");
+            assert_eq!(relationships.reposted, None, "{case}");
+            assert_eq!(relationships.embedded, None, "{case}");
+            assert!(relationships.mentioned.is_empty(), "{case}");
+        };
+        none(
+            PostView::get_by_id(&author, id, None, None, None)
+                .await?
+                .unwrap_or_else(|| panic!("{case}")),
+        );
+        // From the graph too, as after a cache loss; then the gate is put back
+        PostRelationships::delete(&author, id).await?;
+        none(
+            PostView::get_by_id(&author, id, None, None, None)
+                .await?
+                .unwrap_or_else(|| panic!("{case}")),
+        );
+        PostRelationships::reindex(&author, id).await?;
+    }
+
+    // Cleanup: the keepers go, then the tombstones' DELs replayed hard-delete them
+    for (kp, path) in &keepers {
+        test.del(kp, path).await?;
+    }
+    for (case, id, path, _) in deleted.iter().filter(|post| post.3 != Keeper::Mention) {
+        retrieve_and_handle_event_line(
+            &format!("DEL pubky://{author}{path}"),
+            &test.homeserver_id,
+            test.event_processor_runner.event_handler.clone(),
+        )
+        .await?;
+        assert!(
+            PostDetails::get_from_graph(&author, id).await?.is_none(),
+            "{case}: hard-deleted"
+        );
+    }
+    test.del(&author_kp, &live_path).await?;
+    test.cleanup_user(&author_kp).await?;
+    test.cleanup_user(&other_kp).await?;
+    Ok(())
+}
