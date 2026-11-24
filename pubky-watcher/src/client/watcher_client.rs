@@ -189,9 +189,7 @@ impl WatcherClient {
                 });
         }
         Ok(Self::from_pubky(Pubky::with_client(
-            builder.build().map_err(|e| ClientError::Build {
-                source: Box::new(e),
-            })?,
+            builder.build().map_err(ClientError::build)?,
         )))
     }
 

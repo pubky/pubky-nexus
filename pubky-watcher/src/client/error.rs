@@ -6,20 +6,27 @@ use reqwest::StatusCode;
 
 use super::fetch::{format_error_body, MAX_ERROR_BODY};
 
-/// Why a [`WatcherClient`](super::WatcherClient) could not be built: see
+/// Why a [`WatcherClient`](super::WatcherClient) could not be built: the Pubky SDK could
+/// not build its HTTP or PKARR client. See
 /// [`WatcherClient::mainnet`](super::WatcherClient::mainnet) and
 /// [`WatcherClient::testnet`](super::WatcherClient::testnet).
+///
+/// The SDK's error is its [`source`](std::error::Error::source), and nowhere else, so the
+/// crate's API does not depend on the SDK's error types.
 #[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum ClientError {
-    /// The Pubky SDK could not build its HTTP or PKARR client. The SDK's error is the
-    /// [`source`](std::error::Error::source).
-    #[error("could not build the Pubky client: {source}")]
-    Build {
-        /// The SDK's error.
-        #[source]
-        source: Box<dyn std::error::Error + Send + Sync>,
-    },
+#[error("could not build the Pubky client")]
+pub struct ClientError {
+    #[source]
+    source: Box<dyn std::error::Error + Send + Sync>,
+}
+
+impl ClientError {
+    /// A build that failed because of `source`, the SDK's error.
+    pub(crate) fn build(source: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self {
+            source: Box::new(source),
+        }
+    }
 }
 
 /// A failed homeserver call, made through [`WatcherClient`](super::WatcherClient) or another
@@ -191,6 +198,20 @@ mod tests {
     use super::*;
     use pubky::errors::{AuthError, PkarrError};
     use pubky::CredentialRefreshError;
+    use std::error::Error;
+
+    /// A failed client build says what failed, and gives the SDK's error only as its source,
+    /// so a printer of the error chain shows each message once.
+    #[test]
+    fn a_client_build_failure_gives_the_sdk_error_only_as_its_source() {
+        let error = ClientError::build(std::io::Error::other("no TLS roots"));
+
+        assert_eq!(error.to_string(), "could not build the Pubky client");
+        assert_eq!(
+            error.source().map(ToString::to_string).as_deref(),
+            Some("no TLS roots")
+        );
+    }
 
     /// A `reqwest::Error` that `is_timeout()`: a request to a local socket nothing answers
     /// on, with a timeout shorter than its patience.
