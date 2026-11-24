@@ -3,7 +3,9 @@ use crate::events::EventProcessorError;
 use nexus_common::db::kv::ScoreAction;
 use nexus_common::db::queries;
 use nexus_common::db::queries::get::post_is_safe_to_delete;
-use nexus_common::db::{exec_single_row, execute_graph_operation, OperationOutcome};
+use nexus_common::db::{
+    exec_single_row, execute_graph_operation, fetch_key_from_graph, OperationOutcome,
+};
 use nexus_common::models::event::resource_changes::{ResourceChange, ResourceChangeKind};
 use nexus_common::models::notification::{Notification, PostChangedSource, PostChangedType};
 use nexus_common::models::post::{
@@ -869,16 +871,17 @@ pub async fn sync_del(
     post_id: String,
     deleted_uri: String,
 ) -> Result<(), EventProcessorError> {
-    // 1. The PostRelationships index entry is the gate.
-    //    NOTE: deliberately NOT using `get_by_id`, which would re-populate the
-    //    index from the graph and defeat the gate.
+    // 1. The steps that run once (scores, notifications) run only for a post its PUT finished
+    //    indexing: its cached relationships, written last, are there.
+    //    NOTE: deliberately NOT using `get_by_id`, which reads the graph on a miss and would
+    //    take a post its PUT never finished for an indexed one.
     let post_in_index = PostRelationships::get_from_index(&author_id, &post_id)
         .await?
         .is_some();
 
-    // Recover the kind BEFORE removing the gate below. PostDetails is still present
-    // (graph-delete runs last). Doing this after the gate deletion would let a
-    // failed lookup strand the notifications on retry (gate gone, post_in_index false).
+    // Recover the kind BEFORE the claim below. PostDetails is still present
+    // (graph-delete runs last). Doing this after the claim would let a
+    // failed lookup strand the notifications on retry (claimed, so skipped).
     let deleted_kind = if post_in_index {
         post_kind(&author_id, &post_id).await?
     } else {
@@ -886,7 +889,7 @@ pub async fn sync_del(
     };
 
     // The parents to clean up come from the graph, which still has the post because
-    // the graph delete runs LAST. Read them before removing the gate, for the same
+    // the graph delete runs LAST. Read them before the claim, for the same
     // reason as the kind above.
     let PostParents {
         replied, reposted, ..
@@ -894,9 +897,16 @@ pub async fn sync_del(
         .await?
         .unwrap_or_default();
 
-    // 2. Atomically commit the cleanup decision: remove the gate as the very
-    //    first mutation. Subsequent retries will observe `post_in_index = false`
-    //    and skip non-idempotent ops (scores, notifications).
+    // 2. Atomically commit the cleanup decision, as the very first mutation: claim the steps on
+    //    the post node. Only the first claim runs them; a retry skips them, even when a PUT, a
+    //    flip or a recovery handled in between wrote the cached relationships again.
+    let run_once = post_in_index
+        && fetch_key_from_graph::<bool>(
+            queries::put::claim_post_delete(&author_id, &post_id),
+            "first",
+        )
+        .await?
+        .unwrap_or(false);
     if post_in_index {
         PostRelationships::delete(&author_id, &post_id).await?;
     }
@@ -935,7 +945,7 @@ pub async fn sync_del(
             async {
                 // A decrement never creates a member, so a reply parent,
                 // which has none in POST_TOTAL_ENGAGEMENT, is left alone.
-                if post_in_index {
+                if run_once {
                     PostStream::update_index_score(
                         &parent_user_id,
                         &parent_post_id,
@@ -948,7 +958,7 @@ pub async fn sync_del(
             // Notification "a reply to your post was deleted", guarded to
             // prevent duplicate notifications on retry.
             async {
-                if post_in_index {
+                if run_once {
                     Notification::post_children_changed(
                         &author_id,
                         &replied_uri_str,
@@ -986,7 +996,7 @@ pub async fn sync_del(
             async {
                 // A decrement never creates a member, so a reply parent,
                 // which has none in POST_TOTAL_ENGAGEMENT, is left alone.
-                if post_in_index {
+                if run_once {
                     PostStream::update_index_score(
                         &parent_user_id,
                         &parent_post_id,
@@ -998,7 +1008,7 @@ pub async fn sync_del(
             },
             // Notification "a repost of your post was deleted", guarded.
             async {
-                if post_in_index {
+                if run_once {
                     Notification::post_children_changed(
                         &author_id,
                         &reposted_uri_str,

@@ -2446,3 +2446,131 @@ async fn a_deleted_posts_view_names_no_relationships() -> Result<()> {
     test.cleanup_user(&other_kp).await?;
     Ok(())
 }
+
+/// A reply with an external embed whose hard delete stops after its steps that run once (the
+/// parent's score, the "a reply was deleted" notification), then a PUT of the same post handled
+/// before the delete's retry: the PUT reads the post's cached relationships back from the graph,
+/// and the retry still lowers the parent's score once and notifies its author once.
+#[tokio_shared_rt::test(shared)]
+async fn a_put_between_a_half_done_delete_and_its_retry_runs_no_step_twice() -> Result<()> {
+    use super::posts::utils::{check_member_total_engagement_user_posts, short_post, test_user};
+    use nexus_common::models::notification::{Notification, NotificationBody};
+    use pubky_social_specs::legacy_v0::{
+        post_uri_builder, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind,
+    };
+
+    let mut test = WatcherTest::setup(None).await?;
+    let parent_kp = Keypair::random();
+    let parent_author = test
+        .create_user(
+            &parent_kp,
+            &test_user("Watcher:HalfDoneDelete:Parent", "parent"),
+        )
+        .await?;
+    let author_kp = Keypair::random();
+    let author = test
+        .create_user(
+            &author_kp,
+            &test_user("Watcher:HalfDoneDelete:Author", "author"),
+        )
+        .await?;
+    let (root, root_path) = test
+        .create_post(&parent_kp, &short_post("the parent"))
+        .await?;
+    let root_key = [parent_author.as_str(), root.as_str()];
+    let reply = PubkyAppPost {
+        parent: Some(post_uri_builder(parent_author.clone(), root.clone())),
+        embed: Some(PubkyAppPostEmbed {
+            kind: PubkyAppPostKind::Short,
+            uri: format!("https://example.com/half-done-delete/{author}"),
+        }),
+        ..short_post("a reply with an external embed")
+    };
+    let (id, path) = test.create_post(&author_kp, &reply).await?;
+    assert_eq!(
+        check_member_total_engagement_user_posts(&root_key).await?,
+        Some(1)
+    );
+    // The "a reply was deleted" notices, by time: a second send of the same notice keeps one
+    // entry under a new time.
+    let deleted_notices = || async {
+        anyhow::Ok(
+            Notification::get_by_id(&parent_author, Pagination::default())
+                .await?
+                .into_iter()
+                .filter(|n| matches!(n.body, NotificationBody::PostDeleted { .. }))
+                .map(|n| n.timestamp)
+                .collect::<Vec<_>>(),
+        )
+    };
+    test = test.remove_event_processing().await;
+    let handler = test.event_processor_runner.event_handler.clone();
+
+    // The delete stops after its steps that run once, before the post leaves Redis and the graph
+    test.del(&author_kp, &path).await?;
+    fail_references(ReferenceFault::BeforeDetailsDelete, &author, true);
+    let stopped = retrieve_and_handle_event_line(
+        &format!("DEL pubky://{author}{path}"),
+        &test.homeserver_id,
+        handler.clone(),
+    )
+    .await;
+    fail_references(ReferenceFault::BeforeDetailsDelete, &author, false);
+    assert!(stopped.is_err(), "{stopped:?}");
+    assert!(PostDetails::get_from_graph(&author, &id).await?.is_some());
+    assert!(PostRelationships::get_from_index(&author, &id)
+        .await?
+        .is_none());
+    assert_eq!(
+        check_member_total_engagement_user_posts(&root_key).await?,
+        Some(0)
+    );
+    let notices = deleted_notices().await?;
+    assert_eq!(notices.len(), 1);
+
+    // A PUT of the post before the retry writes its cached relationships again
+    test.put(&author_kp, &path, &reply).await?;
+    retrieve_and_handle_event_line(
+        &format!("PUT pubky://{author}{path}"),
+        &test.homeserver_id,
+        handler.clone(),
+    )
+    .await?;
+    assert!(PostRelationships::get_from_index(&author, &id)
+        .await?
+        .is_some());
+
+    // The retry finishes the delete and runs none of those steps again
+    retrieve_and_handle_event_line(
+        &format!("DEL pubky://{author}{path}"),
+        &test.homeserver_id,
+        handler.clone(),
+    )
+    .await?;
+    assert!(PostDetails::get_from_graph(&author, &id).await?.is_none());
+    assert_eq!(
+        check_member_total_engagement_user_posts(&root_key).await?,
+        Some(0),
+        "the parent's score is lowered once"
+    );
+    assert_eq!(deleted_notices().await?, notices, "its author is told once");
+
+    test.del(&author_kp, &path).await?;
+    test.del(&parent_kp, &root_path).await?;
+    retrieve_and_handle_event_line(
+        &format!("DEL pubky://{parent_author}{root_path}"),
+        &test.homeserver_id,
+        handler.clone(),
+    )
+    .await?;
+    for (kp, user) in [(&author_kp, &author), (&parent_kp, &parent_author)] {
+        test.cleanup_user(kp).await?;
+        retrieve_and_handle_event_line(
+            &format!("DEL pubky://{user}/pub/pubky.app/profile.json"),
+            &test.homeserver_id,
+            handler.clone(),
+        )
+        .await?;
+    }
+    Ok(())
+}
