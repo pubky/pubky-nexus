@@ -1,47 +1,33 @@
 use std::future::Future;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{FutureExt, Stream, StreamExt};
-use nexus_common::db::PubkyClientResult;
-use nexus_common::models::user::{pkdns_record_of, PkdnsHomeserverResolver, PkdnsRecord};
-use nexus_common::WatcherConfig;
-use opentelemetry::metrics::Counter;
-use opentelemetry::{global, KeyValue};
+use pubky::pkarr::errors::ResolveError;
+use pubky::pkarr::{ResolvePolicy, SignedPacket};
 use pubky::{EventCursor, Method, Pubky, PubkyResource, PublicKey};
-use pubky_social_specs::PubkyId;
 use tracing::{error, trace, warn};
 
 use super::fetch::{
     fetch_capped, read_stream_capped, MAX_ERROR_BODY, MAX_EVENTS_BODY, MAX_RESOURCE_SIZE,
 };
-use super::{HsError, HsErrorKind, HsOp};
-use crate::events::EventType;
-use crate::METER_NAME;
+use super::{EventMethod, HomeserverResolver, HsError, HsErrorKind, HsOp};
 
 /// Waits between the retries of a rate-limited `/events-stream` request.
 const USER_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
-
-/// Counter for events permanently rejected for exceeding a fetch size limit.
-static REJECTED: LazyLock<Counter<u64>> = LazyLock::new(|| {
-    global::meter(METER_NAME)
-        .u64_counter("watcher.fetch.rejected")
-        .with_description("Event fetches rejected for exceeding a size limit")
-        .build()
-});
 
 /// One event from a homeserver's per-user `/events-stream`: all the key-based
 /// processor needs from it.
 #[derive(Debug, Clone)]
 pub struct HsStreamEvent {
-    pub event_type: EventType,
+    pub event_type: EventMethod,
     pub cursor: u64,
     owner: PublicKey,
     uri: String,
 }
 
 impl HsStreamEvent {
-    pub fn new(event_type: EventType, resource: &PubkyResource, cursor: u64) -> Self {
+    pub fn new(event_type: EventMethod, resource: &PubkyResource, cursor: u64) -> Self {
         Self {
             event_type,
             cursor,
@@ -73,16 +59,16 @@ impl From<pubky::Event> for HsStreamEvent {
 /// A failure is labelled with `hs`, the homeserver the caller polls, or for a resource or
 /// blob with its owner's key.
 ///
-/// It also resolves the homeserver a user publishes ([`PkdnsHomeserverResolver`]), for the
-/// user ingestor, the periodic user-to-homeserver resolver, and the primary homeserver's
-/// processor, which checks users without a `HOSTED_BY` edge.
+/// The lookup of the homeserver a user publishes is [`HomeserverResolver`], which
+/// [`PubkyHomeserverClient`] also implements.
 #[async_trait::async_trait]
-pub trait HomeserverClient: PkdnsHomeserverResolver + Send + Sync + 'static {
+pub trait HomeserverClient: Send + Sync + 'static {
     /// Primary-style `GET /events/?cursor=&limit=`. Returns the raw lines, the
-    /// cursor line included; an empty body has none.
+    /// cursor line included; an empty body has none. A body over the events cap fails
+    /// with [`HsErrorKind::TooLarge`].
     async fn poll_events(
         &self,
-        hs: &PubkyId,
+        hs: &PublicKey,
         cursor: u64,
         limit: u16,
     ) -> Result<Vec<String>, HsError>;
@@ -91,7 +77,7 @@ pub trait HomeserverClient: PkdnsHomeserverResolver + Send + Sync + 'static {
     /// At most `limit` events are returned. A rate-limited request is retried.
     async fn user_events(
         &self,
-        hs: &PubkyId,
+        hs: &PublicKey,
         user: &PublicKey,
         cursor: u64,
         limit: u16,
@@ -101,28 +87,24 @@ pub trait HomeserverClient: PkdnsHomeserverResolver + Send + Sync + 'static {
     /// its owner publishes.
     async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError>;
 
-    /// The blob at `resource`, capped at the configured `max_file_size`, from the homeserver
+    /// The blob at `resource`, capped at the client's `max_file_size`, from the homeserver
     /// its owner publishes.
     async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError>;
 }
 
-/// [`HomeserverClient`] over the Pubky SDK.
+/// [`HomeserverClient`] and [`HomeserverResolver`] over the Pubky SDK.
 pub struct PubkyHomeserverClient {
     pubky: Arc<Pubky>,
     max_file_size: u64,
 }
 
 impl PubkyHomeserverClient {
+    /// Builds a client over `pubky` that reads blobs of at most `max_file_size` bytes.
     pub fn new(pubky: Arc<Pubky>, max_file_size: u64) -> Self {
         Self {
             pubky,
             max_file_size,
         }
-    }
-
-    /// Builds a client over `pubky`, with the file size limit of `config`.
-    pub fn from_config(pubky: Arc<Pubky>, config: &WatcherConfig) -> Self {
-        Self::new(pubky, config.max_file_size)
     }
 
     /// GETs `resource`, returning the response for the caller to read under its cap.
@@ -143,17 +125,16 @@ impl PubkyHomeserverClient {
     /// One `/events-stream` request, without retries.
     async fn fetch_user_events(
         &self,
-        hs: &PubkyId,
+        hs: &PublicKey,
         user: &PublicKey,
         cursor: u64,
         limit: u16,
     ) -> Result<Vec<HsStreamEvent>, HsErrorKind> {
-        let hs_pk = hs.to_public_key().map_err(HsErrorKind::malformed)?;
         // We are building the stream without the live flag, so it performs an HTTP GET and closes.
         // See rustdoc of EventStreamBuilder::live()
         let mut stream = self
             .pubky
-            .event_stream_for(&hs_pk)
+            .event_stream_for(hs)
             .add_users(vec![(user, Some(EventCursor::new(cursor)))])
             .map_err(HsErrorKind::from_sdk)?
             .limit(limit)
@@ -175,7 +156,7 @@ impl PubkyHomeserverClient {
 async fn read_user_events<S>(
     stream: &mut S,
     limit: u16,
-    hs: &PubkyId,
+    hs: &PublicKey,
     user: &PublicKey,
 ) -> Result<Vec<HsStreamEvent>, HsErrorKind>
 where
@@ -197,7 +178,7 @@ where
     if sent_more {
         error!(
             user_pk = %user.z32(),
-            hs_pk = %hs,
+            hs_pk = %hs.z32(),
             limit,
             "Event stream returned more than the requested limit; ignoring the excess"
         );
@@ -206,10 +187,22 @@ where
     Ok(events)
 }
 
+/// The lookup behind `Pubky::get_homeserver_of`, which folds a missing packet and a packet
+/// naming no homeserver into one `None` and fails on a malformed `_pubky` record.
 #[async_trait::async_trait]
-impl PkdnsHomeserverResolver for PubkyHomeserverClient {
-    async fn resolve_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
-        pkdns_record_of(&self.pubky, user_pk).await
+impl HomeserverResolver for PubkyHomeserverClient {
+    async fn resolve_record(&self, user: &PublicKey) -> Result<Option<SignedPacket>, ResolveError> {
+        match self
+            .pubky
+            .client()
+            .pkarr()
+            .resolve(user, ResolvePolicy::CacheFirst)
+            .await
+        {
+            Ok(packet) => Ok(Some(packet)),
+            Err(ResolveError::NotFound) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -217,7 +210,7 @@ impl PkdnsHomeserverResolver for PubkyHomeserverClient {
 impl HomeserverClient for PubkyHomeserverClient {
     async fn poll_events(
         &self,
-        hs: &PubkyId,
+        hs: &PublicKey,
         cursor: u64,
         limit: u16,
     ) -> Result<Vec<String>, HsError> {
@@ -233,7 +226,7 @@ impl HomeserverClient for PubkyHomeserverClient {
 
     async fn user_events(
         &self,
-        hs: &PubkyId,
+        hs: &PublicKey,
         user: &PublicKey,
         cursor: u64,
         limit: u16,
@@ -252,7 +245,7 @@ impl HomeserverClient for PubkyHomeserverClient {
 
 /// Reads the lines of the `/events/` poll `send` makes, labelling a failure as `hs`'s poll.
 async fn poll_events_with(
-    hs: &PubkyId,
+    hs: &PublicKey,
     send: impl Future<Output = Result<reqwest::Response, reqwest::Error>>,
 ) -> Result<Vec<String>, HsError> {
     let error = |kind| HsError::new(hs, HsOp::PollEvents, kind);
@@ -265,7 +258,7 @@ async fn poll_events_with(
 /// Fetches a user's events with `fetch`, retrying while rate limited, and labels a failure
 /// as the `/events-stream` request's, which decides that it stops the homeserver's run.
 async fn user_events_with<F, Fut>(
-    hs: &PubkyId,
+    hs: &PublicKey,
     user: &PublicKey,
     fetch: F,
 ) -> Result<Vec<HsStreamEvent>, HsError>
@@ -312,7 +305,7 @@ async fn read_capped(
 /// homeserver yet, and resolving the one the owner publishes would cost a PKARR query on
 /// every failure.
 fn owner_error(resource: &PubkyResource, op: HsOp, kind: HsErrorKind) -> HsError {
-    HsError::new(&PubkyId::from(resource.owner.clone()), op, kind)
+    HsError::new(&resource.owner, op, kind)
 }
 
 /// Calls `fetch` and, while it is rate limited, again after each of
@@ -341,8 +334,8 @@ where
 }
 
 /// The primary-style `/events/` URL of `hs`, from `cursor` on, for at most `limit` events.
-fn events_url(hs: &PubkyId, cursor: u64, limit: u16) -> String {
-    format!("https://{hs}/events/?cursor={cursor}&limit={limit}")
+fn events_url(hs: &PublicKey, cursor: u64, limit: u16) -> String {
+    format!("https://{}/events/?cursor={cursor}&limit={limit}", hs.z32())
 }
 
 /// Turns a `/events/` response into the lines it carries.
@@ -365,8 +358,6 @@ async fn event_lines_from_response(
         .await
         .map_err(|e| HsErrorKind::from_reqwest(&e))?;
     if exceeded {
-        REJECTED.add(1, &[KeyValue::new("reason", "size_exceeded")]);
-
         return Err(HsErrorKind::TooLarge {
             got: buf.len() as u64,
             max: MAX_EVENTS_BODY as u64,
@@ -392,8 +383,8 @@ mod tests {
 
     const HS_ID: &str = "1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy";
 
-    fn hs_id() -> PubkyId {
-        PubkyId::try_from(HS_ID).expect("valid test Pubky ID")
+    fn hs_id() -> PublicKey {
+        PublicKey::try_from_z32(HS_ID).expect("valid test key")
     }
 
     fn response(status: u16, body: impl Into<reqwest::Body>) -> reqwest::Response {
@@ -634,10 +625,11 @@ mod tests {
 
     // --- user_events_with ---
 
-    /// A 5xx or a transport failure on the `/events-stream` request stops the homeserver's
-    /// run, unlike the same failure on a file fetch.
+    /// A 5xx or a transport failure on the `/events-stream` request is labelled as that
+    /// request's, which is what makes it stop the homeserver's run, unlike the same failure
+    /// on a file fetch.
     #[tokio::test]
-    async fn user_event_stream_failures_stop_the_run() {
+    async fn user_event_stream_failures_are_labelled_as_the_stream_request() {
         let user = pubky::Keypair::random().public_key();
         for kind in [
             HsErrorKind::ServerError(530, "".into()),
@@ -650,16 +642,15 @@ mod tests {
             .await
             .unwrap_err();
 
-            let error = crate::errors::EventProcessorError::from(error);
+            assert_eq!(error.hs, HS_ID);
+            assert_eq!(error.op, HsOp::UserEvents);
             assert!(
                 matches!(
-                    error,
-                    crate::errors::EventProcessorError::HsEventsStreamServerError(_)
-                        | crate::errors::EventProcessorError::HsEventsStreamTransportFailed(_)
+                    error.kind,
+                    HsErrorKind::ServerError(530, _) | HsErrorKind::Transport(_)
                 ),
                 "{error:?}"
             );
-            assert!(error.should_not_retry_now(), "{error:?}");
         }
     }
 
@@ -688,26 +679,20 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(calls.load(Ordering::SeqCst), 4);
-        let error = crate::errors::EventProcessorError::from(error);
+        assert_eq!(error.op, HsOp::UserEvents);
         assert!(
-            matches!(
-                error,
-                crate::errors::EventProcessorError::HsEventsStreamRateLimitExhausted
-            ),
+            matches!(error.kind, HsErrorKind::RateLimited(_)),
             "{error:?}"
         );
-        assert!(error.should_not_retry_now());
     }
 
     // --- get_resource_with / get_blob_with ---
 
     /// A 5xx or a transport failure fetching a resource or a blob, which any user can point
-    /// at any host, stays one event's failure and does not stop the run.
+    /// at any host, is labelled as that fetch's, with the owner's key, which is what keeps it
+    /// one event's failure.
     #[tokio::test]
-    async fn resource_and_blob_failures_stay_per_event() {
-        use crate::errors::EventProcessorError;
-        use nexus_common::db::PubkyClientError;
-
+    async fn resource_and_blob_failures_are_labelled_as_the_fetch() {
         let owner = pubky::Keypair::random().public_key();
         let resource: PubkyResource = format!("pubky://{}/pub/pubky.app/files/0001", owner.z32())
             .parse()
@@ -729,27 +714,29 @@ mod tests {
             errors.push(get_blob_with(&resource, unused_cap, async { Err(kind) }).await);
         }
 
-        for error in errors {
-            let error = EventProcessorError::from(error.unwrap_err());
+        let ops = [
+            HsOp::GetResource,
+            HsOp::GetResource,
+            HsOp::GetBlob,
+            HsOp::GetBlob,
+        ];
+        for (error, op) in errors.into_iter().zip(ops) {
+            let error = error.unwrap_err();
+            assert_eq!(error.hs, owner.z32());
+            assert_eq!(error.op, op);
             assert!(
                 matches!(
-                    &error,
-                    EventProcessorError::PubkyClientError(e) if matches!(
-                        e.as_ref(),
-                        PubkyClientError::ServerError5xx { .. } | PubkyClientError::RequestFailed { .. }
-                    )
+                    error.kind,
+                    HsErrorKind::ServerError(500, _) | HsErrorKind::Transport(_)
                 ),
                 "{error:?}"
             );
-            assert!(!error.should_not_retry_now(), "{error:?}");
         }
     }
 
     /// A JSON resource is read up to [`MAX_RESOURCE_SIZE`] bytes and no further.
     #[tokio::test]
     async fn resources_are_capped_at_max_resource_size() {
-        use crate::errors::EventProcessorError;
-
         let owner = pubky::Keypair::random().public_key();
         let resource: PubkyResource = format!("pubky://{}/pub/pubky.app/posts/0001", owner.z32())
             .parse()
@@ -765,9 +752,8 @@ mod tests {
         let error = get_resource_with(&resource, async { Ok(over_cap) })
             .await
             .unwrap_err();
-        let error = EventProcessorError::from(error);
         assert!(
-            matches!(error, EventProcessorError::FetchSizeExceeded(_, max) if max == MAX_RESOURCE_SIZE as u64),
+            matches!(error.kind, HsErrorKind::TooLarge { max, .. } if max == MAX_RESOURCE_SIZE as u64),
             "{error:?}"
         );
     }

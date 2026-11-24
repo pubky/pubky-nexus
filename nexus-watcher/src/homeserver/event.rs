@@ -1,0 +1,29 @@
+use std::fmt;
+
+/// What a homeserver event did to its resource: written (`PUT`) or deleted (`DEL`).
+///
+/// Neither carries a body: for a `PUT` the resource is fetched separately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EventMethod {
+    Put,
+    Del,
+}
+
+impl From<pubky::EventType> for EventMethod {
+    fn from(value: pubky::EventType) -> Self {
+        match value {
+            pubky::EventType::Put { .. } => Self::Put,
+            pubky::EventType::Delete => Self::Del,
+        }
+    }
+}
+
+/// `PUT` or `DEL`, as on an `/events/` line.
+impl fmt::Display for EventMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Put => "PUT",
+            Self::Del => "DEL",
+        })
+    }
+}

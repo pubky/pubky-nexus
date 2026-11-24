@@ -7,7 +7,8 @@ use tokio::time::Instant;
 
 use crate::errors::EventProcessorError;
 use crate::events::Event;
-use crate::homeserver::{HomeserverClient, HsStreamEvent};
+use crate::homeserver::HsStreamEvent;
+use crate::nexus_client::NexusHomeserverClient;
 use nexus_common::models::homeserver::HsBlacklist;
 use nexus_common::models::user::UserHsCursor;
 use opentelemetry::metrics::Counter;
@@ -47,7 +48,7 @@ pub struct KeyBasedEventProcessor {
     pub limit: u16,
 
     pub event_handler: Arc<dyn EventHandler>,
-    pub client: Arc<dyn HomeserverClient>,
+    pub client: Arc<dyn NexusHomeserverClient>,
     pub user_not_found_backoff: Arc<UserNotFoundBackoff>,
 
     /// HS PKs that should not be indexed. Defense-in-depth: the runner already
@@ -101,7 +102,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
 
         // A format-valid id need not be a curve point, and then no user's stream on it can
         // be read. That never changes, so the run stops here instead of failing every user.
-        self.homeserver_id.to_public_key().map_err(|e| {
+        let hs_pk = self.homeserver_id.to_public_key().map_err(|e| {
             EventProcessorError::SpecValidation(format!("{hs_id} is not a valid public key: {e}"))
         })?;
         let deadline = Instant::now() + self.budget;
@@ -136,7 +137,7 @@ impl TEventProcessor for KeyBasedEventProcessor {
                 continue;
             }
 
-            match self.process_user(user_pk, *cursor, deadline).await {
+            match self.process_user(&hs_pk, user_pk, *cursor, deadline).await {
                 Ok(()) => self.user_not_found_backoff.record_success(user_pk).await,
                 Err(err) => {
                     if err.should_not_retry_now() {
@@ -225,6 +226,7 @@ impl KeyBasedEventProcessor {
     #[tracing::instrument(name = "dx.user_events.process", skip_all, fields(user_id = %user_pk.z32()))]
     async fn process_user(
         &self,
+        hs_pk: &PublicKey,
         user_pk: &PublicKey,
         cursor: EventCursor,
         deadline: Instant,
@@ -232,7 +234,7 @@ impl KeyBasedEventProcessor {
         let hs_id: &str = self.homeserver_id.as_ref();
         let stream_events = self
             .client
-            .user_events(&self.homeserver_id, user_pk, cursor.id(), self.limit)
+            .user_events(hs_pk, user_pk, cursor.id(), self.limit)
             .await?;
 
         let user_id = user_pk.z32();

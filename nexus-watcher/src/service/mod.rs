@@ -18,7 +18,8 @@ pub use user_hs_resolver::UserHsResolverRunner;
 
 use crate::events::retry::{RetryProcessor, RetryScheduler};
 use crate::events::{DefaultEventHandler, EventHandler};
-use crate::homeserver::{HomeserverClient, PubkyHomeserverClient};
+use crate::homeserver::PubkyHomeserverClient;
+use crate::nexus_client::NexusHomeserverClient;
 use crate::service::constants::DEFAULT_WATCHER_CONFIG_TOML;
 use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
@@ -74,7 +75,7 @@ impl NexusWatcher {
     /// an internal cancellation signal is sent so that sibling tasks can finish their
     /// current iteration and exit.
     ///
-    /// The tasks share one [`HomeserverClient`], one event handler and one retry scheduler.
+    /// The tasks share one [`NexusHomeserverClient`], one event handler and one retry scheduler.
     ///
     /// Expects [`PubkyConnector`] to be initialised.
     pub async fn start(shutdown_rx: Receiver<bool>, config: WatcherConfig) -> Result<(), DynError> {
@@ -87,9 +88,9 @@ impl NexusWatcher {
         let hs_resolver_interval_ms = config.hs_resolver_interval_ms;
         let retry_processor_interval_ms = config.retry_processor_interval_ms;
 
-        let client: Arc<dyn HomeserverClient> = Arc::new(PubkyHomeserverClient::from_config(
+        let client: Arc<dyn NexusHomeserverClient> = Arc::new(PubkyHomeserverClient::new(
             PubkyConnector::get()?,
-            &config,
+            config.max_file_size,
         ));
         let event_handler: Arc<dyn EventHandler> =
             Arc::new(DefaultEventHandler::from_config(&config, client.clone()));

@@ -17,9 +17,11 @@ use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_common::WatcherConfig;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};
+use nexus_watcher::events::Event;
 use nexus_watcher::events::EventHandler;
-use nexus_watcher::events::{Event, EventType};
-use nexus_watcher::homeserver::{HomeserverClient, HsError, HsErrorKind, HsStreamEvent};
+use nexus_watcher::homeserver::{
+    EventMethod, HomeserverClient, HsError, HsErrorKind, HsStreamEvent,
+};
 use nexus_watcher::service::indexer::{KeyBasedEventProcessor, RunError, TEventProcessor};
 use nexus_watcher::service::runner::{UserNotFoundBackoff, UserResumePoints};
 use nexus_watcher::service::stats::ProcessorRunStatus;
@@ -1075,7 +1077,7 @@ impl PkdnsHomeserverResolver for MappingChangesDuringFetch {
 impl HomeserverClient for MappingChangesDuringFetch {
     async fn poll_events(
         &self,
-        hs: &PubkyId,
+        hs: &PublicKey,
         cursor: u64,
         limit: u16,
     ) -> Result<Vec<String>, HsError> {
@@ -1084,7 +1086,7 @@ impl HomeserverClient for MappingChangesDuringFetch {
 
     async fn user_events(
         &self,
-        hs: &PubkyId,
+        hs: &PublicKey,
         user: &PublicKey,
         cursor: u64,
         limit: u16,
@@ -1228,7 +1230,7 @@ fn stream_event(cursor: u64, user_id: &str, path: &str) -> Result<HsStreamEvent,
     let user_pk: PublicKey = user_id.parse()?;
 
     Ok(HsStreamEvent::new(
-        EventType::Del,
+        EventMethod::Del,
         &PubkyResource::new(user_pk, path)?,
         cursor,
     ))

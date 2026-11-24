@@ -14,6 +14,7 @@ pub use target::EventTarget;
 
 use crate::errors::EventProcessorError;
 use crate::homeserver::HomeserverClient;
+use crate::nexus_client::NexusHomeserverClient;
 use crate::METER_NAME;
 use nexus_common::models::takedown::is_taken_down;
 use nexus_common::WatcherConfig;
@@ -69,7 +70,7 @@ pub trait EventHandler: Send + Sync {
 pub struct DefaultEventHandler {
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
-    client: Arc<dyn HomeserverClient>,
+    client: Arc<dyn NexusHomeserverClient>,
 
     /// Local files directory on Nexus used for file-backed events.
     files_path: PathBuf,
@@ -84,7 +85,7 @@ impl DefaultEventHandler {
     pub fn new(
         moderation: Arc<Moderation>,
         ingestor: Arc<UserIngestor>,
-        client: Arc<dyn HomeserverClient>,
+        client: Arc<dyn NexusHomeserverClient>,
         files_path: PathBuf,
         retry_store: Arc<dyn RetryStore>,
     ) -> Self {
@@ -100,7 +101,7 @@ impl DefaultEventHandler {
     /// Builds a handler that fetches through `client`, deriving its moderation rules
     /// and user ingestor from config, and reading the Redis retry queue. The ingestor
     /// resolves users' homeservers through `client` too.
-    pub fn from_config(config: &WatcherConfig, client: Arc<dyn HomeserverClient>) -> Self {
+    pub fn from_config(config: &WatcherConfig, client: Arc<dyn NexusHomeserverClient>) -> Self {
         let ingestor = UserIngestor::from_config(&config.stack, client.clone());
         Self::new(
             Moderation::from_config(config),

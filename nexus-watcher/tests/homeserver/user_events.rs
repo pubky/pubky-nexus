@@ -12,7 +12,6 @@ use crate::event_processor::utils::watcher::{
 use nexus_common::types::DynError;
 use pubky::{Keypair, PublicKey};
 use pubky_social_specs::legacy_v0::PubkyAppUser;
-use pubky_social_specs::PubkyId;
 use pubky_testnet::pubky_homeserver::{
     ConfigToml, GlobPattern, HttpMethod, LimitKeyType, MockDataDir, PathLimit,
 };
@@ -41,18 +40,15 @@ async fn test_user_events_come_from_the_homeserver_after_the_cursor() -> Result<
     test.register_user_in_hs(&user_kp, &other_hs).await?;
     let client = &test.event_processor_runner.client;
     let user_pk = user_kp.public_key();
+    let hs = test.homeserver_id.to_public_key()?;
 
-    let first = client
-        .user_events(&test.homeserver_id, &user_pk, 0, 1)
-        .await?;
+    let first = client.user_events(&hs, &user_pk, 0, 1).await?;
 
     assert_eq!(first.len(), 1, "{first:?}");
     assert_eq!(first[0].owner().z32(), user_id);
 
     let cursor = first[0].cursor;
-    let rest = client
-        .user_events(&test.homeserver_id, &user_pk, cursor, 100)
-        .await?;
+    let rest = client.user_events(&hs, &user_pk, cursor, 100).await?;
 
     // The key now names the other homeserver, so the usual cleanup helper would delete the
     // profile there, where it never was. Undo `create_user` through the DEL handler instead.
@@ -105,12 +101,11 @@ async fn test_rate_limited_user_events_are_retried_against_a_homeserver() -> Res
     let user_kp = Keypair::random();
     test.register_user_in_hs(&user_kp, &hs).await?;
     let client = &test.event_processor_runner.client;
-    let hs_id = PubkyId::from(hs);
     let user_pk = user_kp.public_key();
 
-    client.user_events(&hs_id, &user_pk, 0, 10).await?;
+    client.user_events(&hs, &user_pk, 0, 10).await?;
     let asked_again = Instant::now();
-    let events = client.user_events(&hs_id, &user_pk, 0, 10).await?;
+    let events = client.user_events(&hs, &user_pk, 0, 10).await?;
 
     assert!(events.is_empty(), "{events:?}");
     assert!(

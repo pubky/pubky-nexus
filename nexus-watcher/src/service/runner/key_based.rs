@@ -1,7 +1,7 @@
 use super::{HomeserverBackoff, TEventProcessorRunner, UserNotFoundBackoff, UserResumePoints};
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
-use crate::homeserver::HomeserverClient;
+use crate::nexus_client::NexusHomeserverClient;
 use crate::service::indexer::{KeyBasedEventProcessor, TEventProcessor};
 use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
 use crate::service::KEY_BASED_RUN_BUDGET;
@@ -73,7 +73,7 @@ pub struct KeyBasedEventProcessorRunner {
 
     pub event_handler: Arc<dyn EventHandler>,
     /// Client the processors this runner builds fetch through
-    pub client: Arc<dyn HomeserverClient>,
+    pub client: Arc<dyn NexusHomeserverClient>,
     pub shutdown_rx: Receiver<bool>,
 
     /// Primary homeserver ID, excluded from the external targets list
@@ -102,7 +102,7 @@ impl KeyBasedEventProcessorRunner {
     /// Creates a runner configured by `config`, sharing the given client, handler and scheduler
     pub fn new(
         config: &WatcherConfig,
-        client: Arc<dyn HomeserverClient>,
+        client: Arc<dyn NexusHomeserverClient>,
         event_handler: Arc<dyn EventHandler>,
         retry_scheduler: Arc<RetryScheduler>,
         shutdown_rx: Receiver<bool>,

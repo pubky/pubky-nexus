@@ -1,7 +1,7 @@
 use super::TEventProcessorRunner;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
-use crate::homeserver::HomeserverClient;
+use crate::nexus_client::NexusHomeserverClient;
 use crate::service::indexer::{HsEventProcessor, TEventProcessor};
 use crate::service::stats::{ProcessedStats, RunAllProcessorsStats};
 use nexus_common::models::homeserver::Homeserver;
@@ -17,7 +17,7 @@ pub struct HsEventProcessorRunner {
     pub limit: u16,
 
     pub event_handler: Arc<dyn EventHandler>,
-    pub client: Arc<dyn HomeserverClient>,
+    pub client: Arc<dyn NexusHomeserverClient>,
     pub shutdown_rx: Receiver<bool>,
 
     /// See [WatcherConfig::homeserver]
@@ -31,7 +31,7 @@ impl HsEventProcessorRunner {
     /// Creates a runner configured by `config`, sharing the given client, handler and scheduler
     pub fn new(
         config: &WatcherConfig,
-        client: Arc<dyn HomeserverClient>,
+        client: Arc<dyn NexusHomeserverClient>,
         event_handler: Arc<dyn EventHandler>,
         retry_scheduler: Arc<RetryScheduler>,
         shutdown_rx: Receiver<bool>,

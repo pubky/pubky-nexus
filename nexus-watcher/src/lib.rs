@@ -18,6 +18,7 @@ mod builder;
 pub mod errors;
 pub mod events;
 pub mod homeserver;
+pub mod nexus_client;
 pub mod service;
 
 /// OpenTelemetry meter name shared by all watcher metrics.

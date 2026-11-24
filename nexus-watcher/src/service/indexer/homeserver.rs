@@ -2,7 +2,8 @@ use super::{RunOutcome, TEventProcessor};
 use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
 use crate::events::{Event, EventHandler};
-use crate::homeserver::HomeserverClient;
+use crate::homeserver::{HsErrorKind, HsOp};
+use crate::nexus_client::{hs_key, NexusHomeserverClient};
 use nexus_common::db::kv::RedisError;
 use nexus_common::db::{fetch_row_from_graph, queries, GraphResult};
 use nexus_common::models::error::ModelError;
@@ -44,6 +45,15 @@ static STALLED_CURSOR_PRIMARY_HS: LazyLock<Counter<u64>> = LazyLock::new(|| {
     global::meter(crate::METER_NAME)
         .u64_counter("watcher.primary_hs.cursor.stalled")
         .with_description("Primary HS batches whose cursor did not advance past the requested one")
+        .build()
+});
+
+/// Counter for events permanently rejected for exceeding a fetch size limit: a primary
+/// homeserver `/events/` body over the client's events cap.
+static REJECTED: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(crate::METER_NAME)
+        .u64_counter("watcher.fetch.rejected")
+        .with_description("Event fetches rejected for exceeding a size limit")
         .build()
 });
 
@@ -159,7 +169,7 @@ pub struct HsEventProcessor {
     /// See [WatcherConfig::events_limit]
     pub limit: u16,
     pub event_handler: Arc<dyn EventHandler>,
-    pub client: Arc<dyn HomeserverClient>,
+    pub client: Arc<dyn NexusHomeserverClient>,
     pub shutdown_rx: Receiver<bool>,
 
     /// Scheduler used to enqueue failed events onto the retry queue
@@ -306,10 +316,17 @@ impl HsEventProcessor {
     async fn poll_events(&self) -> Result<Vec<String>, EventProcessorError> {
         debug!(cursor = %self.homeserver.cursor, "Polling events");
 
-        Ok(self
+        let hs = hs_key(&self.homeserver.id, HsOp::PollEvents)?;
+        let lines = self
             .client
-            .poll_events(&self.homeserver.id, self.homeserver.cursor, self.limit)
-            .await?)
+            .poll_events(&hs, self.homeserver.cursor, self.limit)
+            .await
+            .inspect_err(|e| {
+                if matches!(e.kind, HsErrorKind::TooLarge { .. }) {
+                    REJECTED.add(1, &[KeyValue::new("reason", "size_exceeded")]);
+                }
+            })?;
+        Ok(lines)
     }
 
     /// Processes a batch of event lines retrieved from the homeserver.

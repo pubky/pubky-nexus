@@ -142,8 +142,11 @@ impl MockHomeserverClient {
 /// A 404 for `resource`, labelled with its owner's key, as the real client labels a failed
 /// resource or blob fetch.
 fn not_found(resource: &PubkyResource, op: HsOp) -> HsError {
-    let owner = PubkyId::from(resource.owner.clone());
-    HsError::new(&owner, op, HsErrorKind::NotFound(resource.to_pubky_url()))
+    HsError::new(
+        &resource.owner,
+        op,
+        HsErrorKind::NotFound(resource.to_pubky_url()),
+    )
 }
 
 #[async_trait::async_trait]
@@ -167,14 +170,11 @@ impl PkdnsHomeserverResolver for MockHomeserverClient {
 impl HomeserverClient for MockHomeserverClient {
     async fn poll_events(
         &self,
-        hs: &PubkyId,
+        hs: &PublicKey,
         cursor: u64,
         limit: u16,
     ) -> Result<Vec<String>, HsError> {
-        self.polls
-            .lock()
-            .await
-            .push((hs.to_string(), cursor, limit));
+        self.polls.lock().await.push((hs.z32(), cursor, limit));
         if let Some(kind) = &self.poll_error {
             return Err(HsError::new(hs, HsOp::PollEvents, kind.clone()));
         }
@@ -183,7 +183,7 @@ impl HomeserverClient for MockHomeserverClient {
 
     async fn user_events(
         &self,
-        hs: &PubkyId,
+        hs: &PublicKey,
         user: &PublicKey,
         cursor: u64,
         limit: u16,
@@ -192,7 +192,7 @@ impl HomeserverClient for MockHomeserverClient {
         self.calls
             .lock()
             .await
-            .push((hs.to_string(), user_id.clone(), cursor, limit));
+            .push((hs.z32(), user_id.clone(), cursor, limit));
 
         let result = match self.user_events.lock().await.remove(&user_id) {
             Some(result) => result,
@@ -225,8 +225,7 @@ impl MockHomeserverClient {
     fn serve(&self, resource: &PubkyResource, op: HsOp) -> Result<Vec<u8>, HsError> {
         let url = resource.to_pubky_url();
         if let Some(kind) = self.resource_errors.get(&url) {
-            let owner = PubkyId::from(resource.owner.clone());
-            return Err(HsError::new(&owner, op, kind.clone()));
+            return Err(HsError::new(&resource.owner, op, kind.clone()));
         }
         self.resources
             .get(&url)

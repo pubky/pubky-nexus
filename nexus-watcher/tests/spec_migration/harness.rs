@@ -25,7 +25,8 @@ use nexus_watcher::events::retry::{
     RetryStore,
 };
 use nexus_watcher::events::{DefaultEventHandler, EventHandler, Moderation};
-use nexus_watcher::homeserver::{HomeserverClient, PubkyHomeserverClient};
+use nexus_watcher::homeserver::PubkyHomeserverClient;
+use nexus_watcher::nexus_client::NexusHomeserverClient;
 use nexus_watcher::service::indexer::{KeyBasedEventProcessor, TEventProcessor};
 use nexus_watcher::service::runner::{UserNotFoundBackoff, UserResumePoints};
 use nexus_watcher::service::{HsEventProcessorRunner, TEventProcessorRunner, KEY_BASED_RUN_BUDGET};
@@ -56,7 +57,7 @@ pub struct SpecMigrationTest {
     /// Read per user.
     pub external: PubkyId,
     bulk: HsEventProcessorRunner,
-    client: Arc<dyn HomeserverClient>,
+    client: Arc<dyn NexusHomeserverClient>,
     handler: Arc<dyn EventHandler>,
     ingestor: Arc<UserIngestor>,
     retry_queue: Arc<RetryQueue>,
@@ -87,7 +88,7 @@ impl SpecMigrationTest {
             .await
             .map_err(|e| anyhow!("pubky connector: {e}"))?;
         let pubky = PubkyConnector::get().map_err(|e| anyhow!("pubky connector: {e}"))?;
-        let client: Arc<dyn HomeserverClient> =
+        let client: Arc<dyn NexusHomeserverClient> =
             Arc::new(PubkyHomeserverClient::new(pubky, DEFAULT_MAX_FILE_SIZE));
 
         let moderation = Arc::new(Moderation {

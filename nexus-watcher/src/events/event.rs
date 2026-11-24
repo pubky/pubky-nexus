@@ -3,7 +3,7 @@ use super::epoch_metrics::record_skip;
 use super::route::route;
 use super::target::EventTarget;
 use crate::errors::EventProcessorError;
-use crate::homeserver::HsStreamEvent;
+use crate::homeserver::{EventMethod, HsStreamEvent};
 use nexus_common::models::event::EventLine;
 use pubky_social_specs::PubkyId;
 use serde::{Deserialize, Serialize};
@@ -16,11 +16,11 @@ pub enum EventType {
     Del,
 }
 
-impl From<pubky::EventType> for EventType {
-    fn from(value: pubky::EventType) -> Self {
+impl From<EventMethod> for EventType {
+    fn from(value: EventMethod) -> Self {
         match value {
-            pubky::EventType::Put { .. } => Self::Put,
-            pubky::EventType::Delete => Self::Del,
+            EventMethod::Put => Self::Put,
+            EventMethod::Del => Self::Del,
         }
     }
 }
@@ -107,7 +107,7 @@ impl Event {
     pub fn from_stream_event(
         stream_event: &HsStreamEvent,
     ) -> Result<Option<Self>, EventProcessorError> {
-        let event_type = stream_event.event_type.clone();
+        let event_type = EventType::from(stream_event.event_type);
 
         let uri = stream_event.uri().to_string();
         debug!(%event_type, %uri, "New stream event");

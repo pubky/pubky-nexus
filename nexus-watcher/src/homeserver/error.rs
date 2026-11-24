@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use pubky::errors::RequestError;
-use pubky_social_specs::PubkyId;
+use pubky::PublicKey;
 use reqwest::StatusCode;
 
 use super::fetch::{format_error_body, MAX_ERROR_BODY};
@@ -10,18 +10,18 @@ use super::fetch::{format_error_body, MAX_ERROR_BODY};
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("{op:?} {hs}: {kind}")]
 pub struct HsError {
-    /// ID of the homeserver the call went to, or for a resource or blob, its owner's key.
-    /// Not a [`PubkyId`], which also holds the decoded key and would make every error
-    /// several times larger.
+    /// ID (z-base-32 key) of the homeserver the call went to, or for a resource or blob,
+    /// its owner's key. Not a [`PublicKey`], which also holds the decoded key and would make
+    /// every error several times larger.
     pub hs: String,
     pub op: HsOp,
     pub kind: HsErrorKind,
 }
 
 impl HsError {
-    pub fn new(hs: &PubkyId, op: HsOp, kind: HsErrorKind) -> Self {
+    pub fn new(hs: &PublicKey, op: HsOp, kind: HsErrorKind) -> Self {
         Self {
-            hs: hs.to_string(),
+            hs: hs.z32(),
             op,
             kind,
         }
@@ -147,10 +147,7 @@ pub(crate) async fn transport_error() -> reqwest::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::errors::EventProcessorError;
-    use crate::events::retry::RetryScheduler;
-    use nexus_common::db::PubkyClientError;
-    use pubky::errors::{AuthError, BuildError, PkarrError};
+    use pubky::errors::{AuthError, PkarrError};
     use pubky::CredentialRefreshError;
 
     /// A `reqwest::Error` that `is_timeout()`: a request to a local socket nothing answers
@@ -207,13 +204,6 @@ mod tests {
             status: None,
         }));
         assert!(matches!(refresh, HsErrorKind::Malformed(_)), "{refresh:?}");
-
-        let hs = PubkyId::try_from("1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy").unwrap();
-        let retried: EventProcessorError = HsError::new(&hs, HsOp::GetResource, validation).into();
-        let dropped: EventProcessorError = HsError::new(&hs, HsOp::GetResource, parse).into();
-        assert!(RetryScheduler::should_enqueue_related_event(&retried));
-        assert!(!RetryScheduler::should_enqueue_related_event(&dropped));
-        assert!(!dropped.should_not_retry_now());
     }
 
     #[test]
@@ -251,79 +241,6 @@ mod tests {
         }
     }
 
-    /// On a fetch, the client's classification and `PubkyClientError::from` decide the same
-    /// for every SDK error, a build error and a timed-out request included: whether the run
-    /// stops, whether the event is retried, and whether it was a 404. The compiler cannot
-    /// check the two lists against each other, so this does.
-    #[tokio::test]
-    async fn sdk_classification_agrees_with_the_shared_converter() {
-        let server = |status: u16| {
-            pubky::Error::from(RequestError::Server {
-                status: StatusCode::from_u16(status).unwrap(),
-                message: "nope".into(),
-            })
-        };
-        // Two of each, the SDK's error not being `Clone`.
-        let pair = |make: &dyn Fn() -> pubky::Error| (make(), make());
-        let mut pairs = vec![
-            pair(&|| server(404)),
-            pair(&|| server(429)),
-            pair(&|| server(503)),
-            pair(&|| server(400)),
-            pair(&|| server(403)),
-            pair(&|| server(408)),
-            pair(&|| {
-                pubky::Error::from(RequestError::Validation {
-                    message: "bad".into(),
-                })
-            }),
-            pair(&|| {
-                pubky::Error::from(RequestError::DecodeJson {
-                    message: "bad".into(),
-                })
-            }),
-            pair(&|| pubky::Error::from(PkarrError::InvalidRecord("bad".into()))),
-            pair(&|| pubky::Error::from(reqwest::Url::parse("https://").unwrap_err())),
-            pair(&|| pubky::Error::from(AuthError::Validation("bad".into()))),
-        ];
-        pairs.push((
-            pubky::Error::from(RequestError::Transport(transport_error().await)),
-            pubky::Error::from(RequestError::Transport(transport_error().await)),
-        ));
-        pairs.push((
-            pubky::Error::from(RequestError::Transport(timeout_error().await)),
-            pubky::Error::from(RequestError::Transport(timeout_error().await)),
-        ));
-        pairs.push((
-            pubky::Error::from(BuildError::Http(transport_error().await)),
-            pubky::Error::from(BuildError::Http(transport_error().await)),
-        ));
-
-        let hs = PubkyId::try_from("1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy").unwrap();
-        for (via_client, via_converter) in pairs {
-            let label = via_converter.to_string();
-            let via_client: EventProcessorError =
-                HsError::new(&hs, HsOp::GetResource, HsErrorKind::from_sdk(via_client)).into();
-            let via_converter = EventProcessorError::from(PubkyClientError::from(via_converter));
-
-            assert_eq!(
-                via_client.should_not_retry_now(),
-                via_converter.should_not_retry_now(),
-                "{label}"
-            );
-            assert_eq!(
-                RetryScheduler::should_enqueue_related_event(&via_client),
-                RetryScheduler::should_enqueue_related_event(&via_converter),
-                "{label}"
-            );
-            assert_eq!(
-                via_client.is_not_found(),
-                via_converter.is_not_found(),
-                "{label}"
-            );
-        }
-    }
-
     /// A request that timed out is its own kind, so a log tells it from a reset connection.
     #[tokio::test]
     async fn timed_out_requests_are_classified_as_timeouts() {
@@ -334,20 +251,11 @@ mod tests {
         assert!(matches!(kind, HsErrorKind::Timeout), "{kind:?}");
     }
 
-    /// A transport failure stops the run on the event stream, and is retried on a fetch.
+    /// A failure to reach the homeserver or read its answer is a transport failure.
     #[tokio::test]
-    async fn transport_failures_stop_the_stream_and_retry_fetches() {
+    async fn transport_failures_are_classified() {
         let error = pubky::Error::from(RequestError::Transport(transport_error().await));
         let kind = HsErrorKind::from_sdk(error);
         assert!(matches!(kind, HsErrorKind::Transport(_)), "{kind:?}");
-
-        let hs = PubkyId::try_from("1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy").unwrap();
-        let on_stream: EventProcessorError =
-            HsError::new(&hs, HsOp::UserEvents, kind.clone()).into();
-        assert!(on_stream.should_not_retry_now(), "{on_stream:?}");
-
-        let on_blob: EventProcessorError = HsError::new(&hs, HsOp::GetBlob, kind).into();
-        assert!(!on_blob.should_not_retry_now(), "{on_blob:?}");
-        assert!(RetryScheduler::should_enqueue_related_event(&on_blob));
     }
 }
