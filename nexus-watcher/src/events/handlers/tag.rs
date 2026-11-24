@@ -16,18 +16,16 @@ use nexus_common::types::Pagination;
 use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use pubky_social_specs::PubkyId;
 use std::sync::LazyLock;
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::sync::MutexGuard;
 use tracing::{debug, warn, Instrument};
 
 use super::utils::{
-    bounded, fail_on_permanent_ingest_error, lock_stripe, post_kind, post_relationships_is_reply,
+    bounded, fail_on_permanent_ingest_error, post_kind, post_relationships_is_reply, StripedLocks,
 };
 use crate::events::inputs::{Reference, ReferenceTarget, ResourceKey, TagInput};
 
 /// Locks shared by the handlers of resource tags: see [`lock_tagger`].
-const TAGGER_LOCK_STRIPES: usize = 1024;
-static TAGGER_LOCKS: LazyLock<Vec<Mutex<()>>> =
-    LazyLock::new(|| (0..TAGGER_LOCK_STRIPES).map(|_| Mutex::new(())).collect());
+static TAGGER_LOCKS: LazyLock<StripedLocks> = LazyLock::new(|| StripedLocks::new(1024));
 
 /// The lock of one tagger's tags. A resource tag's PUT, a tag DEL and a takedown of a tag hold
 /// it across their graph write and their resource changes feed append, so the feed lists one
@@ -38,9 +36,7 @@ static TAGGER_LOCKS: LazyLock<Vec<Mutex<()>>> =
 /// taggers that share one only wait for each other, and nothing is kept per tagger. A crash
 /// releases it. It orders the handlers of one watcher process.
 pub async fn lock_tagger(tagger_id: &str) -> MutexGuard<'static, ()> {
-    TAGGER_LOCKS[lock_stripe(tagger_id, TAGGER_LOCK_STRIPES)]
-        .lock()
-        .await
+    TAGGER_LOCKS.lock(tagger_id).await
 }
 
 /// `tag.uri` is the address the tag is stored under, kept as the edge `uri`; `tag.tagged` is

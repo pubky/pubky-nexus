@@ -5,6 +5,7 @@ use nexus_common::models::{
 };
 use std::hash::{BuildHasher, Hash, RandomState};
 use std::sync::LazyLock;
+use tokio::sync::{Mutex, MutexGuard};
 
 /// Classifies the outcome of a best-effort user ingestion attempted while
 /// handling an [`OperationOutcome::MissingDependency`](nexus_common::db::OperationOutcome::MissingDependency).
@@ -45,6 +46,20 @@ static LOCK_STRIPE_HASHER: LazyLock<RandomState> = LazyLock::new(RandomState::ne
 /// that other's events.
 pub(crate) fn lock_stripe(key: impl Hash, stripes: usize) -> usize {
     (LOCK_STRIPE_HASHER.hash_one(key) % stripes as u64) as usize
+}
+
+/// A fixed set of locks, one per stripe; a key's lock is the stripe [`lock_stripe`] picks.
+pub(crate) struct StripedLocks(Vec<Mutex<()>>);
+
+impl StripedLocks {
+    pub(crate) fn new(stripes: usize) -> Self {
+        Self((0..stripes).map(|_| Mutex::new(())).collect())
+    }
+
+    /// Waits for the lock of `key`, held until the guard drops.
+    pub(crate) async fn lock(&self, key: impl Hash) -> MutexGuard<'_, ()> {
+        self.0[lock_stripe(key, self.0.len())].lock().await
+    }
 }
 
 /// Checks if a post is a reply based on its relationships.
