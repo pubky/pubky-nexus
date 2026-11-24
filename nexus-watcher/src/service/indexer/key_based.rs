@@ -7,8 +7,7 @@ use tokio::time::Instant;
 
 use crate::errors::EventProcessorError;
 use crate::events::Event;
-use crate::homeserver::HsStreamEvent;
-use crate::nexus_client::NexusHomeserverClient;
+use crate::homeserver::{HsStreamEvent, KeyEventSource};
 use nexus_common::models::homeserver::HsBlacklist;
 use nexus_common::models::user::UserHsCursor;
 use opentelemetry::metrics::Counter;
@@ -48,7 +47,7 @@ pub struct KeyBasedEventProcessor {
     pub limit: u16,
 
     pub event_handler: Arc<dyn EventHandler>,
-    pub client: Arc<dyn NexusHomeserverClient>,
+    pub client: Arc<dyn KeyEventSource>,
     pub user_not_found_backoff: Arc<UserNotFoundBackoff>,
 
     /// HS PKs that should not be indexed. Defense-in-depth: the runner already

@@ -8,22 +8,29 @@ use pubky::PublicKey;
 use pubky_social_specs::PubkyId;
 
 use crate::homeserver::{
-    HomeserverClient, HomeserverResolver, HsError, HsErrorKind, HsOp, PubkyHomeserverClient,
+    HomeserverEventSource, HomeserverResolver, HsError, HsErrorKind, HsOp, KeyEventSource,
+    ResourceReader, WatcherClient,
 };
 
 /// The homeserver client the watcher runs on: every homeserver call, plus the PKDNS lookup
 /// with Nexus's checks ([`PkdnsHomeserverResolver::resolve_own_record`]), which the user
 /// ingestor, the periodic user-to-homeserver resolver, and the primary homeserver's
 /// processor (for users without a `HOSTED_BY` edge) use.
-pub trait NexusHomeserverClient: HomeserverClient + PkdnsHomeserverResolver {}
+pub trait NexusHomeserverClient:
+    HomeserverEventSource + KeyEventSource + ResourceReader + PkdnsHomeserverResolver
+{
+}
 
-impl<T: HomeserverClient + PkdnsHomeserverResolver + ?Sized> NexusHomeserverClient for T {}
+impl<T> NexusHomeserverClient for T where
+    T: HomeserverEventSource + KeyEventSource + ResourceReader + PkdnsHomeserverResolver + ?Sized
+{
+}
 
 /// Rebuilds the client's PKDNS answer as Nexus's [`PkdnsRecord`]: a packet is
 /// [`PkdnsRecord::Published`], no packet is [`PkdnsRecord::Missing`], and a DHT or relay
 /// failure is the pkarr resolve error inside `PubkyClientError`, as `pkdns_record_of` returns.
 #[async_trait::async_trait]
-impl PkdnsHomeserverResolver for PubkyHomeserverClient {
+impl PkdnsHomeserverResolver for WatcherClient {
     async fn resolve_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
         match HomeserverResolver::resolve_record(self, user_pk).await {
             Ok(Some(packet)) => Ok(PkdnsRecord::Published(packet)),

@@ -13,7 +13,7 @@ pub use event::{Event, EventType, ParseResult};
 pub use target::EventTarget;
 
 use crate::errors::EventProcessorError;
-use crate::homeserver::HomeserverClient;
+use crate::homeserver::ResourceReader;
 use crate::nexus_client::NexusHomeserverClient;
 use crate::METER_NAME;
 use nexus_common::models::takedown::is_taken_down;
@@ -177,7 +177,7 @@ pub async fn handle_put_event(
     files_path: &Path,
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
-    client: &dyn HomeserverClient,
+    client: &dyn ResourceReader,
 ) -> Result<(), EventProcessorError> {
     // Whatever order events arrive in, a record the moderator took down stays down. A
     // copy left behind by an earlier attempt whose removal failed is removed here too.

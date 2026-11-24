@@ -20,7 +20,8 @@ use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};
 use nexus_watcher::events::Event;
 use nexus_watcher::events::EventHandler;
 use nexus_watcher::homeserver::{
-    EventMethod, HomeserverClient, HsError, HsErrorKind, HsStreamEvent,
+    EventMethod, HomeserverEventSource, HsError, HsErrorKind, HsStreamEvent, KeyEventSource,
+    ResourceReader,
 };
 use nexus_watcher::service::indexer::{KeyBasedEventProcessor, RunError, TEventProcessor};
 use nexus_watcher::service::runner::{UserNotFoundBackoff, UserResumePoints};
@@ -1074,7 +1075,7 @@ impl PkdnsHomeserverResolver for MappingChangesDuringFetch {
 }
 
 #[async_trait::async_trait]
-impl HomeserverClient for MappingChangesDuringFetch {
+impl HomeserverEventSource for MappingChangesDuringFetch {
     async fn poll_events(
         &self,
         hs: &PublicKey,
@@ -1083,7 +1084,10 @@ impl HomeserverClient for MappingChangesDuringFetch {
     ) -> Result<Vec<String>, HsError> {
         self.inner.poll_events(hs, cursor, limit).await
     }
+}
 
+#[async_trait::async_trait]
+impl KeyEventSource for MappingChangesDuringFetch {
     async fn user_events(
         &self,
         hs: &PublicKey,
@@ -1101,7 +1105,10 @@ impl HomeserverClient for MappingChangesDuringFetch {
         .expect("the mapping changes");
         self.inner.user_events(hs, user, cursor, limit).await
     }
+}
 
+#[async_trait::async_trait]
+impl ResourceReader for MappingChangesDuringFetch {
     async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
         self.inner.get_resource(resource).await
     }

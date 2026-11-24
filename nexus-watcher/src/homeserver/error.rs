@@ -6,7 +6,8 @@ use reqwest::StatusCode;
 
 use super::fetch::{format_error_body, MAX_ERROR_BODY};
 
-/// A failed [`HomeserverClient`](super::HomeserverClient) call.
+/// A failed homeserver call, made through [`WatcherClient`](super::WatcherClient) or another
+/// implementation of the capability traits.
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("{op:?} {hs}: {kind}")]
 pub struct HsError {
@@ -28,7 +29,7 @@ impl HsError {
     }
 }
 
-/// The [`HomeserverClient`](super::HomeserverClient) operation a call made.
+/// The homeserver operation a call made.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HsOp {
     PollEvents,

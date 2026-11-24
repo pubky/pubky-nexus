@@ -18,7 +18,7 @@ use nexus_watcher::events::retry::{
 };
 use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::events::{Event, ParseResult};
-use nexus_watcher::homeserver::PubkyHomeserverClient;
+use nexus_watcher::homeserver::WatcherClient;
 use nexus_watcher::nexus_client::NexusHomeserverClient;
 use nexus_watcher::service::HsEventProcessorRunner;
 use nexus_watcher::service::KeyBasedEventProcessorRunner;
@@ -113,7 +113,7 @@ impl WatcherTest {
             ..WatcherConfig::default()
         };
         let client: Arc<dyn NexusHomeserverClient> =
-            Arc::new(PubkyHomeserverClient::new(pubky, config.max_file_size));
+            Arc::new(WatcherClient::new(pubky, config.max_file_size));
         // One retry queue: the scheduler enqueues to it and the handler's gate reads it
         let store: Arc<dyn RetryStore> = Arc::new(RedisRetryStore::new());
         let event_handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(

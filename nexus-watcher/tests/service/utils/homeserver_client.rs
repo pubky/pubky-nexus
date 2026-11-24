@@ -5,13 +5,17 @@ use tokio::sync::Mutex;
 use nexus_common::db::{PubkyClientError, PubkyClientResult};
 use nexus_common::models::user::{PkdnsHomeserverResolver, PkdnsRecord};
 use nexus_common::utils::test_utils::signed_packet_naming;
-use nexus_watcher::homeserver::{HomeserverClient, HsError, HsErrorKind, HsOp, HsStreamEvent};
+use nexus_watcher::homeserver::{
+    HomeserverEventSource, HsError, HsErrorKind, HsOp, HsStreamEvent, KeyEventSource,
+    ResourceReader,
+};
 use pubky::{Keypair, PubkyResource, PublicKey};
 use pubky_social_specs::PubkyId;
 
 type UserEventsResult = Result<Vec<HsStreamEvent>, HsErrorKind>;
 
-/// [`HomeserverClient`] that serves scripted answers, without a network.
+/// Homeserver client that serves scripted answers, without a network: every capability
+/// the watcher uses, and the PKDNS lookup.
 #[derive(Default)]
 pub struct MockHomeserverClient {
     /// Lines the first `poll_events` returns. Later polls return none.
@@ -167,7 +171,7 @@ impl PkdnsHomeserverResolver for MockHomeserverClient {
 }
 
 #[async_trait::async_trait]
-impl HomeserverClient for MockHomeserverClient {
+impl HomeserverEventSource for MockHomeserverClient {
     async fn poll_events(
         &self,
         hs: &PublicKey,
@@ -180,7 +184,10 @@ impl HomeserverClient for MockHomeserverClient {
         }
         Ok(std::mem::take(&mut *self.lines.lock().await))
     }
+}
 
+#[async_trait::async_trait]
+impl KeyEventSource for MockHomeserverClient {
     async fn user_events(
         &self,
         hs: &PublicKey,
@@ -209,7 +216,10 @@ impl HomeserverClient for MockHomeserverClient {
 
         result.map_err(|kind| HsError::new(hs, HsOp::UserEvents, kind))
     }
+}
 
+#[async_trait::async_trait]
+impl ResourceReader for MockHomeserverClient {
     async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
         self.serve(resource, HsOp::GetResource)
     }

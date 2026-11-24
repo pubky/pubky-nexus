@@ -54,15 +54,11 @@ impl From<pubky::Event> for HsStreamEvent {
     }
 }
 
-/// Every HTTP call the watcher makes to a homeserver.
+/// A homeserver's `/events/` feed, which covers every user it hosts under one cursor.
 ///
-/// A failure is labelled with `hs`, the homeserver the caller polls, or for a resource or
-/// blob with its owner's key.
-///
-/// The lookup of the homeserver a user publishes is [`HomeserverResolver`], which
-/// [`PubkyHomeserverClient`] also implements.
+/// A failure is labelled with `hs`, the homeserver polled.
 #[async_trait::async_trait]
-pub trait HomeserverClient: Send + Sync + 'static {
+pub trait HomeserverEventSource: Send + Sync + 'static {
     /// Primary-style `GET /events/?cursor=&limit=`. Returns the raw lines, the
     /// cursor line included; an empty body has none. A body over the events cap fails
     /// with [`HsErrorKind::TooLarge`].
@@ -72,7 +68,13 @@ pub trait HomeserverClient: Send + Sync + 'static {
         cursor: u64,
         limit: u16,
     ) -> Result<Vec<String>, HsError>;
+}
 
+/// A user's `/events-stream` on a homeserver, with a cursor per user.
+///
+/// A failure is labelled with `hs`, the homeserver asked.
+#[async_trait::async_trait]
+pub trait KeyEventSource: Send + Sync + 'static {
     /// Per-user `GET /events-stream?user=<pk>:<cursor>&limit=&path=/pub/`, not live.
     /// At most `limit` events are returned. A rate-limited request is retried.
     async fn user_events(
@@ -82,7 +84,14 @@ pub trait HomeserverClient: Send + Sync + 'static {
         cursor: u64,
         limit: u16,
     ) -> Result<Vec<HsStreamEvent>, HsError>;
+}
 
+/// The resources and blobs a `PUT` event names, read under a size cap so that one large
+/// resource cannot exhaust memory.
+///
+/// A failure is labelled with the resource owner's key.
+#[async_trait::async_trait]
+pub trait ResourceReader: Send + Sync + 'static {
     /// The JSON resource at `resource`, capped at [`MAX_RESOURCE_SIZE`], from the homeserver
     /// its owner publishes.
     async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError>;
@@ -92,13 +101,14 @@ pub trait HomeserverClient: Send + Sync + 'static {
     async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError>;
 }
 
-/// [`HomeserverClient`] and [`HomeserverResolver`] over the Pubky SDK.
-pub struct PubkyHomeserverClient {
+/// Every homeserver call over the Pubky SDK: [`HomeserverEventSource`], [`KeyEventSource`],
+/// [`ResourceReader`] and [`HomeserverResolver`].
+pub struct WatcherClient {
     pubky: Arc<Pubky>,
     max_file_size: u64,
 }
 
-impl PubkyHomeserverClient {
+impl WatcherClient {
     /// Builds a client over `pubky` that reads blobs of at most `max_file_size` bytes.
     pub fn new(pubky: Arc<Pubky>, max_file_size: u64) -> Self {
         Self {
@@ -190,7 +200,7 @@ where
 /// The lookup behind `Pubky::get_homeserver_of`, which folds a missing packet and a packet
 /// naming no homeserver into one `None` and fails on a malformed `_pubky` record.
 #[async_trait::async_trait]
-impl HomeserverResolver for PubkyHomeserverClient {
+impl HomeserverResolver for WatcherClient {
     async fn resolve_record(&self, user: &PublicKey) -> Result<Option<SignedPacket>, ResolveError> {
         match self
             .pubky
@@ -207,7 +217,7 @@ impl HomeserverResolver for PubkyHomeserverClient {
 }
 
 #[async_trait::async_trait]
-impl HomeserverClient for PubkyHomeserverClient {
+impl HomeserverEventSource for WatcherClient {
     async fn poll_events(
         &self,
         hs: &PublicKey,
@@ -223,7 +233,10 @@ impl HomeserverClient for PubkyHomeserverClient {
             .send();
         poll_events_with(hs, send).await
     }
+}
 
+#[async_trait::async_trait]
+impl KeyEventSource for WatcherClient {
     async fn user_events(
         &self,
         hs: &PublicKey,
@@ -233,7 +246,10 @@ impl HomeserverClient for PubkyHomeserverClient {
     ) -> Result<Vec<HsStreamEvent>, HsError> {
         user_events_with(hs, user, || self.fetch_user_events(hs, user, cursor, limit)).await
     }
+}
 
+#[async_trait::async_trait]
+impl ResourceReader for WatcherClient {
     async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
         get_resource_with(resource, self.get(resource)).await
     }

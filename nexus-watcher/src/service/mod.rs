@@ -18,7 +18,7 @@ pub use user_hs_resolver::UserHsResolverRunner;
 
 use crate::events::retry::{RetryProcessor, RetryScheduler};
 use crate::events::{DefaultEventHandler, EventHandler};
-use crate::homeserver::PubkyHomeserverClient;
+use crate::homeserver::WatcherClient;
 use crate::nexus_client::NexusHomeserverClient;
 use crate::service::constants::DEFAULT_WATCHER_CONFIG_TOML;
 use crate::service::task_runner::task_results_into_result;
@@ -88,7 +88,7 @@ impl NexusWatcher {
         let hs_resolver_interval_ms = config.hs_resolver_interval_ms;
         let retry_processor_interval_ms = config.retry_processor_interval_ms;
 
-        let client: Arc<dyn NexusHomeserverClient> = Arc::new(PubkyHomeserverClient::new(
+        let client: Arc<dyn NexusHomeserverClient> = Arc::new(WatcherClient::new(
             PubkyConnector::get()?,
             config.max_file_size,
         ));
