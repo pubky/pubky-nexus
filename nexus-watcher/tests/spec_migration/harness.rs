@@ -9,7 +9,6 @@ use std::time::Duration;
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use nexus_common::config::EventRetryConfig;
-use nexus_common::db::PubkyConnector;
 use nexus_common::media::file_folder;
 use nexus_common::models::follow::{Followers, Following, UserFollows};
 use nexus_common::models::homeserver::{Homeserver, HsBlacklist};
@@ -18,7 +17,6 @@ use nexus_common::models::post::{PostStream, PostView};
 use nexus_common::models::tag::TagDetails;
 use nexus_common::models::user::{Epoch, UserIngestor, UserView};
 use nexus_common::types::Pagination;
-use nexus_common::utils::test_utils::default_ingestor_tests;
 use nexus_common::{StackConfig, StackManager, DEFAULT_MAX_FILE_SIZE};
 use nexus_watcher::events::retry::{
     InMemoryRetryStore, IndexKey, InitialBackoff, RetryEvent, RetryProcessor, RetryScheduler,
@@ -83,19 +81,16 @@ impl SpecMigrationTest {
             .await
             .map_err(|e| anyhow!("persisting the primary: {e}"))?;
 
-        // Nexus's own client: one per process, bound to this testnet
-        PubkyConnector::init_from(testnet.sdk()?)
-            .await
-            .map_err(|e| anyhow!("pubky connector: {e}"))?;
-        let pubky = PubkyConnector::get().map_err(|e| anyhow!("pubky connector: {e}"))?;
-        let client: Arc<dyn NexusHomeserverClient> =
-            Arc::new(WatcherClient::new(pubky, DEFAULT_MAX_FILE_SIZE));
+        // Nexus's own client, bound to this testnet
+        let client: Arc<dyn NexusHomeserverClient> = Arc::new(
+            WatcherClient::from_pubky(testnet.sdk()?).with_max_file_size(DEFAULT_MAX_FILE_SIZE),
+        );
 
         let moderation = Arc::new(Moderation {
             id: PubkyId::from(Keypair::random().public_key()),
             tags: Vec::new(),
         });
-        let ingestor = default_ingestor_tests();
+        let ingestor = Arc::new(UserIngestor::new([], client.clone()));
         // One retry queue: the scheduler enqueues to it and the handler's gate reads it
         let retry_queue = Arc::new(RetryQueue::default());
         let store: Arc<dyn RetryStore> = retry_queue.clone();

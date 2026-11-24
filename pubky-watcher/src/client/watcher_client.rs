@@ -5,13 +5,22 @@ use std::time::Duration;
 use futures::{FutureExt, Stream, StreamExt};
 use pubky::pkarr::errors::ResolveError;
 use pubky::pkarr::{ResolvePolicy, SignedPacket};
-use pubky::{EventCursor, Method, Pubky, PubkyResource, PublicKey};
+use pubky::{EventCursor, Method, Pubky, PubkyHttpClient, PubkyResource, PublicKey};
 use tracing::{error, trace, warn};
 
 use super::fetch::{
     fetch_capped, read_stream_capped, MAX_ERROR_BODY, MAX_EVENTS_BODY, MAX_RESOURCE_SIZE,
 };
 use super::{EventMethod, HomeserverResolver, HsError, HsErrorKind, HsOp};
+
+/// The blob cap of a client that sets none ([`WatcherClient::with_max_file_size`]): 100 MiB,
+/// the homeserver's own limit.
+pub const DEFAULT_MAX_FILE_SIZE: u64 = 100 * (1 << 20);
+
+/// How long a request of a client built by [`WatcherClient::mainnet`] or
+/// [`WatcherClient::testnet`] may take, reading the response body included, so that it can
+/// download a blob of [`DEFAULT_MAX_FILE_SIZE`].
+pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Waits between the retries of a rate-limited `/events-stream` request.
 const USER_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
@@ -109,12 +118,61 @@ pub struct WatcherClient {
 }
 
 impl WatcherClient {
-    /// Builds a client over `pubky` that reads blobs of at most `max_file_size` bytes.
-    pub fn new(pubky: Arc<Pubky>, max_file_size: u64) -> Self {
+    /// A client for the public Pubky network.
+    pub fn mainnet() -> Result<Self, pubky::Error> {
+        Self::build(None)
+    }
+
+    /// A client for the Pubky testnet whose relay and homeservers run on `host` (e.g.
+    /// `"localhost"`).
+    pub fn testnet(host: &str) -> Result<Self, pubky::Error> {
+        Self::build(Some(host))
+    }
+
+    /// A client over an SDK client you built, e.g. with your own timeouts.
+    pub fn from_pubky(pubky: Pubky) -> Self {
+        Self::from_shared(Arc::new(pubky))
+    }
+
+    /// A client over an SDK client you share with the rest of your application.
+    pub fn from_shared(pubky: Arc<Pubky>) -> Self {
         Self {
             pubky,
-            max_file_size,
+            max_file_size: DEFAULT_MAX_FILE_SIZE,
         }
+    }
+
+    /// Reads blobs of at most `max_file_size` bytes ([`DEFAULT_MAX_FILE_SIZE`] by default).
+    pub fn with_max_file_size(mut self, max_file_size: u64) -> Self {
+        self.max_file_size = max_file_size;
+        self
+    }
+
+    /// The SDK client underneath, for the calls this client does not cover.
+    pub fn sdk(&self) -> &Arc<Pubky> {
+        &self.pubky
+    }
+
+    /// Builds an SDK client whose requests, response bodies included, time out after
+    /// [`DEFAULT_REQUEST_TIMEOUT`], for mainnet or for the testnet on `testnet_host`.
+    fn build(testnet_host: Option<&str>) -> Result<Self, pubky::Error> {
+        let mut builder = PubkyHttpClient::builder();
+        builder.request_timeout(DEFAULT_REQUEST_TIMEOUT);
+        if let Some(host) = testnet_host {
+            builder
+                .testnet_with_host(host)
+                // An ephemeral DHT port, so the client does not compete with a local testnet
+                // for its port
+                .pkarr(|p| {
+                    p.dht(|c| {
+                        c.port = Some(0);
+                        c
+                    })
+                });
+        }
+        Ok(Self::from_pubky(Pubky::with_client(
+            builder.build().map_err(pubky::Error::from)?,
+        )))
     }
 
     /// GETs `resource`, returning the response for the caller to read under its cap.

@@ -22,7 +22,6 @@ use crate::nexus_client::NexusHomeserverClient;
 use crate::service::constants::DEFAULT_WATCHER_CONFIG_TOML;
 use crate::service::task_runner::task_results_into_result;
 use crate::NexusWatcherBuilder;
-use nexus_common::db::PubkyConnector;
 use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
@@ -75,10 +74,13 @@ impl NexusWatcher {
     /// an internal cancellation signal is sent so that sibling tasks can finish their
     /// current iteration and exit.
     ///
-    /// The tasks share one [`NexusHomeserverClient`], one event handler and one retry scheduler.
-    ///
-    /// Expects [`PubkyConnector`] to be initialised.
-    pub async fn start(shutdown_rx: Receiver<bool>, config: WatcherConfig) -> Result<(), DynError> {
+    /// The tasks share `client`, one event handler and one retry scheduler. The client reads
+    /// blobs up to its own cap, which the builder sets from [`WatcherConfig::max_file_size`].
+    pub async fn start(
+        shutdown_rx: Receiver<bool>,
+        config: WatcherConfig,
+        client: Arc<WatcherClient>,
+    ) -> Result<(), DynError> {
         debug!(?config, "Running NexusWatcher with ");
 
         Homeserver::persist_if_unknown(config.homeserver.clone()).await?;
@@ -88,10 +90,7 @@ impl NexusWatcher {
         let hs_resolver_interval_ms = config.hs_resolver_interval_ms;
         let retry_processor_interval_ms = config.retry_processor_interval_ms;
 
-        let client: Arc<dyn NexusHomeserverClient> = Arc::new(WatcherClient::new(
-            PubkyConnector::get()?,
-            config.max_file_size,
-        ));
+        let client: Arc<dyn NexusHomeserverClient> = client;
         let event_handler: Arc<dyn EventHandler> =
             Arc::new(DefaultEventHandler::from_config(&config, client.clone()));
         let retry_scheduler = Arc::new(RetryScheduler::from_config(&config));

@@ -9,7 +9,8 @@ use pubky::pkarr::{SignedPacket, Timestamp};
 use pubky::{Keypair, PublicKey};
 use pubky_social_specs::PubkyId;
 
-use crate::models::user::{PubkyConnectorResolver, UserIngestor};
+use crate::db::PubkyClientResult;
+use crate::models::user::{PkdnsHomeserverResolver, PkdnsRecord, UserIngestor};
 
 /// Generates a random public key.
 pub fn random_pk() -> PublicKey {
@@ -40,7 +41,19 @@ pub fn signed_packet_naming(
     builder.sign(keypair).expect("a signed packet")
 }
 
-/// Default user ingestor for tests: empty HS blacklist (ingest everything).
+/// A PKDNS resolver that finds no record for any user, without a network.
+struct NoRecordResolver;
+
+#[async_trait::async_trait]
+impl PkdnsHomeserverResolver for NoRecordResolver {
+    async fn resolve_record(&self, _user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+        Ok(PkdnsRecord::Missing)
+    }
+}
+
+/// Default user ingestor for tests: empty HS blacklist (ingest everything), and no lookups:
+/// every user publishes no homeserver, so no unknown user is ingested. A test that needs
+/// a lookup builds its ingestor over its own client.
 pub fn default_ingestor_tests() -> Arc<UserIngestor> {
-    Arc::new(UserIngestor::new([], Arc::new(PubkyConnectorResolver)))
+    Arc::new(UserIngestor::new([], Arc::new(NoRecordResolver)))
 }

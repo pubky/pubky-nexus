@@ -22,4 +22,5 @@ pub use event::EventMethod;
 pub use resolver::{published_homeserver, HomeserverResolver};
 pub use watcher_client::{
     HomeserverEventSource, HsStreamEvent, KeyEventSource, ResourceReader, WatcherClient,
+    DEFAULT_MAX_FILE_SIZE, DEFAULT_REQUEST_TIMEOUT,
 };
