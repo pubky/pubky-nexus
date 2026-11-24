@@ -160,8 +160,8 @@ pub enum WatcherError<Err> {
     /// reach the handler's error and its causes.
     #[error("{0}")]
     Handler(Err),
-    /// The run panicked.
-    /// As [`RunError::Panicked`](crate::RunError::Panicked) is for a processor.
+    /// The run's task panicked; the panic is logged, not returned. A processor reports the
+    /// same with [`RunError::Panicked`](crate::RunError::Panicked).
     #[error("the watcher run panicked")]
     Panicked,
 }

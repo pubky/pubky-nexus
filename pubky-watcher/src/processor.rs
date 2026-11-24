@@ -40,7 +40,7 @@ pub enum RunError<Err> {
     Internal(Err),
     /// The run's task panicked: see [`run_on_own_task`].
     Panicked,
-    /// The run stopped at its budget, see [`RunOutcome::BudgetSpent`]
+    /// The run stopped at its budget: see [`RunOutcome::BudgetSpent`].
     BudgetSpent,
 }
 
