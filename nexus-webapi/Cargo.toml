@@ -24,6 +24,7 @@ futures-util = "0.3.32"
 
 opentelemetry = { workspace = true }
 pubky-social-specs = { workspace = true }
+pubky-watcher = { path = "../pubky-watcher" }
 nexus-common = { version = "0.4.1", path = "../nexus-common" }
 deadpool-redis = { workspace = true }
 pubky = { workspace = true }

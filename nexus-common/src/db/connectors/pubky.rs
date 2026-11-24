@@ -2,12 +2,9 @@ use pubky::errors::{AuthError, BuildError, PkarrError, RequestError};
 use pubky::{CredentialRefreshError, Pubky, PubkyHttpClient, StatusCode};
 use std::{sync::Arc, time::Duration};
 use thiserror::Error;
-use tokio::sync::OnceCell;
 
 use crate::config::NetConfig;
 use tracing::debug;
-
-static PUBKY_SINGLETON: OnceCell<Arc<Pubky>> = OnceCell::const_new();
 
 pub type PubkyClientResult<T> = std::result::Result<T, PubkyClientError>;
 
@@ -128,42 +125,4 @@ fn build_pubky_with(
         .build()
         .map_err(|e| PubkyClientError::from(pubky::Error::from(e)))?;
     Ok(Arc::new(Pubky::with_client(client)))
-}
-
-pub struct PubkyConnector;
-
-impl PubkyConnector {
-    /// Initializes the `Pubky` singleton.
-    ///
-    /// - For mainnet, pass `None`.
-    /// - For testnet, pass `Some(hostname)` (e.g., "localhost" or "homeserver").
-    /// - `http_request_timeout` bounds every Pubky HTTP request, including response-body reads.
-    pub async fn initialise(
-        testnet_host: Option<&str>,
-        http_request_timeout: Duration,
-    ) -> PubkyClientResult<()> {
-        PUBKY_SINGLETON
-            .get_or_try_init(|| async { build_pubky_with(testnet_host, http_request_timeout) })
-            .await
-            .map(|_| ())
-    }
-    /// Retrieves the instance of `Pubky`
-    pub fn get() -> PubkyClientResult<Arc<Pubky>> {
-        PUBKY_SINGLETON
-            .get()
-            .cloned()
-            .ok_or(PubkyClientError::NotInitialized)
-    }
-
-    /// Initializes `PUBKY_SINGLETON` with a provided `Pubky` instance.
-    ///
-    /// # Usage:
-    /// - This function is primarily intended for **watcher tests** where a controlled `Pubky` instance
-    ///   needs to be injected instead of relying on environment-based initialization
-    pub async fn init_from(sdk: Pubky) -> PubkyClientResult<()> {
-        PUBKY_SINGLETON
-            .get_or_try_init(|| async { Ok(Arc::new(sdk)) })
-            .await
-            .map(|_| ())
-    }
 }

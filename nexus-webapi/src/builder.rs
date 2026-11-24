@@ -15,13 +15,14 @@ use axum::Router;
 use axum_server::tls_rustls::{RustlsAcceptor, RustlsConfig};
 use axum_server::Handle;
 use futures_util::TryFutureExt;
-use nexus_common::db::{DatabaseConfig, PubkyConnector};
+use nexus_common::db::DatabaseConfig;
 use nexus_common::file::ConfigLoader;
 use nexus_common::types::DynError;
 use nexus_common::utils::create_shutdown_rx;
 use nexus_common::Level;
 use nexus_common::{ApiConfig, StackManager};
 use pubky::pkarr::{Keypair, PublicKey};
+use pubky_watcher::WatcherClient;
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
@@ -94,16 +95,10 @@ impl NexusApiBuilder {
     /// - `shutdown_rx`: optional shutdown signal. If none is provided, a default one will be created, listening for Ctrl-C.
     pub async fn start(self, shutdown_rx: Option<Receiver<bool>>) -> Result<NexusApi, DynError> {
         StackManager::setup(&self.api_context.api_config.stack).await?;
-        // The ingest route looks users up on PKDNS through the shared client. Serving
-        // reads does not depend on it, so a client that cannot be built keeps that
+        // The ingest route looks users up on PKDNS through the context's client. Serving
+        // reads does not depend on it, so a client that could not be built keeps that
         // route failing rather than the whole API down.
-        let net = &self.api_context.api_config.stack.net;
-        if let Err(e) = PubkyConnector::initialise(
-            net.pubky_client_testnet_host(),
-            net.pubky_client_http_request_timeout(),
-        )
-        .await
-        {
+        if let Some(e) = &self.api_context.pubky_client_error {
             warn!(error = %e, "Pubky client not initialised; ingest will fail");
         }
         let mut shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
@@ -260,6 +255,12 @@ impl NexusApi {
         );
 
         Ok((pubky_handle, pubky_local_addr))
+    }
+
+    /// The Pubky client the ingest-user route looks users' homeservers up with, if it could
+    /// be built.
+    pub fn pubky_client(&self) -> Option<&Arc<WatcherClient>> {
+        self.ctx.pubky_client.as_ref()
     }
 
     /// Returns the public_key of this server

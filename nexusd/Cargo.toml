@@ -18,6 +18,7 @@ nexus-webapi = { version = "0.4.1", path = "../nexus-webapi", features = ["mock"
 nexus-common = { version = "0.4.1", path = "../nexus-common" }
 opentelemetry = { workspace = true }
 pubky-social-specs = { workspace = true }
+pubky-watcher = { path = "../pubky-watcher" }
 redis = { workspace = true, features = ["tokio-comp"] }
 nexus-watcher = { version = "0.4.1", path = "../nexus-watcher" }
 serde = { workspace = true }

@@ -117,6 +117,15 @@ pub struct WatcherClient {
     max_file_size: u64,
 }
 
+/// Names the blob cap; the SDK client underneath is not printed.
+impl std::fmt::Debug for WatcherClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WatcherClient")
+            .field("max_file_size", &self.max_file_size)
+            .finish_non_exhaustive()
+    }
+}
+
 impl WatcherClient {
     /// A client for the public Pubky network.
     pub fn mainnet() -> Result<Self, pubky::Error> {

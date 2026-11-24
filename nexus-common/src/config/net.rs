@@ -63,7 +63,7 @@ impl NetConfig {
         DEFAULT_TESTNET_HOST.to_string()
     }
 
-    /// Returns the testnet relay hostname for [`PubkyConnector::initialise`]
+    /// Returns the testnet relay hostname for [`build_pubky`](crate::db::build_pubky)
     pub fn pubky_client_testnet_host(&self) -> Option<&str> {
         self.testnet.then_some(self.testnet_host.as_str())
     }

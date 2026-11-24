@@ -1,12 +1,11 @@
 use pubky::errors::PkarrError;
 use pubky::pkarr::dns::rdata::RData;
-use pubky::pkarr::errors::ResolveError;
-use pubky::pkarr::{ResolvePolicy, SignedPacket};
-use pubky::{Pubky, PublicKey};
+use pubky::pkarr::SignedPacket;
+use pubky::PublicKey;
 use pubky_social_specs::PubkyId;
 use pubky_watcher::{HomeserverResolver, WatcherClient};
 
-use crate::db::{PubkyClientError, PubkyClientResult, PubkyConnector};
+use crate::db::{PubkyClientError, PubkyClientResult};
 use crate::types::DynError;
 
 /// A user's PKDNS record, as the DHT or a relay answered.
@@ -128,7 +127,7 @@ pub trait PkdnsHomeserverResolver: Send + Sync {
 
 /// Rebuilds the client's PKDNS answer as Nexus's [`PkdnsRecord`]: a packet is
 /// [`PkdnsRecord::Published`], no packet is [`PkdnsRecord::Missing`], and a DHT or relay
-/// failure is the pkarr resolve error inside `PubkyClientError`, as `pkdns_record_of` returns.
+/// failure is the pkarr resolve error inside `PubkyClientError`.
 #[async_trait::async_trait]
 impl PkdnsHomeserverResolver for WatcherClient {
     async fn resolve_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
@@ -137,24 +136,6 @@ impl PkdnsHomeserverResolver for WatcherClient {
             Ok(None) => Ok(PkdnsRecord::Missing),
             Err(e) => Err(PkarrError::Resolve(e).into()),
         }
-    }
-}
-
-/// Looks up the PKDNS record of `user_pk` through `pubky`: the lookup behind
-/// `Pubky::get_homeserver_of`, which folds a missing packet and a packet naming
-/// no homeserver into one `None` and fails on a malformed `_pubky` record. A
-/// missing packet is [`PkdnsRecord::Missing`]; a DHT or relay failure is an
-/// error, so the caller does not take it for "no record".
-pub async fn pkdns_record_of(pubky: &Pubky, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
-    match pubky
-        .client()
-        .pkarr()
-        .resolve(user_pk, ResolvePolicy::CacheFirst)
-        .await
-    {
-        Ok(packet) => Ok(PkdnsRecord::Published(packet)),
-        Err(ResolveError::NotFound) => Ok(PkdnsRecord::Missing),
-        Err(e) => Err(PkarrError::Resolve(e).into()),
     }
 }
 
@@ -170,18 +151,6 @@ fn published_homeserver(packet: &SignedPacket) -> Option<PubkyId> {
             _ => None,
         })?;
     PublicKey::try_from_z32(&target).ok().map(PubkyId::from)
-}
-
-/// Resolver backed by the shared [`PubkyConnector`].
-#[derive(Debug, Default, Clone, Copy)]
-pub struct PubkyConnectorResolver;
-
-#[async_trait::async_trait]
-impl PkdnsHomeserverResolver for PubkyConnectorResolver {
-    async fn resolve_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
-        let pubky = PubkyConnector::get()?;
-        pkdns_record_of(&pubky, user_pk).await
-    }
 }
 
 #[cfg(test)]

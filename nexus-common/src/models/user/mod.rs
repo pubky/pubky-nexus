@@ -19,9 +19,7 @@ pub use details::{
     UserDetails, UserLink,
 };
 pub use epoch::Epoch;
-pub use homeserver_resolver::{
-    pkdns_record_of, PkdnsHomeserverResolver, PkdnsRecord, PubkyConnectorResolver, StoredRecord,
-};
+pub use homeserver_resolver::{PkdnsHomeserverResolver, PkdnsRecord, StoredRecord};
 pub use influencers::{Influencers, GLOBAL_INFLUENCERS_CACHE_SIZE};
 pub use ingestor::UserIngestor;
 pub use relationship::Relationship;
