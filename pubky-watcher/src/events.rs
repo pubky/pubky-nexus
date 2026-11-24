@@ -1,5 +1,11 @@
 //! The `/events/` line protocol: a `text/plain` body with one event per line
 //! (`PUT <uri>` / `DEL <uri>`), closed by a `cursor: <value>` line.
+//!
+//! Use [`EventBatch::split`] when you poll `/events/` yourself, through
+//! [`HomeserverEventSource`](crate::HomeserverEventSource) in your own
+//! [`TEventProcessor`](crate::TEventProcessor), and [`HomeserverEvent`] when the method and
+//! URI are all your handler needs. [`Watcher::homeserver`](crate::Watcher::homeserver) does
+//! both for you.
 
 use std::convert::Infallible;
 
@@ -7,6 +13,7 @@ use crate::client::EventMethod;
 use crate::traits::{LineParseOutcome, ParseFromLine};
 
 /// Prefix of the line closing a homeserver `/events/` response with its cursor.
+/// [`EventBatch::split`] reads it.
 pub const CURSOR_PREFIX: &str = "cursor: ";
 
 /// An event line of a homeserver's `/events/` feed: `PUT <uri>` or `DEL <uri>`.
@@ -17,8 +24,11 @@ pub const CURSOR_PREFIX: &str = "cursor: ";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HomeserverEvent {
     /// `PUT` or `DEL`.
+    /// See [`EventMethod`].
     pub method: EventMethod,
     /// The resource's `pubky://` URI, as the line carries it.
+    /// A `PUT`'s resource is read with
+    /// [`ResourceReader::get_resource`](crate::ResourceReader::get_resource).
     pub uri: String,
 }
 
@@ -69,17 +79,20 @@ impl ParseFromLine for HomeserverEvent {
 /// rather than something we can rely on from an untrusted peer: the split is
 /// order-independent, and if a batch carries several cursor lines the last one
 /// wins, being the position the homeserver ends the batch at.
+/// Built by [`EventBatch::split`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventBatch<'a> {
     /// The event lines, in the order the homeserver sent them, for
     /// [`ParseFromLine::parse_line`](crate::ParseFromLine::parse_line).
     pub event_lines: Vec<&'a str>,
     /// Raw, still unparsed value of the batch's cursor line, if it carried one.
+    /// It is what follows [`CURSOR_PREFIX`].
     pub cursor: Option<&'a str>,
 }
 
 impl<'a> EventBatch<'a> {
     /// Splits the lines of a `/events/` response.
+    /// A line starting with [`CURSOR_PREFIX`] is a cursor line; any other is an event line.
     pub fn split(lines: &'a [String]) -> Self {
         let mut event_lines = Vec::with_capacity(lines.len());
         let mut cursor = None;
@@ -103,6 +116,7 @@ impl<'a> EventBatch<'a> {
     /// parse as skipped or unrecognized: those still legitimately advance the
     /// cursor, so narrowing this to "lines that reached a handler" would let a
     /// non-advancing cursor through and re-open the replay loop.
+    /// See [`Self::event_lines`].
     pub fn has_events(&self) -> bool {
         !self.event_lines.is_empty()
     }

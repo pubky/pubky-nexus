@@ -19,17 +19,21 @@ use super::traits::{EventRetryScheduler, LineParseOutcome, ParseFromLine, Retrya
 pub const SLOW_RUN_THRESHOLD: Duration = Duration::from_secs(3_600);
 
 /// How a run of an event processor ended when it did not fail.
+/// Returned by [`TEventProcessor::run_internal`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunOutcome {
     /// The run ended without failing or spending its budget: it did the work it found, or
     /// stopped early for shutdown.
+    /// [`TEventProcessor::run`] then returns `Ok`.
     Completed,
     /// The run stopped at its budget with work left, keeping the cursors it reached. Not an
     /// event failure: nothing is retried.
+    /// [`TEventProcessor::run`] then returns [`RunError::BudgetSpent`].
     BudgetSpent,
 }
 
 /// Why an event processor run did not complete.
+/// Returned by [`TEventProcessor::run`] and [`run_on_own_task`].
 #[derive(Debug)]
 pub enum RunError<Err> {
     /// [`TEventProcessor::run_internal`] failed with the processor's own error.
@@ -104,6 +108,7 @@ where
 /// watches.
 ///
 /// Generic over the application's event type `E` and error type `Err`.
+/// [`TEventProcessorRunner`](crate::TEventProcessorRunner) runs one per homeserver.
 #[async_trait::async_trait]
 pub trait TEventProcessor<E, Err>: Send + Sync + 'static
 where
@@ -252,6 +257,8 @@ where
 ///
 /// `homeserver` is the homeserver the run is bound to, named in its span. A run that is not
 /// bound to one homeserver names none.
+/// It fails with [`RunError::Panicked`] or [`RunError::Internal`], or with
+/// [`RunError::BudgetSpent`] when the run returns [`RunOutcome::BudgetSpent`].
 pub async fn run_on_own_task<Err>(
     instance_name: &'static str,
     homeserver: Option<&str>,

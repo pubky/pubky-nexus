@@ -37,6 +37,7 @@ pub trait HomeserverResolver: Send + Sync {
 /// The homeserver a PKDNS record names: the target of its `_pubky` SVCB/HTTPS record, if
 /// there is one and it is a public key. Mirrors `Pubky::get_homeserver_of`, whose parsing
 /// the SDK does not export.
+/// Takes the packet [`HomeserverResolver::resolve_record`] returns.
 pub fn published_homeserver(packet: &SignedPacket) -> Option<PublicKey> {
     let target = packet
         .resource_records("_pubky")

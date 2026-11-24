@@ -57,6 +57,7 @@ impl<H> HomeserverWatcherBuilder<H> {
 
     /// Builds the watcher, which stops reading once `shutdown_rx` turns `true`. Fails on an
     /// events limit of zero.
+    /// The error is a [`ConfigError`].
     pub fn build<Err>(
         self,
         shutdown_rx: Receiver<bool>,

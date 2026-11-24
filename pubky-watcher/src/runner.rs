@@ -15,11 +15,13 @@ use tracing::{debug, error, info};
 use super::processor::{RunError, TEventProcessor};
 
 /// How one homeserver's turn in a runner cycle ended.
+/// Recorded in [`ProcessorRunStats::status`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProcessorRunStatus {
     /// [`TEventProcessorRunner::build`] failed, so no processor ran.
     FailedToBuild,
     /// The processor's run completed.
+    /// See [`status_from_run_result`].
     Ok,
     /// The processor's run failed ([`RunError::Internal`]).
     Error,
@@ -32,16 +34,20 @@ pub enum ProcessorRunStatus {
 }
 
 /// One homeserver's turn in a runner cycle.
+/// Collected in [`RunAllProcessorsStats`].
 pub struct ProcessorRunStats {
     /// The homeserver's ID, as [`TEventProcessorRunner::pre_run`] listed it.
     pub hs_id: String,
     /// How long building and running its processor took; zero when it was skipped.
+    /// Measured by [`TEventProcessorRunner::run`].
     pub duration: Duration,
     /// How the turn ended.
+    /// See [`ProcessorRunStatus`].
     pub status: ProcessorRunStatus,
 }
 
 /// Every homeserver's turn in a runner cycle, in order.
+/// Handed to [`TEventProcessorRunner::post_run`].
 #[derive(Default)]
 pub struct RunAllProcessorsStats {
     /// One [`ProcessorRunStats`] per homeserver, in the order they ran.
@@ -50,6 +56,7 @@ pub struct RunAllProcessorsStats {
 
 impl RunAllProcessorsStats {
     /// Records the turn of `hs_id`, which took `duration` and ended with `status`.
+    /// Appends a [`ProcessorRunStats`].
     pub fn add_run_result(
         &mut self,
         hs_id: String,
@@ -69,40 +76,48 @@ impl RunAllProcessorsStats {
     }
 
     /// Number of homeservers where processing were successful
+    /// Turns that ended [`ProcessorRunStatus::Ok`].
     pub fn count_ok(&self) -> usize {
         self.count(ProcessorRunStatus::Ok)
     }
 
     /// Number of homeservers where processing failed with Err
+    /// Turns that ended [`ProcessorRunStatus::Error`].
     pub fn count_error(&self) -> usize {
         self.count(ProcessorRunStatus::Error)
     }
 
     /// Number of homeservers where processing panicked
+    /// Turns that ended [`ProcessorRunStatus::Panic`].
     pub fn count_panic(&self) -> usize {
         self.count(ProcessorRunStatus::Panic)
     }
 
     /// Number of homeservers whose run stopped at its budget
+    /// Turns that ended [`ProcessorRunStatus::BudgetSpent`].
     pub fn count_budget_spent(&self) -> usize {
         self.count(ProcessorRunStatus::BudgetSpent)
     }
 
     /// Number of homeservers where processing failed to start
+    /// Turns that ended [`ProcessorRunStatus::FailedToBuild`].
     pub fn count_failed_to_build(&self) -> usize {
         self.count(ProcessorRunStatus::FailedToBuild)
     }
 
     /// Number of homeservers skipped due to backoff
+    /// Turns that ended [`ProcessorRunStatus::Skipped`].
     pub fn count_skipped(&self) -> usize {
         self.count(ProcessorRunStatus::Skipped)
     }
 }
 
 /// Wrapper around `RunAllProcessorsStats` which indicates they've been processed
+/// Returned by [`TEventProcessorRunner::run`] from [`TEventProcessorRunner::post_run`].
 pub struct ProcessedStats(pub RunAllProcessorsStats);
 
 /// The status a processor run that ended with `result` is recorded with.
+/// Maps a [`RunError`] onto a [`ProcessorRunStatus`].
 pub fn status_from_run_result<Err>(result: Result<(), RunError<Err>>) -> ProcessorRunStatus {
     match result {
         Ok(_) => ProcessorRunStatus::Ok,

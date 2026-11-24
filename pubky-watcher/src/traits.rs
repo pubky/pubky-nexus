@@ -1,15 +1,29 @@
-//! Traits an application implements to plug into the processor.
+//! Traits an application implements to plug into the watcher.
+//!
+//! Implement [`EventHandler`] to hand events to a [`Watcher`](crate::Watcher) builder.
+//! Implement [`ParseFromLine`] when a [`TEventProcessor`](crate::TEventProcessor) reads
+//! `/events/` lines into your own event type, and [`RetryableError`] with
+//! [`EventRetryScheduler`] when it should queue failed events for a retry instead of
+//! failing the run.
 
 /// How a single homeserver event line parsed.
+/// Returned by [`ParseFromLine::parse_line`].
 #[derive(Debug)]
 pub enum LineParseOutcome<E> {
     /// A line the application handles.
+    /// Handed to [`TEventProcessor::handle_event`](crate::TEventProcessor::handle_event).
     Parsed(E),
     /// A well-formed line the application ignores.
+    /// Dropped silently by
+    /// [`TEventProcessor::process_event_line`](crate::TEventProcessor::process_event_line).
     Skipped,
     /// A line naming a resource the application does not recognise.
+    /// Logged and skipped by
+    /// [`TEventProcessor::process_event_line`](crate::TEventProcessor::process_event_line).
     Unrecognized {
         /// Why the resource was not recognised, for the log.
+        /// Logged by
+        /// [`TEventProcessor::process_event_line`](crate::TEventProcessor::process_event_line).
         reason: String,
     },
 }
@@ -17,6 +31,7 @@ pub enum LineParseOutcome<E> {
 /// Parses a homeserver event line (`PUT <uri>` / `DEL <uri>`) into the application's event
 /// type. A line that cannot be parsed at all is an error; the processor logs it and moves on,
 /// since event lines come from untrusted homeservers.
+/// [`HomeserverEvent`](crate::HomeserverEvent) implements it.
 pub trait ParseFromLine: Sized {
     /// Why a line could not be parsed at all. Logged, never returned to the caller.
     type Error: std::fmt::Display;

@@ -29,11 +29,13 @@ const USER_EVENTS_429_BACKOFF_SECS: [u64; 3] = [1, 2, 3];
 
 /// One event from a homeserver's per-user `/events-stream`: all the key-based
 /// processor needs from it.
+/// Returned by [`KeyEventSource::user_events`].
 #[derive(Debug, Clone)]
 pub struct HsStreamEvent {
     /// Whether the event wrote or deleted the resource ([`EventMethod`]).
     pub event_type: EventMethod,
     /// The event's position in the user's stream; the next read starts after it.
+    /// Persist it as an [`EventCursor`](pubky::EventCursor).
     pub cursor: u64,
     owner: PublicKey,
     uri: String,
@@ -58,6 +60,7 @@ impl HsStreamEvent {
     }
 
     /// The resource's `pubky://` URI.
+    /// Its owner is [`Self::owner`].
     pub fn uri(&self) -> &str {
         &self.uri
     }
@@ -72,6 +75,8 @@ impl From<pubky::Event> for HsStreamEvent {
 /// A homeserver's `/events/` feed, which covers every user it hosts under one cursor.
 ///
 /// A failure is labelled with `hs`, the homeserver polled.
+/// [`WatcherClient`] implements it, and [`Watcher::homeserver`](crate::Watcher::homeserver)
+/// reads through it.
 #[async_trait::async_trait]
 pub trait HomeserverEventSource: Send + Sync + 'static {
     /// Primary-style `GET /events/?cursor=&limit=`. Returns the raw lines, the
@@ -88,6 +93,8 @@ pub trait HomeserverEventSource: Send + Sync + 'static {
 /// A user's `/events-stream` on a homeserver, with a cursor per user.
 ///
 /// A failure is labelled with `hs`, the homeserver asked.
+/// [`WatcherClient`] implements it, and [`Watcher::key_stream`](crate::Watcher::key_stream)
+/// reads through it.
 #[async_trait::async_trait]
 pub trait KeyEventSource: Send + Sync + 'static {
     /// Per-user `GET /events-stream?user=<pk>:<cursor>&limit=&path=<path>`, not live: the
@@ -107,6 +114,7 @@ pub trait KeyEventSource: Send + Sync + 'static {
 /// resource cannot exhaust memory.
 ///
 /// A failure is labelled with the resource owner's key.
+/// [`WatcherClient`] implements it.
 #[async_trait::async_trait]
 pub trait ResourceReader: Send + Sync + 'static {
     /// The JSON resource at `resource`, capped at 2 MiB, from the homeserver
@@ -137,22 +145,26 @@ impl std::fmt::Debug for WatcherClient {
 
 impl WatcherClient {
     /// A client for the public Pubky network.
+    /// Fails with a [`ClientError`].
     pub fn mainnet() -> Result<Self, ClientError> {
         Self::build(None)
     }
 
     /// A client for the Pubky testnet whose relay and homeservers run on `host` (e.g.
     /// `"localhost"`).
+    /// Fails with a [`ClientError`].
     pub fn testnet(host: &str) -> Result<Self, ClientError> {
         Self::build(Some(host))
     }
 
     /// A client over an SDK client you built, e.g. with your own timeouts.
+    /// The same as [`Self::from_shared`] over a new [`Arc`].
     pub fn from_pubky(pubky: Pubky) -> Self {
         Self::from_shared(Arc::new(pubky))
     }
 
     /// A client over an SDK client you share with the rest of your application.
+    /// Blobs are capped at [`DEFAULT_MAX_FILE_SIZE`] until [`Self::with_max_file_size`].
     pub fn from_shared(pubky: Arc<Pubky>) -> Self {
         Self {
             pubky,
@@ -167,6 +179,8 @@ impl WatcherClient {
     }
 
     /// The SDK client underneath, for the calls this client does not cover.
+    /// It is the one given to [`Self::from_pubky`] or [`Self::from_shared`], or the one
+    /// [`Self::mainnet`] or [`Self::testnet`] built.
     pub fn sdk(&self) -> &Arc<Pubky> {
         &self.pubky
     }

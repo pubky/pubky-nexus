@@ -39,8 +39,10 @@ pub struct HsError {
     /// every error several times larger.
     pub hs: String,
     /// The operation the call made.
+    /// See [`HsOp`].
     pub op: HsOp,
     /// Why the call failed.
+    /// See [`HsErrorKind`].
     pub kind: HsErrorKind,
 }
 
@@ -57,6 +59,7 @@ impl HsError {
 }
 
 /// The homeserver operation a call made.
+/// It labels every [`HsError`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HsOp {
     /// A read of the homeserver's `/events/` feed
@@ -77,18 +80,23 @@ pub enum HsOp {
 /// Homeserver-supplied text (response bodies, transport messages) is capped at
 /// 4 KiB when a kind is built through its constructors, before
 /// it can reach a log line or a span.
+/// It is the [`HsError::kind`] of a failure.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum HsErrorKind {
     /// The homeserver answered `404 Not Found`, with the start of its body.
+    /// Built by [`HsErrorKind::from_status`].
     #[error("HTTP 404: {0}")]
     NotFound(String),
     /// The homeserver answered `429 Too Many Requests`, with the start of its body.
+    /// Built by [`HsErrorKind::from_status`].
     #[error("HTTP 429: {0}")]
     RateLimited(String),
     /// The homeserver answered a `5xx` status, with the start of its body.
+    /// Built by [`HsErrorKind::from_status`].
     #[error("HTTP {0}: {1}")]
     ServerError(u16, String),
     /// Any other non-2xx status.
+    /// Built by [`HsErrorKind::from_status`].
     #[error("HTTP {0}: {1}")]
     Rejected(u16, String),
     /// The request, its response body included, took longer than the client's timeout
@@ -104,23 +112,30 @@ pub enum HsErrorKind {
     #[error("{got} bytes, over the {max} byte limit")]
     TooLarge {
         /// The size the homeserver announced, or the bytes read before stopping.
+        /// In bytes, as the cap ([`HsErrorKind::TooLarge`]).
         got: u64,
         /// The cap the read was under.
+        /// For a blob, the client's cap
+        /// ([`DEFAULT_MAX_FILE_SIZE`](super::DEFAULT_MAX_FILE_SIZE) by default).
         max: u64,
     },
     /// The SDK refused the request, could not decode the answer, or could not resolve a
     /// key: neither a status nor a transport failure. A failed fetch is retried; a failed
     /// event-stream request skips its user for the run, cursor kept, and unlike a transport
     /// failure never stops the run.
+    /// Built by the [`WatcherClient`](super::WatcherClient) from the SDK's error.
     #[error("sdk: {0}")]
     Sdk(String),
     /// A request that could not be built, e.g. from a malformed homeserver URL.
+    /// Built with [`HsErrorKind::malformed`].
     #[error("malformed: {0}")]
     Malformed(String),
 }
 
 impl HsErrorKind {
     /// Classifies a non-2xx status, keeping at most 4 KiB of its body.
+    /// Gives [`HsErrorKind::NotFound`], [`HsErrorKind::RateLimited`],
+    /// [`HsErrorKind::ServerError`] or [`HsErrorKind::Rejected`].
     pub fn from_status(status: StatusCode, body: &[u8]) -> Self {
         let body = format_error_body(body, MAX_ERROR_BODY);
         match status {
@@ -132,6 +147,7 @@ impl HsErrorKind {
     }
 
     /// A failure to reach the homeserver or to read its response.
+    /// Keeps at most 4 KiB of `error`'s message ([`HsErrorKind::Transport`]).
     pub fn transport(error: impl Display) -> Self {
         Self::Transport(capped(error))
     }

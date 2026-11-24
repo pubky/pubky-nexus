@@ -67,6 +67,7 @@ homeserver broke, with the cursors and users involved), `Handler(E)`, or `Panick
 `WatcherClient` makes every homeserver call. Build it with `WatcherClient::mainnet()`,
 `WatcherClient::testnet(host)`, or over an SDK client you already have with `from_pubky` or
 `from_shared`. `sdk()` returns that SDK client for calls the watcher does not cover.
+`mainnet()` and `testnet()` fail with a `ClientError`, whose `source()` is the SDK's error.
 
 Its capabilities are split into narrow traits, so that your tests fake only the one they
 exercise:
@@ -79,7 +80,8 @@ exercise:
 | `HomeserverResolver` | the signed PKDNS record a user publishes; `published_homeserver` reads the homeserver it names |
 
 The resolver returns the raw signed record, so that you can keep it, check its timestamp,
-and refuse an older answer that is replayed or lagging.
+and refuse an older answer that is replayed or lagging. A failed lookup is a `ResolveError`,
+whose `source()` is pkarr's error.
 
 A failed call is an `HsError`: the operation (poll events, user events, get resource, get
 blob) and a kind (not found, rate limited, server error, rejected, timeout, transport, too
@@ -103,6 +105,24 @@ retry queue or backoff implements directly:
 ## Examples
 
 See [`examples/`](examples/README.md): one per builder and one for the low-level traits.
+
+## Versioning
+
+Until the crate is published, its API changes in breaking ways without a version bump. The
+first published release starts the semver promise. Breaking changes so far, against the API
+as it was first extracted:
+
+- `WatcherError` is generic over the handler's error: `WatcherError<E>` with `Homeserver`,
+  `Protocol`, `Handler(E)` and `Panicked`, instead of a boxed error. A handler returns its own
+  error type, and the watchers are `HomeserverWatcher<E>` and `KeyStreamWatcher<E>`.
+- `build()` fails with the new `ConfigError`, and a homeserver that breaks the events
+  protocol fails a run with the new `ProtocolError`.
+- `BuildError` is removed: `TEventProcessorRunner` has an associated `type Error`, returned
+  by `build`, `pre_run` and `run`.
+- `HsErrorKind::from_sdk` and `HsErrorKind::from_reqwest` are no longer public.
+- `WatcherClient::mainnet()` and `testnet()` fail with `ClientError` instead of
+  `pubky::Error`, and `HomeserverResolver::resolve_record` with the crate's `ResolveError`
+  instead of pkarr's. Both expose the SDK's error only as their `source()`.
 
 ## Dependencies
 

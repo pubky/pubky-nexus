@@ -15,6 +15,7 @@ use crate::{HsStreamEvent, KeyEventSource};
 
 /// The paths a user's stream is read under when the builder sets none: everything they
 /// publish.
+/// Set another with [`KeyStreamWatcherBuilder::path`].
 pub const DEFAULT_KEY_STREAM_PATH: &str = "/pub/";
 
 /// Builds a [`KeyStreamWatcher`]: see [`Watcher::key_stream`](super::Watcher::key_stream).
@@ -81,6 +82,7 @@ impl<H> KeyStreamWatcherBuilder<H> {
     /// Builds the watcher, which stops reading once `shutdown_rx` turns `true`. Fails on an
     /// events limit of zero, an empty or duplicated user list, or a path that does not start
     /// with `/`.
+    /// The error is a [`ConfigError`].
     pub fn build<Err>(
         self,
         shutdown_rx: Receiver<bool>,
@@ -126,11 +128,14 @@ struct Config<Err> {
 pub struct KeyStreamOutcome {
     /// The cursor to start each user's next run from, in the order the users were given,
     /// safe to persist: every event of the user before it was handled.
+    /// Pass them to the next [`Watcher::key_stream`](super::Watcher::key_stream).
     pub cursors: Vec<(PublicKey, EventCursor)>,
     /// The events handed to the handler.
+    /// Each went to the handler's [`EventHandler::handle`].
     pub processed_events: usize,
     /// Whether the run read every user. A run stopped by shutdown returns `false`; each
     /// user's cursor is still safe to persist.
+    /// See [`KeyStreamWatcher::run`].
     pub completed: bool,
 }
 

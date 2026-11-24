@@ -30,6 +30,8 @@ pub use key_stream::{
 };
 
 /// The events a run requests when the builder sets no limit.
+/// Set another with [`HomeserverWatcherBuilder::events_limit`] or
+/// [`KeyStreamWatcherBuilder::events_limit`].
 pub const DEFAULT_EVENTS_LIMIT: u16 = 100;
 
 /// Why a builder refused to build its watcher: see [`HomeserverWatcherBuilder::build`] and
@@ -38,18 +40,24 @@ pub const DEFAULT_EVENTS_LIMIT: u16 = 100;
 #[non_exhaustive]
 pub enum ConfigError {
     /// The events limit is zero, so a run could never read an event.
+    /// See [`HomeserverWatcherBuilder::events_limit`] and
+    /// [`KeyStreamWatcherBuilder::events_limit`].
     #[error("the events limit must be greater than zero")]
     ZeroEventsLimit,
     /// A key stream was given no users to read.
+    /// The users are the ones given to [`Watcher::key_stream`].
     #[error("a key stream needs at least one user")]
     NoUsers,
     /// A key stream was given `user` more than once, each with its own cursor.
+    /// The users are the ones given to [`Watcher::key_stream`].
     #[error("a key stream cannot list a user twice")]
     DuplicateUser {
         /// The user listed twice.
+        /// As given to [`Watcher::key_stream`].
         user: PublicKey,
     },
     /// The key stream's path does not start with `/`.
+    /// See [`KeyStreamWatcherBuilder::path`].
     #[error("the event-stream path must start with '/'")]
     InvalidPath {
         /// The path given to [`KeyStreamWatcherBuilder::path`].
@@ -59,56 +67,73 @@ pub enum ConfigError {
 
 /// A homeserver answer that breaks the events protocol. The run fails before any event of
 /// the answer is handled, so the cursor it started from is still safe to persist.
+/// A failed run carries it as [`WatcherError::Protocol`].
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum ProtocolError {
     /// A `/events/` batch had events but no `cursor:` line.
+    /// Checked by [`HomeserverWatcher::run`].
     #[error("the homeserver sent events without a cursor line")]
     MissingCursor,
     /// A `/events/` batch's cursor is not a number.
+    /// Checked by [`HomeserverWatcher::run`].
     #[error("the homeserver sent a cursor that is no number: {raw:?}")]
     MalformedCursor {
         /// The cursor as the homeserver sent it.
+        /// Without its [`CURSOR_PREFIX`](crate::CURSOR_PREFIX).
         raw: String,
     },
     /// Events came with a cursor that does not move past the one they had to: the one the
     /// run asked from, or on a key stream, the previous event's.
+    /// Checked by [`HomeserverWatcher::run`] and [`KeyStreamWatcher::run`].
     #[error("{}", cursor_not_advanced(.user.as_ref(), *.requested, *.got))]
     CursorNotAdvanced {
         /// The user whose stream it was, on a [`KeyStreamWatcher`]; `None` on a
         /// [`HomeserverWatcher`].
         user: Option<PublicKey>,
         /// The cursor the events had to move past.
+        /// On a [`KeyStreamWatcher`], the previous event's cursor after the first event.
         requested: u64,
         /// The cursor the homeserver sent.
+        /// The batch's cursor on a [`HomeserverWatcher`], the event's on a [`KeyStreamWatcher`].
         got: u64,
     },
     /// A `/events/` batch had no events but moved the cursor, which would skip whatever lies
     /// between.
+    /// Checked by [`HomeserverWatcher::run`].
     #[error("the homeserver sent no events but moved the cursor from {requested} to {got}")]
     CursorMovedWithoutEvents {
         /// The cursor the run asked from.
+        /// See [`HomeserverWatcher::run`].
         requested: u64,
         /// The cursor the homeserver sent.
+        /// The batch's cursor line ([`EventBatch::cursor`](crate::EventBatch::cursor)).
         got: u64,
     },
     /// A user's stream held more events than the run asked for.
+    /// Checked by [`KeyStreamWatcher::run`].
     #[error("the stream of {} returned {got} events, more than the {limit} requested", .user.z32())]
     TooManyEvents {
         /// The user whose stream it was.
+        /// One of the users given to [`Watcher::key_stream`].
         user: PublicKey,
         /// The events the stream held.
+        /// See [`KeyStreamWatcherBuilder::events_limit`].
         got: usize,
         /// The events the run asked for.
+        /// Set by [`KeyStreamWatcherBuilder::events_limit`].
         limit: u16,
     },
     /// A user's stream held an event of another user, which would let one user's stream
     /// inject another's events.
+    /// Checked by [`KeyStreamWatcher::run`].
     #[error("the stream of {} returned an event of {}", .user.z32(), .owner.z32())]
     ForeignEvent {
         /// The user whose stream it was.
+        /// One of the users given to [`Watcher::key_stream`].
         user: PublicKey,
         /// The owner of the event.
+        /// See [`HsStreamEvent::owner`](crate::HsStreamEvent::owner).
         owner: PublicKey,
     },
 }
@@ -131,20 +156,26 @@ fn cursor_not_advanced(user: Option<&PublicKey>, requested: u64, got: u64) -> St
 #[non_exhaustive]
 pub enum WatcherError<Err> {
     /// A homeserver call failed.
+    /// See [`HsError`].
     #[error(transparent)]
     Homeserver(#[from] HsError),
     /// The homeserver's answer breaks the events protocol.
+    /// See [`ProtocolError`].
     #[error(transparent)]
     Protocol(#[from] ProtocolError),
     /// The handler failed on an event; the events before it were handled.
+    /// `Err` is what the [`EventHandler`](crate::EventHandler) returned.
     #[error("{0}")]
     Handler(Err),
     /// The run panicked.
+    /// As [`RunError::Panicked`](crate::RunError::Panicked) is for a processor.
     #[error("the watcher run panicked")]
     Panicked,
 }
 
 /// A builder whose handler is not set yet.
+/// [`HomeserverWatcherBuilder::handler`] and [`KeyStreamWatcherBuilder::handler`]
+/// replace it.
 #[derive(Debug, Default)]
 pub struct Missing;
 
@@ -153,11 +184,14 @@ pub struct Missing;
 pub struct WatchOutcome {
     /// The cursor to start the next run from, safe to persist: every event before it was
     /// handled.
+    /// Pass it to the next [`HomeserverWatcher::run`].
     pub cursor: EventCursor,
     /// The events handed to the handler.
+    /// Each went to the handler's [`EventHandler::handle`](crate::EventHandler::handle).
     pub processed_events: usize,
     /// Whether the run handled everything it read. A run stopped by shutdown returns `false`,
     /// with the cursor it started from, so the next run reads the batch again.
+    /// See [`HomeserverWatcher::run`].
     pub completed: bool,
 }
 
@@ -179,7 +213,8 @@ impl WatchOutcome {
     }
 }
 
-/// Picks what to watch on one homeserver.
+/// Picks what to watch on one homeserver: [`Watcher::homeserver`] reads its `/events/` feed,
+/// [`Watcher::key_stream`] a known set of users' streams.
 ///
 /// ```ignore
 /// let watcher = Watcher::homeserver(WatcherClient::mainnet()?, homeserver)
