@@ -15,13 +15,18 @@ Status: `0.1.0`, not published. The boundary and the names are still under discu
 
 ```rust,ignore
 use pubky::EventCursor;
-use pubky_watcher::{EventHandler, HomeserverEvent, Watcher, WatcherClient, WatcherError};
+use pubky_watcher::{EventHandler, HomeserverEvent, Watcher, WatcherClient};
 
 struct Print;
 
+/// The handler's own error type: a failed run gives it back as `WatcherError::Handler`.
+#[derive(Debug, thiserror::Error)]
+#[error("could not print the event")]
+struct PrintError;
+
 #[async_trait::async_trait]
-impl EventHandler<HomeserverEvent, WatcherError> for Print {
-    async fn handle(&self, event: &HomeserverEvent) -> Result<(), WatcherError> {
+impl EventHandler<HomeserverEvent, PrintError> for Print {
+    async fn handle(&self, event: &HomeserverEvent) -> Result<(), PrintError> {
         println!("{} {}", event.method, event.uri);
         Ok(())
     }
@@ -52,6 +57,10 @@ What a run guarantees:
   its events reaches your handler.
 - **Misconfiguration fails at build time:** an events limit of zero, an empty or duplicated
   user list, or a path that does not start with `/`.
+
+`build` fails with a `ConfigError`. A run fails with a `WatcherError<E>`, where `E` is your
+handler's error: `Homeserver` (an `HsError`), `Protocol` (a `ProtocolError`: which rule the
+homeserver broke, with the cursors and users involved), `Handler(E)`, or `Panicked`.
 
 ## The client
 

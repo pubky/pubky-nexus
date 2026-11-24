@@ -16,9 +16,12 @@ use async_trait::async_trait;
 use pubky::PublicKey;
 use pubky_watcher::{
     BuildError, EventBatch, HomeserverEvent, HomeserverEventSource, RunOutcome, TEventProcessor,
-    TEventProcessorRunner, WatcherClient, WatcherError,
+    TEventProcessorRunner, WatcherClient,
 };
 use tokio::sync::{watch, Mutex};
+
+/// This example's error: any error, boxed. An application would use its own type.
+type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 const STAGING_HOMESERVER: &str = "ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy";
 const POLL_TICKS: usize = 5;
@@ -34,7 +37,7 @@ struct PollProcessor {
 }
 
 #[async_trait]
-impl TEventProcessor<HomeserverEvent, WatcherError> for PollProcessor {
+impl TEventProcessor<HomeserverEvent, BoxError> for PollProcessor {
     fn instance_name(&self) -> &'static str {
         "poll_homeserver"
     }
@@ -43,12 +46,12 @@ impl TEventProcessor<HomeserverEvent, WatcherError> for PollProcessor {
         &self.homeserver_id
     }
 
-    async fn handle(&self, event: &HomeserverEvent) -> Result<(), WatcherError> {
+    async fn handle(&self, event: &HomeserverEvent) -> Result<(), BoxError> {
         println!("{} {}", event.method, event.uri);
         Ok(())
     }
 
-    async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, WatcherError> {
+    async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, BoxError> {
         let cursor = *self.cursor.lock().await;
         let lines = self
             .source
@@ -81,7 +84,7 @@ struct PollRunner {
 }
 
 #[async_trait]
-impl TEventProcessorRunner<HomeserverEvent, WatcherError> for PollRunner {
+impl TEventProcessorRunner<HomeserverEvent, BoxError> for PollRunner {
     fn shutdown_rx(&self) -> watch::Receiver<bool> {
         self.shutdown_rx.clone()
     }
@@ -89,7 +92,7 @@ impl TEventProcessorRunner<HomeserverEvent, WatcherError> for PollRunner {
     async fn build(
         &self,
         hs_id: &str,
-    ) -> Result<Arc<dyn TEventProcessor<HomeserverEvent, WatcherError>>, BuildError> {
+    ) -> Result<Arc<dyn TEventProcessor<HomeserverEvent, BoxError>>, BuildError> {
         Ok(Arc::new(PollProcessor {
             homeserver: PublicKey::try_from_z32(hs_id)?,
             homeserver_id: hs_id.to_string(),
@@ -104,7 +107,7 @@ impl TEventProcessorRunner<HomeserverEvent, WatcherError> for PollRunner {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), WatcherError> {
+async fn main() -> Result<(), BoxError> {
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
     let runner = PollRunner {
         source: Arc::new(WatcherClient::mainnet()?),

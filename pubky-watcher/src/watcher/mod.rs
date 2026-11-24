@@ -6,16 +6,23 @@
 //! `/events-stream`s on one homeserver, with one cursor each. Each run returns the cursors
 //! that are safe to persist; where they are kept is the application's choice.
 
+#![allow(
+    clippy::result_large_err,
+    clippy::large_enum_variant,
+    reason = "the errors carry the keys involved (a `PublicKey` is about 200 bytes); a run fails at most once"
+)]
+
 mod homeserver;
 mod key_stream;
 
-use std::io::{Error, ErrorKind};
-use std::sync::{Arc, Mutex};
+use std::fmt::{Debug, Display};
+use std::future::Future;
 
 use pubky::{EventCursor, PublicKey};
+use thiserror::Error;
 
-use crate::processor::{RunError, TEventProcessor};
-use crate::{HomeserverEventSource, KeyEventSource};
+use crate::processor::{wait_on_own_task, Panicked, SLOW_RUN_THRESHOLD};
+use crate::{HomeserverEventSource, HsError, KeyEventSource};
 
 pub use homeserver::{HomeserverWatcher, HomeserverWatcherBuilder};
 pub use key_stream::{
@@ -25,10 +32,117 @@ pub use key_stream::{
 /// The events a run requests when the builder sets no limit.
 pub const DEFAULT_EVENTS_LIMIT: u16 = 100;
 
-/// Why a watcher could not be built, or a run failed: a misconfiguration, a homeserver call
-/// that failed ([`HsError`](crate::HsError)), a homeserver answer that breaks the protocol,
-/// or the handler's error.
-pub type WatcherError = Box<dyn std::error::Error + Send + Sync>;
+/// Why a builder refused to build its watcher: see [`HomeserverWatcherBuilder::build`] and
+/// [`KeyStreamWatcherBuilder::build`].
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum ConfigError {
+    /// The events limit is zero, so a run could never read an event.
+    #[error("the events limit must be greater than zero")]
+    ZeroEventsLimit,
+    /// A key stream was given no users to read.
+    #[error("a key stream needs at least one user")]
+    NoUsers,
+    /// A key stream was given `user` more than once, each with its own cursor.
+    #[error("a key stream cannot list a user twice")]
+    DuplicateUser {
+        /// The user listed twice.
+        user: PublicKey,
+    },
+    /// The key stream's path does not start with `/`.
+    #[error("the event-stream path must start with '/'")]
+    InvalidPath {
+        /// The path given to [`KeyStreamWatcherBuilder::path`].
+        path: String,
+    },
+}
+
+/// A homeserver answer that breaks the events protocol. The run fails before any event of
+/// the answer is handled, so the cursor it started from is still safe to persist.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum ProtocolError {
+    /// A `/events/` batch had events but no `cursor:` line.
+    #[error("the homeserver sent events without a cursor line")]
+    MissingCursor,
+    /// A `/events/` batch's cursor is not a number.
+    #[error("the homeserver sent a cursor that is no number: {raw:?}")]
+    MalformedCursor {
+        /// The cursor as the homeserver sent it.
+        raw: String,
+    },
+    /// Events came with a cursor that does not move past the one they had to: the one the
+    /// run asked from, or on a key stream, the previous event's.
+    #[error("{}", cursor_not_advanced(.user.as_ref(), *.requested, *.got))]
+    CursorNotAdvanced {
+        /// The user whose stream it was, on a [`KeyStreamWatcher`]; `None` on a
+        /// [`HomeserverWatcher`].
+        user: Option<PublicKey>,
+        /// The cursor the events had to move past.
+        requested: u64,
+        /// The cursor the homeserver sent.
+        got: u64,
+    },
+    /// A `/events/` batch had no events but moved the cursor, which would skip whatever lies
+    /// between.
+    #[error("the homeserver sent no events but moved the cursor from {requested} to {got}")]
+    CursorMovedWithoutEvents {
+        /// The cursor the run asked from.
+        requested: u64,
+        /// The cursor the homeserver sent.
+        got: u64,
+    },
+    /// A user's stream held more events than the run asked for.
+    #[error("the stream of {} returned {got} events, more than the {limit} requested", .user.z32())]
+    TooManyEvents {
+        /// The user whose stream it was.
+        user: PublicKey,
+        /// The events the stream held.
+        got: usize,
+        /// The events the run asked for.
+        limit: u16,
+    },
+    /// A user's stream held an event of another user, which would let one user's stream
+    /// inject another's events.
+    #[error("the stream of {} returned an event of {}", .user.z32(), .owner.z32())]
+    ForeignEvent {
+        /// The user whose stream it was.
+        user: PublicKey,
+        /// The owner of the event.
+        owner: PublicKey,
+    },
+}
+
+fn cursor_not_advanced(user: Option<&PublicKey>, requested: u64, got: u64) -> String {
+    match user {
+        None => format!(
+            "the homeserver sent events with cursor {got}, which does not move past {requested}"
+        ),
+        Some(user) => format!(
+            "the stream of {} returned cursor {got}, which does not move past {requested}",
+            user.z32()
+        ),
+    }
+}
+
+/// Why a run of a [`HomeserverWatcher`] or a [`KeyStreamWatcher`] failed. `Err` is the
+/// handler's own error, given back as it was returned.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum WatcherError<Err> {
+    /// A homeserver call failed.
+    #[error(transparent)]
+    Homeserver(#[from] HsError),
+    /// The homeserver's answer breaks the events protocol.
+    #[error(transparent)]
+    Protocol(#[from] ProtocolError),
+    /// The handler failed on an event; the events before it were handled.
+    #[error("{0}")]
+    Handler(Err),
+    /// The run panicked.
+    #[error("the watcher run panicked")]
+    Panicked,
+}
 
 /// A builder whose handler is not set yet.
 #[derive(Debug, Default)]
@@ -100,39 +214,27 @@ impl Watcher {
     }
 }
 
-/// Runs `processor` through [`TEventProcessor::run`], so the run is waited for on its own
-/// task and a panic is an error, and returns the outcome it recorded in `slot`.
-async fn run_recording<E, P, O>(
-    processor: Arc<P>,
-    slot: impl Fn(&P) -> &Mutex<Option<O>>,
-) -> Result<O, WatcherError>
+/// Runs `read`, a run of the watcher `instance_name` on `homeserver`, on its own task, as
+/// [`run_on_own_task`](crate::run_on_own_task) does a processor's, and returns its outcome. A
+/// panic is [`WatcherError::Panicked`].
+async fn run_watcher<T, Err>(
+    instance_name: &'static str,
+    homeserver: &str,
+    read: impl Future<Output = Result<T, WatcherError<Err>>> + Send + 'static,
+) -> Result<T, WatcherError<Err>>
 where
-    E: Send + Sync + 'static,
-    P: TEventProcessor<E, WatcherError>,
+    T: Send + 'static,
+    Err: Display + Debug + Send + 'static,
 {
-    processor.clone().run().await.map_err(|error| match error {
-        RunError::Internal(error) => error,
-        RunError::Panicked => "the watcher run panicked".into(),
-        RunError::BudgetSpent => "the watcher run stopped at a budget".into(),
-    })?;
-    let outcome = slot(&processor)
-        .lock()
-        .map_err(|_| "the watcher run's outcome is poisoned")?
-        .take();
-    outcome.ok_or_else(|| "the watcher run recorded no outcome".into())
+    match wait_on_own_task(instance_name, Some(homeserver), SLOW_RUN_THRESHOLD, read).await {
+        Ok(result) => result,
+        Err(Panicked) => Err(WatcherError::Panicked),
+    }
 }
 
-fn validate_limit(limit: u16) -> Result<(), WatcherError> {
+fn validate_limit(limit: u16) -> Result<(), ConfigError> {
     if limit == 0 {
-        return Err(invalid_input("the events limit must be greater than zero"));
+        return Err(ConfigError::ZeroEventsLimit);
     }
     Ok(())
-}
-
-fn invalid_input(message: &'static str) -> WatcherError {
-    Error::new(ErrorKind::InvalidInput, message).into()
-}
-
-fn invalid_data(message: String) -> WatcherError {
-    Error::new(ErrorKind::InvalidData, message).into()
 }

@@ -14,9 +14,11 @@ use async_trait::async_trait;
 use pubky::{EventCursor, PubkyResource, PublicKey};
 use pubky_watcher::{
     EventHandler, EventMethod, HomeserverEvent, ResourceReader, Watcher, WatcherClient,
-    WatcherError,
 };
 use tokio::sync::watch;
+
+/// This example's error: any error, boxed. An application would use its own type.
+type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 const STAGING_HOMESERVER: &str = "ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy";
 const POLL_TICKS: usize = 5;
@@ -30,8 +32,8 @@ struct ResourcePrintingHandler {
 }
 
 #[async_trait]
-impl EventHandler<HomeserverEvent, WatcherError> for ResourcePrintingHandler {
-    async fn handle(&self, event: &HomeserverEvent) -> Result<(), WatcherError> {
+impl EventHandler<HomeserverEvent, BoxError> for ResourcePrintingHandler {
+    async fn handle(&self, event: &HomeserverEvent) -> Result<(), BoxError> {
         println!("{} {}", event.method, event.uri);
         if event.method != EventMethod::Put {
             return Ok(());
@@ -51,7 +53,7 @@ impl EventHandler<HomeserverEvent, WatcherError> for ResourcePrintingHandler {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), WatcherError> {
+async fn main() -> Result<(), BoxError> {
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
     let homeserver = PublicKey::try_from_z32(STAGING_HOMESERVER)?;
     let client = WatcherClient::mainnet()?;

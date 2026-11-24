@@ -250,6 +250,29 @@ pub async fn run_on_own_task<Err>(
 where
     Err: Debug + Send + 'static,
 {
+    match wait_on_own_task(instance_name, homeserver, slow_run_threshold, run_internal).await {
+        Ok(Ok(RunOutcome::Completed)) => Ok(()),
+        Ok(Ok(RunOutcome::BudgetSpent)) => Err(RunError::BudgetSpent),
+        Ok(Err(e)) => Err(RunError::Internal(e)),
+        Err(Panicked) => Err(RunError::Panicked),
+    }
+}
+
+/// The task of a run ended without returning: it panicked.
+pub(crate) struct Panicked;
+
+/// Runs `run` on its own task as [`run_on_own_task`] does, and returns what it returned, or
+/// [`Panicked`]. A run that fails is logged.
+pub(crate) async fn wait_on_own_task<T, Err>(
+    instance_name: &'static str,
+    homeserver: Option<&str>,
+    slow_run_threshold: Duration,
+    run: impl Future<Output = Result<T, Err>> + Send + 'static,
+) -> Result<Result<T, Err>, Panicked>
+where
+    T: Send + 'static,
+    Err: Debug + Send + 'static,
+{
     let homeserver = homeserver.map(tracing::field::display);
     let span = tracing::info_span!(
         "event_processor.run",
@@ -257,7 +280,7 @@ where
         homeserver,
     );
     let started = tokio::time::Instant::now();
-    let mut handle = tokio::spawn(run_internal.instrument(span));
+    let mut handle = tokio::spawn(run.instrument(span));
 
     let join_result = loop {
         match tokio::time::timeout(slow_run_threshold, &mut handle).await {
@@ -278,7 +301,7 @@ where
     //   - the Tokio runtime is shut down
     // In our model, we don't trigger such interruptions. Instead we use the shutdown signal
     // to gracefully stop the event processing loop. Therefore we consider all JoinErrors as panics.
-    let run_internal_result = join_result
+    let result = join_result
         .inspect_err(|je| {
             error!(
                 service = %instance_name,
@@ -287,19 +310,15 @@ where
                 "Event processor JoinError"
             )
         })
-        .map_err(|_| RunError::Panicked)?;
+        .map_err(|_| Panicked)?;
 
-    match run_internal_result {
-        Ok(RunOutcome::Completed) => Ok(()),
-        Ok(RunOutcome::BudgetSpent) => Err(RunError::BudgetSpent),
-        Err(e) => {
-            error!(
-                service = %instance_name,
-                homeserver,
-                error = ?e,
-                "Event processor failed"
-            );
-            Err(RunError::Internal(e))
-        }
+    if let Err(e) = &result {
+        error!(
+            service = %instance_name,
+            homeserver,
+            error = ?e,
+            "Event processor failed"
+        );
     }
+    Ok(result)
 }

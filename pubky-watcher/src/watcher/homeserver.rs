@@ -1,11 +1,12 @@
-use std::sync::{Arc, Mutex};
+use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use pubky::{EventCursor, PublicKey};
 use tokio::sync::watch::Receiver;
 use tracing::{debug, warn};
 
 use super::{
-    invalid_data, run_recording, validate_limit, Missing, WatchOutcome, WatcherError,
+    run_watcher, validate_limit, ConfigError, Missing, ProtocolError, WatchOutcome, WatcherError,
     DEFAULT_EVENTS_LIMIT,
 };
 use crate::events::{EventBatch, HomeserverEvent};
@@ -43,11 +44,9 @@ impl<H> HomeserverWatcherBuilder<H> {
         self
     }
 
-    /// The handler each event goes to.
-    pub fn handler<NewH>(self, handler: NewH) -> HomeserverWatcherBuilder<NewH>
-    where
-        NewH: EventHandler<HomeserverEvent, WatcherError> + 'static,
-    {
+    /// The handler each event goes to: an [`EventHandler`] of [`HomeserverEvent`]s, whose
+    /// error a failed run gives back as [`WatcherError::Handler`].
+    pub fn handler<NewH>(self, handler: NewH) -> HomeserverWatcherBuilder<NewH> {
         HomeserverWatcherBuilder {
             homeserver: self.homeserver,
             handler,
@@ -55,14 +54,17 @@ impl<H> HomeserverWatcherBuilder<H> {
             source: self.source,
         }
     }
-}
 
-impl<H> HomeserverWatcherBuilder<H>
-where
-    H: EventHandler<HomeserverEvent, WatcherError> + 'static,
-{
-    /// Builds the watcher, which stops reading once `shutdown_rx` turns `true`.
-    pub fn build(self, shutdown_rx: Receiver<bool>) -> Result<HomeserverWatcher, WatcherError> {
+    /// Builds the watcher, which stops reading once `shutdown_rx` turns `true`. Fails on an
+    /// events limit of zero.
+    pub fn build<Err>(
+        self,
+        shutdown_rx: Receiver<bool>,
+    ) -> Result<HomeserverWatcher<Err>, ConfigError>
+    where
+        H: EventHandler<HomeserverEvent, Err> + 'static,
+        Err: Display + Debug + Send + Sync + 'static,
+    {
         validate_limit(self.events_limit)?;
         Ok(HomeserverWatcher {
             config: Arc::new(Config {
@@ -77,46 +79,57 @@ where
     }
 }
 
-struct Config {
+struct Config<Err> {
     homeserver: PublicKey,
     homeserver_id: String,
-    handler: Arc<dyn EventHandler<HomeserverEvent, WatcherError>>,
+    handler: Arc<dyn EventHandler<HomeserverEvent, Err>>,
     events_limit: u16,
     source: Arc<dyn HomeserverEventSource>,
     shutdown_rx: Receiver<bool>,
 }
 
-/// Reads a homeserver's `/events/` feed, one batch per [`Self::run`].
-pub struct HomeserverWatcher {
-    config: Arc<Config>,
+/// Reads a homeserver's `/events/` feed, one batch per [`Self::run`]. `Err` is its handler's
+/// error.
+pub struct HomeserverWatcher<Err> {
+    config: Arc<Config<Err>>,
 }
 
-impl HomeserverWatcher {
+impl<Err> HomeserverWatcher<Err>
+where
+    Err: Display + Debug + Send + Sync + 'static,
+{
     /// Reads the batch after `cursor`, hands each event to the handler in order, and returns
     /// the cursor to start the next run from.
     ///
     /// The batch's cursor is checked before any event is handled: it must be a number, and
-    /// move past `cursor` when the batch has events. An idle homeserver answers no events,
-    /// and the cursor stays where it was. A handler error fails the run.
-    pub async fn run(&self, cursor: EventCursor) -> Result<WatchOutcome, WatcherError> {
+    /// move past `cursor` when the batch has events ([`ProtocolError`] otherwise). An idle
+    /// homeserver answers no events, and the cursor stays where it was. A handler error fails
+    /// the run.
+    pub async fn run(&self, cursor: EventCursor) -> Result<WatchOutcome, WatcherError<Err>> {
         let run = Arc::new(Run {
             config: self.config.clone(),
             cursor,
-            outcome: Mutex::new(None),
         });
-        run_recording(run, |run: &Run| &run.outcome).await
+        let read_run = run.clone();
+        run_watcher(run.instance_name(), run.homeserver_id(), async move {
+            read_run.read().await
+        })
+        .await
     }
 }
 
-/// One run of a [`HomeserverWatcher`], as a processor.
-struct Run {
-    config: Arc<Config>,
+/// One run of a [`HomeserverWatcher`], as a processor, so each event is handled in its
+/// [`TEventProcessor::event_span`].
+struct Run<Err> {
+    config: Arc<Config<Err>>,
     cursor: EventCursor,
-    outcome: Mutex<Option<WatchOutcome>>,
 }
 
 #[async_trait::async_trait]
-impl TEventProcessor<HomeserverEvent, WatcherError> for Run {
+impl<Err> TEventProcessor<HomeserverEvent, WatcherError<Err>> for Run<Err>
+where
+    Err: Display + Debug + Send + Sync + 'static,
+{
     fn instance_name(&self) -> &'static str {
         "HomeserverWatcher"
     }
@@ -125,22 +138,25 @@ impl TEventProcessor<HomeserverEvent, WatcherError> for Run {
         &self.config.homeserver_id
     }
 
-    async fn handle(&self, event: &HomeserverEvent) -> Result<(), WatcherError> {
-        self.config.handler.handle(event).await
+    async fn handle(&self, event: &HomeserverEvent) -> Result<(), WatcherError<Err>> {
+        self.config
+            .handler
+            .handle(event)
+            .await
+            .map_err(WatcherError::Handler)
     }
 
-    async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, WatcherError> {
-        let outcome = self.read().await?;
-        *self
-            .outcome
-            .lock()
-            .map_err(|_| "the watcher run's outcome is poisoned")? = Some(outcome);
+    async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, WatcherError<Err>> {
+        self.read().await?;
         Ok(RunOutcome::Completed)
     }
 }
 
-impl Run {
-    async fn read(&self) -> Result<WatchOutcome, WatcherError> {
+impl<Err> Run<Err>
+where
+    Err: Display + Debug + Send + Sync + 'static,
+{
+    async fn read(&self) -> Result<WatchOutcome, WatcherError<Err>> {
         let config = &self.config;
         if *config.shutdown_rx.borrow() {
             return Ok(WatchOutcome::interrupted(self.cursor, 0));
@@ -197,32 +213,29 @@ impl Run {
 fn next_cursor(
     requested: EventCursor,
     batch: &EventBatch<'_>,
-) -> Result<EventCursor, WatcherError> {
+) -> Result<EventCursor, ProtocolError> {
     let Some(raw) = batch.cursor else {
-        return Err(invalid_data(
-            "the homeserver sent events without a cursor line".into(),
-        ));
+        return Err(ProtocolError::MissingCursor);
     };
-    let id: u64 = raw.parse().map_err(|_| {
-        invalid_data(format!(
-            "the homeserver sent a cursor that is no number: {raw:?}"
-        ))
+    let got: u64 = raw.parse().map_err(|_| ProtocolError::MalformedCursor {
+        raw: raw.to_string(),
     })?;
 
-    if batch.has_events() && id <= requested.id() {
-        return Err(invalid_data(format!(
-            "the homeserver sent events with cursor {id}, which does not move past {}",
-            requested.id()
-        )));
+    if batch.has_events() && got <= requested.id() {
+        return Err(ProtocolError::CursorNotAdvanced {
+            user: None,
+            requested: requested.id(),
+            got,
+        });
     }
-    if !batch.has_events() && id != requested.id() {
-        return Err(invalid_data(format!(
-            "the homeserver sent no events but moved the cursor from {} to {id}",
-            requested.id()
-        )));
+    if !batch.has_events() && got != requested.id() {
+        return Err(ProtocolError::CursorMovedWithoutEvents {
+            requested: requested.id(),
+            got,
+        });
     }
 
-    Ok(EventCursor::new(id))
+    Ok(EventCursor::new(got))
 }
 
 #[cfg(test)]
@@ -233,9 +246,19 @@ mod tests {
     use tokio::sync::watch;
 
     use crate::{
-        EventHandler, EventMethod, HomeserverEvent, HomeserverEventSource, HsError, HsErrorKind,
-        HsOp, Watcher, WatcherError,
+        ConfigError, EventHandler, EventMethod, HomeserverEvent, HomeserverEventSource, HsError,
+        HsErrorKind, HsOp, ProtocolError, Watcher, WatcherError,
     };
+
+    /// The handler's own error: the index of the event it failed on.
+    #[derive(Debug, PartialEq, Eq)]
+    struct HandlerFailed(usize);
+
+    impl std::fmt::Display for HandlerFailed {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "handler failed on event {}", self.0)
+        }
+    }
 
     /// Answers every poll with `lines`, recording the cursors and limits asked for.
     struct Lines {
@@ -294,11 +317,11 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl EventHandler<HomeserverEvent, WatcherError> for &'static Recorder {
-        async fn handle(&self, event: &HomeserverEvent) -> Result<(), WatcherError> {
+    impl EventHandler<HomeserverEvent, HandlerFailed> for &'static Recorder {
+        async fn handle(&self, event: &HomeserverEvent) -> Result<(), HandlerFailed> {
             let mut events = self.events.lock().unwrap();
             if self.fail_at == Some(events.len()) {
-                return Err("handler failed".into());
+                return Err(HandlerFailed(events.len()));
             }
             events.push(event.clone());
             if let Some((after, shutdown)) = &self.shutdown_after {
@@ -322,11 +345,12 @@ mod tests {
         source: impl HomeserverEventSource,
         handler: &'static Recorder,
         cursor: u64,
-    ) -> Result<crate::WatchOutcome, WatcherError> {
+    ) -> Result<crate::WatchOutcome, WatcherError<HandlerFailed>> {
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
         Watcher::homeserver(source, homeserver())
             .handler(handler)
-            .build(shutdown_rx)?
+            .build(shutdown_rx)
+            .expect("a valid configuration")
             .run(EventCursor::new(cursor))
             .await
     }
@@ -378,18 +402,35 @@ mod tests {
     /// moves without events fails the run before any event is handled.
     #[tokio::test]
     async fn a_batch_with_a_bad_cursor_fails_before_any_event() {
-        for lines in [
-            vec!["PUT pubky://a/pub/x"],
-            vec!["PUT pubky://a/pub/x", "cursor: nope"],
-            vec!["PUT pubky://a/pub/x", "cursor: 10"],
-            vec!["PUT pubky://a/pub/x", "cursor: 9"],
-            vec!["cursor: 11"],
+        let not_advanced = |got| ProtocolError::CursorNotAdvanced {
+            user: None,
+            requested: 10,
+            got,
+        };
+        for (lines, expected) in [
+            (vec!["PUT pubky://a/pub/x"], ProtocolError::MissingCursor),
+            (
+                vec!["PUT pubky://a/pub/x", "cursor: nope"],
+                ProtocolError::MalformedCursor { raw: "nope".into() },
+            ),
+            (vec!["PUT pubky://a/pub/x", "cursor: 10"], not_advanced(10)),
+            (vec!["PUT pubky://a/pub/x", "cursor: 9"], not_advanced(9)),
+            (
+                vec!["cursor: 11"],
+                ProtocolError::CursorMovedWithoutEvents {
+                    requested: 10,
+                    got: 11,
+                },
+            ),
         ] {
             let handler = leak(Recorder::default());
 
-            let result = run(Lines::new(&lines), handler, 10).await;
+            let error = run(Lines::new(&lines), handler, 10).await.unwrap_err();
 
-            assert!(result.is_err(), "{lines:?}");
+            assert!(
+                matches!(&error, WatcherError::Protocol(got) if *got == expected),
+                "{lines:?}: {error:?}"
+            );
             assert!(handler.events.lock().unwrap().is_empty(), "{lines:?}");
         }
     }
@@ -442,15 +483,22 @@ mod tests {
     #[tokio::test]
     async fn a_failed_poll_or_handler_fails_the_run() {
         let error = run(Down, leak(Recorder::default()), 10).await.unwrap_err();
-        assert!(error.downcast_ref::<HsError>().is_some(), "{error}");
+        assert!(
+            matches!(&error, WatcherError::Homeserver(e) if e.op == HsOp::PollEvents),
+            "{error:?}"
+        );
 
         let failing = leak(Recorder {
-            fail_at: Some(0),
+            fail_at: Some(1),
             ..Recorder::default()
         });
-        let source = Lines::new(&["PUT pubky://a/pub/x", "cursor: 11"]);
+        let source = Lines::new(&["PUT pubky://a/pub/x", "PUT pubky://a/pub/y", "cursor: 11"]);
         let error = run(source, failing, 10).await.unwrap_err();
-        assert_eq!(error.to_string(), "handler failed");
+        assert!(
+            matches!(error, WatcherError::Handler(HandlerFailed(1))),
+            "{error:?}"
+        );
+        assert_eq!(error.to_string(), "handler failed on event 1");
     }
 
     /// The limit is passed to the homeserver, and zero is rejected at build time.
@@ -472,7 +520,7 @@ mod tests {
         let zero = Watcher::homeserver(Lines::new(&[]), homeserver())
             .handler(leak(Recorder::default()))
             .events_limit(0)
-            .build(shutdown_rx);
-        assert!(zero.is_err());
+            .build::<HandlerFailed>(shutdown_rx);
+        assert_eq!(zero.err(), Some(ConfigError::ZeroEventsLimit));
     }
 }

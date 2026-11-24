@@ -45,7 +45,7 @@ pub use traits::{
     EventHandler, EventRetryScheduler, LineParseOutcome, ParseFromLine, RetryableError,
 };
 pub use watcher::{
-    HomeserverWatcher, HomeserverWatcherBuilder, KeyStreamOutcome, KeyStreamWatcher,
-    KeyStreamWatcherBuilder, Missing, WatchOutcome, Watcher, WatcherError, DEFAULT_EVENTS_LIMIT,
-    DEFAULT_KEY_STREAM_PATH,
+    ConfigError, HomeserverWatcher, HomeserverWatcherBuilder, KeyStreamOutcome, KeyStreamWatcher,
+    KeyStreamWatcherBuilder, Missing, ProtocolError, WatchOutcome, Watcher, WatcherError,
+    DEFAULT_EVENTS_LIMIT, DEFAULT_KEY_STREAM_PATH,
 };

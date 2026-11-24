@@ -1,12 +1,13 @@
-use std::sync::{Arc, Mutex};
+use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use pubky::{EventCursor, PublicKey};
 use tokio::sync::watch::Receiver;
 use tracing::debug;
 
 use super::{
-    invalid_data, invalid_input, run_recording, validate_limit, Missing, WatchOutcome,
-    WatcherError, DEFAULT_EVENTS_LIMIT,
+    run_watcher, validate_limit, ConfigError, Missing, ProtocolError, WatchOutcome, WatcherError,
+    DEFAULT_EVENTS_LIMIT,
 };
 use crate::processor::{RunOutcome, TEventProcessor};
 use crate::traits::EventHandler;
@@ -62,11 +63,9 @@ impl<H> KeyStreamWatcherBuilder<H> {
         self
     }
 
-    /// The handler each event goes to.
-    pub fn handler<NewH>(self, handler: NewH) -> KeyStreamWatcherBuilder<NewH>
-    where
-        NewH: EventHandler<HsStreamEvent, WatcherError> + 'static,
-    {
+    /// The handler each event goes to: an [`EventHandler`] of [`HsStreamEvent`]s, whose
+    /// error a failed run gives back as [`WatcherError::Handler`].
+    pub fn handler<NewH>(self, handler: NewH) -> KeyStreamWatcherBuilder<NewH> {
         KeyStreamWatcherBuilder {
             homeserver: self.homeserver,
             users: self.users,
@@ -78,18 +77,22 @@ impl<H> KeyStreamWatcherBuilder<H> {
     }
 }
 
-impl<H> KeyStreamWatcherBuilder<H>
-where
-    H: EventHandler<HsStreamEvent, WatcherError> + 'static,
-{
+impl<H> KeyStreamWatcherBuilder<H> {
     /// Builds the watcher, which stops reading once `shutdown_rx` turns `true`. Fails on an
     /// events limit of zero, an empty or duplicated user list, or a path that does not start
     /// with `/`.
-    pub fn build(self, shutdown_rx: Receiver<bool>) -> Result<KeyStreamWatcher, WatcherError> {
+    pub fn build<Err>(
+        self,
+        shutdown_rx: Receiver<bool>,
+    ) -> Result<KeyStreamWatcher<Err>, ConfigError>
+    where
+        H: EventHandler<HsStreamEvent, Err> + 'static,
+        Err: Display + Debug + Send + Sync + 'static,
+    {
         validate_limit(self.events_limit)?;
         validate_users(&self.users)?;
         if !self.path.starts_with('/') {
-            return Err(invalid_input("the event-stream path must start with '/'"));
+            return Err(ConfigError::InvalidPath { path: self.path });
         }
 
         Ok(KeyStreamWatcher {
@@ -107,11 +110,11 @@ where
     }
 }
 
-struct Config {
+struct Config<Err> {
     homeserver: PublicKey,
     homeserver_id: String,
     users: Vec<(PublicKey, EventCursor)>,
-    handler: Arc<dyn EventHandler<HsStreamEvent, WatcherError>>,
+    handler: Arc<dyn EventHandler<HsStreamEvent, Err>>,
     events_limit: u16,
     path: String,
     source: Arc<dyn KeyEventSource>,
@@ -132,35 +135,45 @@ pub struct KeyStreamOutcome {
 }
 
 /// Reads a known set of users' `/events-stream`s on one homeserver, one user after the other,
-/// one batch each per [`Self::run`].
-pub struct KeyStreamWatcher {
-    config: Arc<Config>,
+/// one batch each per [`Self::run`]. `Err` is its handler's error.
+pub struct KeyStreamWatcher<Err> {
+    config: Arc<Config<Err>>,
 }
 
-impl KeyStreamWatcher {
+impl<Err> KeyStreamWatcher<Err>
+where
+    Err: Display + Debug + Send + Sync + 'static,
+{
     /// Reads each user's events after their cursor, hands them to the handler in order, and
     /// returns each user's cursor to start the next run from.
     ///
     /// A user's stream is checked before any of its events is handled: no more events than
-    /// requested, every event the user's own, and cursors that only move forward. A stream
-    /// that breaks this, or a handler error, fails the run.
-    pub async fn run(&self) -> Result<KeyStreamOutcome, WatcherError> {
+    /// requested, every event the user's own, and cursors that only move forward
+    /// ([`ProtocolError`] otherwise). A stream that breaks this, or a handler error, fails
+    /// the run.
+    pub async fn run(&self) -> Result<KeyStreamOutcome, WatcherError<Err>> {
         let run = Arc::new(Run {
             config: self.config.clone(),
-            outcome: Mutex::new(None),
         });
-        run_recording(run, |run: &Run| &run.outcome).await
+        let read_run = run.clone();
+        run_watcher(run.instance_name(), run.homeserver_id(), async move {
+            read_run.read().await
+        })
+        .await
     }
 }
 
-/// One run of a [`KeyStreamWatcher`], as a processor.
-struct Run {
-    config: Arc<Config>,
-    outcome: Mutex<Option<KeyStreamOutcome>>,
+/// One run of a [`KeyStreamWatcher`], as a processor, so each event is handled in its
+/// [`TEventProcessor::event_span`].
+struct Run<Err> {
+    config: Arc<Config<Err>>,
 }
 
 #[async_trait::async_trait]
-impl TEventProcessor<HsStreamEvent, WatcherError> for Run {
+impl<Err> TEventProcessor<HsStreamEvent, WatcherError<Err>> for Run<Err>
+where
+    Err: Display + Debug + Send + Sync + 'static,
+{
     fn instance_name(&self) -> &'static str {
         "KeyStreamWatcher"
     }
@@ -169,22 +182,25 @@ impl TEventProcessor<HsStreamEvent, WatcherError> for Run {
         &self.config.homeserver_id
     }
 
-    async fn handle(&self, event: &HsStreamEvent) -> Result<(), WatcherError> {
-        self.config.handler.handle(event).await
+    async fn handle(&self, event: &HsStreamEvent) -> Result<(), WatcherError<Err>> {
+        self.config
+            .handler
+            .handle(event)
+            .await
+            .map_err(WatcherError::Handler)
     }
 
-    async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, WatcherError> {
-        let outcome = self.read().await?;
-        *self
-            .outcome
-            .lock()
-            .map_err(|_| "the watcher run's outcome is poisoned")? = Some(outcome);
+    async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, WatcherError<Err>> {
+        self.read().await?;
         Ok(RunOutcome::Completed)
     }
 }
 
-impl Run {
-    async fn read(&self) -> Result<KeyStreamOutcome, WatcherError> {
+impl<Err> Run<Err>
+where
+    Err: Display + Debug + Send + Sync + 'static,
+{
+    async fn read(&self) -> Result<KeyStreamOutcome, WatcherError<Err>> {
         let mut cursors = self.config.users.clone();
         let mut processed_events = 0;
 
@@ -212,7 +228,7 @@ impl Run {
         &self,
         user: &PublicKey,
         cursor: EventCursor,
-    ) -> Result<WatchOutcome, WatcherError> {
+    ) -> Result<WatchOutcome, WatcherError<Err>> {
         let config = &self.config;
         if *config.shutdown_rx.borrow() {
             return Ok(WatchOutcome::interrupted(cursor, 0));
@@ -248,13 +264,13 @@ impl Run {
     }
 }
 
-fn validate_users(users: &[(PublicKey, EventCursor)]) -> Result<(), WatcherError> {
+fn validate_users(users: &[(PublicKey, EventCursor)]) -> Result<(), ConfigError> {
     if users.is_empty() {
-        return Err(invalid_input("a key stream needs at least one user"));
+        return Err(ConfigError::NoUsers);
     }
     for (index, (user, _)) in users.iter().enumerate() {
         if users[..index].iter().any(|(earlier, _)| earlier == user) {
-            return Err(invalid_input("a key stream cannot list a user twice"));
+            return Err(ConfigError::DuplicateUser { user: user.clone() });
         }
     }
     Ok(())
@@ -268,30 +284,29 @@ fn validate_events(
     requested: EventCursor,
     limit: u16,
     events: &[HsStreamEvent],
-) -> Result<(), WatcherError> {
+) -> Result<(), ProtocolError> {
     if events.len() > limit as usize {
-        return Err(invalid_data(format!(
-            "the stream of {} returned {} events, more than the {limit} requested",
-            user.z32(),
-            events.len()
-        )));
+        return Err(ProtocolError::TooManyEvents {
+            user: user.clone(),
+            got: events.len(),
+            limit,
+        });
     }
 
     let mut floor = requested.id();
     for event in events {
         if event.owner() != user {
-            return Err(invalid_data(format!(
-                "the stream of {} returned an event of {}",
-                user.z32(),
-                event.owner().z32()
-            )));
+            return Err(ProtocolError::ForeignEvent {
+                user: user.clone(),
+                owner: event.owner().clone(),
+            });
         }
         if event.cursor <= floor {
-            return Err(invalid_data(format!(
-                "the stream of {} returned cursor {}, which does not move past {floor}",
-                user.z32(),
-                event.cursor
-            )));
+            return Err(ProtocolError::CursorNotAdvanced {
+                user: Some(user.clone()),
+                requested: floor,
+                got: event.cursor,
+            });
         }
         floor = event.cursor;
     }
@@ -307,7 +322,8 @@ mod tests {
     use tokio::sync::watch;
 
     use crate::{
-        EventHandler, EventMethod, HsError, HsStreamEvent, KeyEventSource, Watcher, WatcherError,
+        ConfigError, EventHandler, EventMethod, HsError, HsStreamEvent, KeyEventSource,
+        ProtocolError, Watcher, WatcherError,
     };
 
     fn key() -> PublicKey {
@@ -366,8 +382,8 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl EventHandler<HsStreamEvent, WatcherError> for &'static Recorder {
-        async fn handle(&self, event: &HsStreamEvent) -> Result<(), WatcherError> {
+    impl EventHandler<HsStreamEvent, String> for &'static Recorder {
+        async fn handle(&self, event: &HsStreamEvent) -> Result<(), String> {
             let mut cursors = self.cursors.lock().unwrap();
             cursors.push(event.cursor);
             if let Some((after, shutdown)) = &self.shutdown_after {
@@ -449,11 +465,32 @@ mod tests {
     #[tokio::test]
     async fn a_stream_that_breaks_the_protocol_fails_before_any_event() {
         let (alice, mallory) = (key(), key());
-        for events in [
-            vec![event(&alice, 11), event(&alice, 12), event(&alice, 13)],
-            vec![event(&alice, 11), event(&mallory, 12)],
-            vec![event(&alice, 10)],
-            vec![event(&alice, 12), event(&alice, 11)],
+        let not_advanced = |requested, got| ProtocolError::CursorNotAdvanced {
+            user: Some(alice.clone()),
+            requested,
+            got,
+        };
+        for (events, expected) in [
+            (
+                vec![event(&alice, 11), event(&alice, 12), event(&alice, 13)],
+                ProtocolError::TooManyEvents {
+                    user: alice.clone(),
+                    got: 3,
+                    limit: 2,
+                },
+            ),
+            (
+                vec![event(&alice, 11), event(&mallory, 12)],
+                ProtocolError::ForeignEvent {
+                    user: alice.clone(),
+                    owner: mallory.clone(),
+                },
+            ),
+            (vec![event(&alice, 10)], not_advanced(10, 10)),
+            (
+                vec![event(&alice, 12), event(&alice, 11)],
+                not_advanced(12, 11),
+            ),
         ] {
             let source = Streams::new(vec![(&alice, events)]);
             let handler = recorder();
@@ -468,7 +505,10 @@ mod tests {
                     .run()
                     .await;
 
-            assert!(result.is_err());
+            assert!(
+                matches!(&result, Err(WatcherError::Protocol(got)) if *got == expected),
+                "{result:?}"
+            );
             assert!(handler.cursors.lock().unwrap().is_empty());
         }
     }
@@ -524,9 +564,22 @@ mod tests {
         };
 
         assert!(build(one(), 1, "/pub/").is_ok());
-        assert!(build(one(), 0, "/pub/").is_err());
-        assert!(build(vec![], 1, "/pub/").is_err());
-        assert!(build([one(), one()].concat(), 1, "/pub/").is_err());
-        assert!(build(one(), 1, "pub/").is_err());
+        assert_eq!(
+            build(one(), 0, "/pub/").err(),
+            Some(ConfigError::ZeroEventsLimit)
+        );
+        assert_eq!(build(vec![], 1, "/pub/").err(), Some(ConfigError::NoUsers));
+        assert_eq!(
+            build([one(), one()].concat(), 1, "/pub/").err(),
+            Some(ConfigError::DuplicateUser {
+                user: alice.clone()
+            })
+        );
+        assert_eq!(
+            build(one(), 1, "pub/").err(),
+            Some(ConfigError::InvalidPath {
+                path: "pub/".into()
+            })
+        );
     }
 }

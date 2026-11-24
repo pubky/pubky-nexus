@@ -9,8 +9,11 @@
 
 use async_trait::async_trait;
 use pubky::{EventCursor, PublicKey};
-use pubky_watcher::{EventHandler, HsStreamEvent, Watcher, WatcherClient, WatcherError};
+use pubky_watcher::{EventHandler, HsStreamEvent, Watcher, WatcherClient};
 use tokio::sync::watch;
+
+/// This example's error: any error, boxed. An application would use its own type.
+type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 const STAGING_HOMESERVER: &str = "ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy";
 const EVENTS_PER_USER: u16 = 8;
@@ -23,8 +26,8 @@ const USER_KEYS: [&str; 3] = [
 struct PrintingHandler;
 
 #[async_trait]
-impl EventHandler<HsStreamEvent, WatcherError> for PrintingHandler {
-    async fn handle(&self, event: &HsStreamEvent) -> Result<(), WatcherError> {
+impl EventHandler<HsStreamEvent, BoxError> for PrintingHandler {
+    async fn handle(&self, event: &HsStreamEvent) -> Result<(), BoxError> {
         println!(
             "{} {} cursor={}",
             event.event_type,
@@ -36,7 +39,7 @@ impl EventHandler<HsStreamEvent, WatcherError> for PrintingHandler {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), WatcherError> {
+async fn main() -> Result<(), BoxError> {
     let client = WatcherClient::mainnet()?;
     let homeserver = PublicKey::try_from_z32(STAGING_HOMESERVER)?;
     let users = USER_KEYS
