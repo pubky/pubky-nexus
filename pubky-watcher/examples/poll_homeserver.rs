@@ -15,7 +15,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use pubky::PublicKey;
 use pubky_watcher::{
-    BuildError, EventBatch, HomeserverEvent, HomeserverEventSource, RunOutcome, TEventProcessor,
+    EventBatch, HomeserverEvent, HomeserverEventSource, RunOutcome, TEventProcessor,
     TEventProcessorRunner, WatcherClient,
 };
 use tokio::sync::{watch, Mutex};
@@ -85,6 +85,8 @@ struct PollRunner {
 
 #[async_trait]
 impl TEventProcessorRunner<HomeserverEvent, BoxError> for PollRunner {
+    type Error = BoxError;
+
     fn shutdown_rx(&self) -> watch::Receiver<bool> {
         self.shutdown_rx.clone()
     }
@@ -92,7 +94,7 @@ impl TEventProcessorRunner<HomeserverEvent, BoxError> for PollRunner {
     async fn build(
         &self,
         hs_id: &str,
-    ) -> Result<Arc<dyn TEventProcessor<HomeserverEvent, BoxError>>, BuildError> {
+    ) -> Result<Arc<dyn TEventProcessor<HomeserverEvent, BoxError>>, BoxError> {
         Ok(Arc::new(PollProcessor {
             homeserver: PublicKey::try_from_z32(hs_id)?,
             homeserver_id: hs_id.to_string(),
@@ -101,7 +103,7 @@ impl TEventProcessorRunner<HomeserverEvent, BoxError> for PollRunner {
         }))
     }
 
-    async fn pre_run(&self) -> Result<Vec<String>, BuildError> {
+    async fn pre_run(&self) -> Result<Vec<String>, BoxError> {
         Ok(vec![STAGING_HOMESERVER.to_string()])
     }
 }

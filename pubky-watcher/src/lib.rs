@@ -38,7 +38,7 @@ pub use processor::{
     SLOW_RUN_THRESHOLD,
 };
 pub use runner::{
-    status_from_run_result, BuildError, ProcessedStats, ProcessorRunStats, ProcessorRunStatus,
+    status_from_run_result, ProcessedStats, ProcessorRunStats, ProcessorRunStatus,
     RunAllProcessorsStats, TEventProcessorRunner,
 };
 pub use traits::{

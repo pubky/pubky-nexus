@@ -54,6 +54,8 @@ impl HsEventProcessorRunner {
 
 #[async_trait::async_trait]
 impl TEventProcessorRunner<Event, EventProcessorError> for HsEventProcessorRunner {
+    type Error = DynError;
+
     fn shutdown_rx(&self) -> Receiver<bool> {
         self.shutdown_rx.clone()
     }

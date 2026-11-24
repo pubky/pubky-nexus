@@ -132,6 +132,8 @@ mod tests {
 
     #[async_trait::async_trait]
     impl TEventProcessorRunner<Event, EventProcessorError> for RecordingRunner {
+        type Error = DynError;
+
         fn shutdown_rx(&self) -> Receiver<bool> {
             self.shutdown_rx.clone()
         }

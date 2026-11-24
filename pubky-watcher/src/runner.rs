@@ -9,9 +9,6 @@ use tracing::{debug, error, info};
 
 use super::processor::{RunError, TEventProcessor};
 
-/// Why a runner could not list its homeservers or build a processor.
-pub type BuildError = Box<dyn std::error::Error + Send + Sync>;
-
 /// How one homeserver's turn in a runner cycle ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProcessorRunStatus {
@@ -115,6 +112,11 @@ where
     E: Send + Sync + 'static,
     Err: Display + Debug + Send + Sync + 'static,
 {
+    /// Why this runner could not list its homeservers ([`Self::pre_run`]) or build a
+    /// processor ([`Self::build`]). These are the implementor's own lookups, so the
+    /// implementor picks the type.
+    type Error: Display + Debug + Send + Sync + 'static;
+
     /// Returns the shutdown signal receiver
     fn shutdown_rx(&self) -> Receiver<bool>;
 
@@ -129,7 +131,7 @@ where
     ///
     /// # Errors
     /// Returns an error if the event processor couldn't be built
-    async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor<E, Err>>, BuildError>;
+    async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor<E, Err>>, Self::Error>;
 
     /// Pre-processing step before the main run loop.
     ///
@@ -137,7 +139,7 @@ where
     ///
     /// The list is not truncated here: [`Self::poll_limit`] is applied in [`Self::run`], after
     /// the HS IDs in backoff are skipped.
-    async fn pre_run(&self) -> Result<Vec<String>, BuildError>;
+    async fn pre_run(&self) -> Result<Vec<String>, Self::Error>;
 
     /// Maximum number of HS IDs built and run per cycle. HS IDs skipped by backoff don't count.
     ///
@@ -157,7 +159,7 @@ where
     ///
     /// # Returns
     /// Statistics about the event processor run results, summarized as [`ProcessedStats`]
-    async fn run(&self) -> Result<ProcessedStats, BuildError> {
+    async fn run(&self) -> Result<ProcessedStats, Self::Error> {
         let hs_ids = self.pre_run().await?;
         let poll_limit = self.poll_limit();
         let mut polled = 0;
