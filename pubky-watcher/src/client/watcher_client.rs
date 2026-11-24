@@ -84,7 +84,8 @@ pub trait HomeserverEventSource: Send + Sync + 'static {
 /// A failure is labelled with `hs`, the homeserver asked.
 #[async_trait::async_trait]
 pub trait KeyEventSource: Send + Sync + 'static {
-    /// Per-user `GET /events-stream?user=<pk>:<cursor>&limit=&path=/pub/`, not live.
+    /// Per-user `GET /events-stream?user=<pk>:<cursor>&limit=&path=<path>`, not live: the
+    /// user's events after `cursor` whose resource path starts with `path` (e.g. `/pub/`).
     /// At most `limit` events are returned. A rate-limited request is retried.
     async fn user_events(
         &self,
@@ -92,6 +93,7 @@ pub trait KeyEventSource: Send + Sync + 'static {
         user: &PublicKey,
         cursor: u64,
         limit: u16,
+        path: &str,
     ) -> Result<Vec<HsStreamEvent>, HsError>;
 }
 
@@ -101,7 +103,7 @@ pub trait KeyEventSource: Send + Sync + 'static {
 /// A failure is labelled with the resource owner's key.
 #[async_trait::async_trait]
 pub trait ResourceReader: Send + Sync + 'static {
-    /// The JSON resource at `resource`, capped at [`MAX_RESOURCE_SIZE`], from the homeserver
+    /// The JSON resource at `resource`, capped at 2 MiB, from the homeserver
     /// its owner publishes.
     async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError>;
 
@@ -111,7 +113,8 @@ pub trait ResourceReader: Send + Sync + 'static {
 }
 
 /// Every homeserver call over the Pubky SDK: [`HomeserverEventSource`], [`KeyEventSource`],
-/// [`ResourceReader`] and [`HomeserverResolver`].
+/// [`ResourceReader`] and [`HomeserverResolver`]. Cloning it shares the SDK client.
+#[derive(Clone)]
 pub struct WatcherClient {
     pubky: Arc<Pubky>,
     max_file_size: u64,
@@ -206,6 +209,7 @@ impl WatcherClient {
         user: &PublicKey,
         cursor: u64,
         limit: u16,
+        path: &str,
     ) -> Result<Vec<HsStreamEvent>, HsErrorKind> {
         // We are building the stream without the live flag, so it performs an HTTP GET and closes.
         // See rustdoc of EventStreamBuilder::live()
@@ -215,7 +219,7 @@ impl WatcherClient {
             .add_users(vec![(user, Some(EventCursor::new(cursor)))])
             .map_err(HsErrorKind::from_sdk)?
             .limit(limit)
-            .path("/pub/")
+            .path(path)
             .subscribe()
             .await
             .map_err(HsErrorKind::from_sdk)
@@ -310,8 +314,12 @@ impl KeyEventSource for WatcherClient {
         user: &PublicKey,
         cursor: u64,
         limit: u16,
+        path: &str,
     ) -> Result<Vec<HsStreamEvent>, HsError> {
-        user_events_with(hs, user, || self.fetch_user_events(hs, user, cursor, limit)).await
+        user_events_with(hs, user, || {
+            self.fetch_user_events(hs, user, cursor, limit, path)
+        })
+        .await
     }
 }
 

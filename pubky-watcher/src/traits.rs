@@ -20,6 +20,15 @@ pub trait ParseFromLine: Sized {
     fn parse_line(line: &str) -> Result<LineParseOutcome<Self>, Self::Error>;
 }
 
+/// Handles one parsed event: the application's meaning of it, e.g. indexing or storing it.
+///
+/// The handler [`Watcher`](crate::Watcher)'s builders take. A failure fails the run, so the
+/// application starts the next one from the cursor it last persisted.
+#[async_trait::async_trait]
+pub trait EventHandler<E, Err>: Send + Sync {
+    async fn handle(&self, event: &E) -> Result<(), Err>;
+}
+
 /// Classifies a failed event for [`dispatch_retryable_error`](super::dispatch_retryable_error).
 ///
 /// Opt-in: [`TEventProcessor`](super::TEventProcessor) does not require it. A processor that

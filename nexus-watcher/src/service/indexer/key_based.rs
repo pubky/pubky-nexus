@@ -18,6 +18,9 @@ use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
 use super::homeserver::HsMapping;
+
+/// The paths a user's stream is read under: everything they publish.
+const USER_EVENTS_PATH: &str = "/pub/";
 use super::{event_span, handle_error, RunOutcome, TEventProcessor};
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
@@ -248,7 +251,7 @@ impl KeyBasedEventProcessor {
         let hs_id: &str = self.homeserver_id.as_ref();
         let stream_events = self
             .client
-            .user_events(hs_pk, user_pk, cursor.id(), self.limit)
+            .user_events(hs_pk, user_pk, cursor.id(), self.limit, USER_EVENTS_PATH)
             .await?;
 
         let user_id = user_pk.z32();

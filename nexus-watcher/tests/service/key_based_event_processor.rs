@@ -1094,6 +1094,7 @@ impl KeyEventSource for MappingChangesDuringFetch {
         user: &PublicKey,
         cursor: u64,
         limit: u16,
+        path: &str,
     ) -> Result<Vec<HsStreamEvent>, HsError> {
         let user_id = user.z32();
         match self.change {
@@ -1103,7 +1104,7 @@ impl KeyEventSource for MappingChangesDuringFetch {
             }
         }
         .expect("the mapping changes");
-        self.inner.user_events(hs, user, cursor, limit).await
+        self.inner.user_events(hs, user, cursor, limit, path).await
     }
 }
 

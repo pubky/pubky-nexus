@@ -25,13 +25,14 @@ mod events;
 mod processor;
 mod runner;
 mod traits;
+mod watcher;
 
 pub use client::{
     published_homeserver, EventMethod, HomeserverEventSource, HomeserverResolver, HsError,
     HsErrorKind, HsOp, HsStreamEvent, KeyEventSource, ResourceReader, WatcherClient,
     DEFAULT_MAX_FILE_SIZE, DEFAULT_REQUEST_TIMEOUT,
 };
-pub use events::{EventBatch, CURSOR_PREFIX};
+pub use events::{EventBatch, HomeserverEvent, CURSOR_PREFIX};
 pub use processor::{
     dispatch_retryable_error, run_on_own_task, RunError, RunOutcome, TEventProcessor,
     SLOW_RUN_THRESHOLD,
@@ -40,4 +41,11 @@ pub use runner::{
     status_from_run_result, BuildError, ProcessedStats, ProcessorRunStats, ProcessorRunStatus,
     RunAllProcessorsStats, TEventProcessorRunner,
 };
-pub use traits::{EventRetryScheduler, LineParseOutcome, ParseFromLine, RetryableError};
+pub use traits::{
+    EventHandler, EventRetryScheduler, LineParseOutcome, ParseFromLine, RetryableError,
+};
+pub use watcher::{
+    HomeserverWatcher, HomeserverWatcherBuilder, KeyStreamOutcome, KeyStreamWatcher,
+    KeyStreamWatcherBuilder, Missing, WatchOutcome, Watcher, WatcherError, DEFAULT_EVENTS_LIMIT,
+    DEFAULT_KEY_STREAM_PATH,
+};

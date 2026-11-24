@@ -42,13 +42,15 @@ async fn test_user_events_come_from_the_homeserver_after_the_cursor() -> Result<
     let user_pk = user_kp.public_key();
     let hs = test.homeserver_id.to_public_key()?;
 
-    let first = client.user_events(&hs, &user_pk, 0, 1).await?;
+    let first = client.user_events(&hs, &user_pk, 0, 1, "/pub/").await?;
 
     assert_eq!(first.len(), 1, "{first:?}");
     assert_eq!(first[0].owner().z32(), user_id);
 
     let cursor = first[0].cursor;
-    let rest = client.user_events(&hs, &user_pk, cursor, 100).await?;
+    let rest = client
+        .user_events(&hs, &user_pk, cursor, 100, "/pub/")
+        .await?;
 
     // The key now names the other homeserver, so the usual cleanup helper would delete the
     // profile there, where it never was. Undo `create_user` through the DEL handler instead.
@@ -103,9 +105,9 @@ async fn test_rate_limited_user_events_are_retried_against_a_homeserver() -> Res
     let client = &test.event_processor_runner.client;
     let user_pk = user_kp.public_key();
 
-    client.user_events(&hs, &user_pk, 0, 10).await?;
+    client.user_events(&hs, &user_pk, 0, 10, "/pub/").await?;
     let asked_again = Instant::now();
-    let events = client.user_events(&hs, &user_pk, 0, 10).await?;
+    let events = client.user_events(&hs, &user_pk, 0, 10, "/pub/").await?;
 
     assert!(events.is_empty(), "{events:?}");
     assert!(

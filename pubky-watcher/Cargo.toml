@@ -7,6 +7,7 @@ description = "Read events from Pubky homeservers"
 homepage = "https://github.com/pubky/pubky-nexus"
 repository = "https://github.com/pubky/pubky-nexus"
 license = "MIT"
+readme = "README.md"
 
 [dependencies]
 async-trait = { workspace = true }

@@ -41,7 +41,7 @@ pub enum HsOp {
 /// Why a homeserver call failed.
 ///
 /// Homeserver-supplied text (response bodies, transport messages) is capped at
-/// [`MAX_ERROR_BODY`] bytes when a kind is built through its constructors, before
+/// 4 KiB when a kind is built through its constructors, before
 /// it can reach a log line or a span.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum HsErrorKind {
@@ -72,7 +72,7 @@ pub enum HsErrorKind {
 }
 
 impl HsErrorKind {
-    /// Classifies a non-2xx status, keeping at most [`MAX_ERROR_BODY`] bytes of its body.
+    /// Classifies a non-2xx status, keeping at most 4 KiB of its body.
     pub fn from_status(status: StatusCode, body: &[u8]) -> Self {
         let body = format_error_body(body, MAX_ERROR_BODY);
         match status {

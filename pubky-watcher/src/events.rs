@@ -1,5 +1,67 @@
+//! The `/events/` line protocol: a `text/plain` body with one event per line
+//! (`PUT <uri>` / `DEL <uri>`), closed by a `cursor: <value>` line.
+
+use std::convert::Infallible;
+
+use crate::client::EventMethod;
+use crate::traits::{LineParseOutcome, ParseFromLine};
+
 /// Prefix of the line closing a homeserver `/events/` response with its cursor.
 pub const CURSOR_PREFIX: &str = "cursor: ";
+
+/// An event line of a homeserver's `/events/` feed: `PUT <uri>` or `DEL <uri>`.
+///
+/// The event type [`Watcher::homeserver`](crate::Watcher::homeserver) hands to its handler.
+/// An application that needs richer parsing defines its own type and implements
+/// [`ParseFromLine`] for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HomeserverEvent {
+    /// `PUT` or `DEL`.
+    pub method: EventMethod,
+    /// The resource's `pubky://` URI, as the line carries it.
+    pub uri: String,
+}
+
+/// Parsing never fails: an empty line is [`LineParseOutcome::Skipped`], and a line that is
+/// not `PUT <uri>` or `DEL <uri>` is [`LineParseOutcome::Unrecognized`]. Only the first space
+/// separates the method from the URI: homeservers write a stored file's name unencoded, and
+/// a name may contain spaces.
+impl ParseFromLine for HomeserverEvent {
+    type Error = Infallible;
+
+    fn parse_line(line: &str) -> Result<LineParseOutcome<Self>, Self::Error> {
+        if line.trim().is_empty() {
+            return Ok(LineParseOutcome::Skipped);
+        }
+
+        let Some((method, uri)) = line.split_once(' ') else {
+            return Ok(LineParseOutcome::Unrecognized {
+                reason: format!("expected `<METHOD> <uri>`, got: {line}"),
+            });
+        };
+
+        let method = match method {
+            "PUT" => EventMethod::Put,
+            "DEL" => EventMethod::Del,
+            other => {
+                return Ok(LineParseOutcome::Unrecognized {
+                    reason: format!("unknown event method: {other}"),
+                });
+            }
+        };
+
+        if uri.trim().is_empty() {
+            return Ok(LineParseOutcome::Unrecognized {
+                reason: format!("missing uri in event line: {line}"),
+            });
+        }
+
+        Ok(LineParseOutcome::Parsed(Self {
+            method,
+            uri: uri.to_string(),
+        }))
+    }
+}
 
 /// A homeserver `/events/` response, split into its event lines and the cursor closing the batch.
 ///
@@ -46,7 +108,68 @@ impl<'a> EventBatch<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::EventBatch;
+    use super::{EventBatch, HomeserverEvent};
+    use crate::{EventMethod, LineParseOutcome, ParseFromLine};
+
+    fn parsed(line: &str) -> HomeserverEvent {
+        match HomeserverEvent::parse_line(line).unwrap() {
+            LineParseOutcome::Parsed(event) => event,
+            other => panic!("{line:?} did not parse: {other:?}"),
+        }
+    }
+
+    fn unrecognized(line: &str) -> bool {
+        matches!(
+            HomeserverEvent::parse_line(line).unwrap(),
+            LineParseOutcome::Unrecognized { .. }
+        )
+    }
+
+    // --- HomeserverEvent::parse_line ---
+
+    #[test]
+    fn put_and_del_lines_parse() {
+        assert_eq!(
+            parsed("PUT pubky://a/pub/x"),
+            HomeserverEvent {
+                method: EventMethod::Put,
+                uri: "pubky://a/pub/x".into()
+            }
+        );
+        assert_eq!(parsed("DEL pubky://a/pub/x").method, EventMethod::Del);
+    }
+
+    /// Only the first space separates the method from the URI, so a file name with spaces
+    /// stays in the URI.
+    #[test]
+    fn the_uri_runs_from_the_first_space_to_the_end() {
+        assert_eq!(
+            parsed("PUT pubky://a/pub/files/my holiday photo.jpg").uri,
+            "pubky://a/pub/files/my holiday photo.jpg"
+        );
+    }
+
+    #[test]
+    fn empty_lines_are_skipped() {
+        assert!(matches!(
+            HomeserverEvent::parse_line("").unwrap(),
+            LineParseOutcome::Skipped
+        ));
+    }
+
+    #[test]
+    fn other_lines_are_unrecognized() {
+        assert!(unrecognized("PUT"));
+        assert!(unrecognized("PUT "));
+        assert!(unrecognized("PATCH pubky://a/pub/x"));
+        assert!(unrecognized("put pubky://a/pub/x"));
+    }
+
+    /// A cursor line that reaches the parser is no event either.
+    #[test]
+    fn a_cursor_line_is_unrecognized() {
+        assert!(unrecognized("cursor: 42"));
+    }
 
     fn lines(raw: &[&str]) -> Vec<String> {
         raw.iter().map(|l| l.to_string()).collect()

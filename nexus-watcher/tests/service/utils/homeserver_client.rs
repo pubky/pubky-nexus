@@ -194,6 +194,7 @@ impl KeyEventSource for MockHomeserverClient {
         user: &PublicKey,
         cursor: u64,
         limit: u16,
+        _path: &str,
     ) -> Result<Vec<HsStreamEvent>, HsError> {
         let user_id = user.z32();
         self.calls
