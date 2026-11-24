@@ -153,6 +153,11 @@ pub enum WatcherError<Err> {
     Protocol(#[from] ProtocolError),
     /// The handler failed on an event; the events before it were handled.
     /// `Err` is what the [`EventHandler`](crate::EventHandler) returned.
+    ///
+    /// The error is displayed but is not this variant's `source()`: `Err` need not implement
+    /// [`std::error::Error`], so a `Box<dyn Error>` or a `String` can be one. A reporter that
+    /// walks a `WatcherError`'s chain stops at the handler's message, so match this variant to
+    /// reach the handler's error and its causes.
     #[error("{0}")]
     Handler(Err),
     /// The run panicked.
