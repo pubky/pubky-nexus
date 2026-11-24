@@ -143,7 +143,7 @@ impl From<post::PostDetails> for PostDetails {
 }
 
 /// A post's relationships: what it replies to, a post or an external resource, the post it
-/// reposts, the external resource it embeds and the users it mentions.
+/// reposts, the external resource it embeds and the users it mentions. A deleted post has none.
 #[derive(Serialize, ToSchema, Debug)]
 pub struct PostRelationships {
     /// If set, URI of what this post replies to: a post, or an external resource (another

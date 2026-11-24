@@ -40,7 +40,13 @@ impl PostView {
         };
 
         let counts = counts.unwrap_or_default();
-        let relationships = relationships.unwrap_or_default();
+        // A deleted post names nothing, whether its author deleted it or a moderator took it
+        // down: no parent, repost, embed or mention. Its tombstone keeps those edges and its
+        // cached relationships for its hard delete and the reply ranking, never for a reader.
+        let relationships = match details.deleted {
+            true => PostRelationships::default(),
+            false => relationships.unwrap_or_default(),
+        };
 
         // Before fetching post tags, check if the post has any tags
         // Without this check, the index search will return a NONE because the tag index
