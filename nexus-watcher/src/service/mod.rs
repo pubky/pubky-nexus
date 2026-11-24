@@ -18,7 +18,6 @@ pub use user_hs_resolver::UserHsResolverRunner;
 
 use crate::events::retry::{RetryProcessor, RetryScheduler};
 use crate::events::{DefaultEventHandler, EventHandler};
-use crate::homeserver::WatcherClient;
 use crate::nexus_client::NexusHomeserverClient;
 use crate::service::constants::DEFAULT_WATCHER_CONFIG_TOML;
 use crate::service::task_runner::task_results_into_result;
@@ -28,6 +27,7 @@ use nexus_common::file::ConfigLoader;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
 use nexus_common::WatcherConfig;
+use pubky_watcher::WatcherClient;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::watch::Receiver;

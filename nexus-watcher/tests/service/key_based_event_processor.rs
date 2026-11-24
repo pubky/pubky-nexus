@@ -19,10 +19,6 @@ use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{InitialBackoff, RetryScheduler};
 use nexus_watcher::events::Event;
 use nexus_watcher::events::EventHandler;
-use nexus_watcher::homeserver::{
-    EventMethod, HomeserverEventSource, HsError, HsErrorKind, HsStreamEvent, KeyEventSource,
-    ResourceReader,
-};
 use nexus_watcher::service::indexer::{KeyBasedEventProcessor, RunError, TEventProcessor};
 use nexus_watcher::service::runner::{UserNotFoundBackoff, UserResumePoints};
 use nexus_watcher::service::stats::ProcessorRunStatus;
@@ -31,6 +27,10 @@ use nexus_watcher::service::{
 };
 use pubky::{Keypair, PubkyResource, PublicKey};
 use pubky_social_specs::PubkyId;
+use pubky_watcher::{
+    EventMethod, HomeserverEventSource, HsError, HsErrorKind, HsStreamEvent, KeyEventSource,
+    ResourceReader,
+};
 use tokio::sync::watch;
 
 use crate::service::utils::{

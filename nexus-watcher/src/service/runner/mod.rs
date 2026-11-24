@@ -10,7 +10,7 @@ pub use key_based_hs_backoff::HomeserverBackoff;
 pub use key_based_user_backoff::UserNotFoundBackoff;
 pub use key_based_user_resume::UserResumePoints;
 
-pub use crate::toolkit::{status_from_run_result, TEventProcessorRunner};
+pub use pubky_watcher::{status_from_run_result, TEventProcessorRunner};
 
 #[cfg(test)]
 mod tests {

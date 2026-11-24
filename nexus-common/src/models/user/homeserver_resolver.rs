@@ -4,6 +4,7 @@ use pubky::pkarr::errors::ResolveError;
 use pubky::pkarr::{ResolvePolicy, SignedPacket};
 use pubky::{Pubky, PublicKey};
 use pubky_social_specs::PubkyId;
+use pubky_watcher::{HomeserverResolver, WatcherClient};
 
 use crate::db::{PubkyClientError, PubkyClientResult, PubkyConnector};
 use crate::types::DynError;
@@ -122,6 +123,20 @@ pub trait PkdnsHomeserverResolver: Send + Sync {
             return Ok(PkdnsRecord::Missing);
         }
         Ok(record)
+    }
+}
+
+/// Rebuilds the client's PKDNS answer as Nexus's [`PkdnsRecord`]: a packet is
+/// [`PkdnsRecord::Published`], no packet is [`PkdnsRecord::Missing`], and a DHT or relay
+/// failure is the pkarr resolve error inside `PubkyClientError`, as `pkdns_record_of` returns.
+#[async_trait::async_trait]
+impl PkdnsHomeserverResolver for WatcherClient {
+    async fn resolve_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
+        match HomeserverResolver::resolve_record(self, user_pk).await {
+            Ok(Some(packet)) => Ok(PkdnsRecord::Published(packet)),
+            Ok(None) => Ok(PkdnsRecord::Missing),
+            Err(e) => Err(PkarrError::Resolve(e).into()),
+        }
     }
 }
 

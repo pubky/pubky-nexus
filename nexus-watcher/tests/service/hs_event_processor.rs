@@ -11,7 +11,6 @@ use nexus_common::WatcherConfig;
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{IndexKey, InitialBackoff, RetryScheduler, RetryStore};
 use nexus_watcher::events::{DefaultEventHandler, Event, EventHandler, ParseResult};
-use nexus_watcher::homeserver::HsErrorKind;
 use nexus_watcher::service::{HsEventProcessor, RunError, TEventProcessor};
 use pubky::Keypair;
 use pubky_social_specs::legacy_v0::traits::{HashId, TimestampId};
@@ -19,6 +18,7 @@ use pubky_social_specs::legacy_v0::{
     blob_uri_builder, file_uri_builder, post_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppUser,
 };
 use pubky_social_specs::PubkyId;
+use pubky_watcher::HsErrorKind;
 use tokio::sync::watch;
 
 use crate::event_processor::utils::default_moderation_tests;

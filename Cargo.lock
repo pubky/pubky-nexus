@@ -3099,6 +3099,7 @@ dependencies = [
  "opentelemetry_sdk",
  "pubky",
  "pubky-social-specs",
+ "pubky-watcher",
  "redis",
  "serde",
  "serde_json",
@@ -3145,6 +3146,7 @@ dependencies = [
  "pubky",
  "pubky-social-specs",
  "pubky-testnet",
+ "pubky-watcher",
  "rand 0.10.3",
  "reqwest 0.13.5",
  "serde",
@@ -4296,6 +4298,22 @@ dependencies = [
  "js-sys",
  "once_cell",
  "serde",
+]
+
+[[package]]
+name = "pubky-watcher"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "futures",
+ "http",
+ "pubky",
+ "reqwest 0.13.5",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "tracing-test",
 ]
 
 [[package]]

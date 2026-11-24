@@ -5,12 +5,12 @@ use tokio::sync::Mutex;
 use nexus_common::db::{PubkyClientError, PubkyClientResult};
 use nexus_common::models::user::{PkdnsHomeserverResolver, PkdnsRecord};
 use nexus_common::utils::test_utils::signed_packet_naming;
-use nexus_watcher::homeserver::{
+use pubky::{Keypair, PubkyResource, PublicKey};
+use pubky_social_specs::PubkyId;
+use pubky_watcher::{
     HomeserverEventSource, HsError, HsErrorKind, HsOp, HsStreamEvent, KeyEventSource,
     ResourceReader,
 };
-use pubky::{Keypair, PubkyResource, PublicKey};
-use pubky_social_specs::PubkyId;
 
 type UserEventsResult = Result<Vec<HsStreamEvent>, HsErrorKind>;
 

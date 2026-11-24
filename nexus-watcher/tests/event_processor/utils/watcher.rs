@@ -18,7 +18,6 @@ use nexus_watcher::events::retry::{
 };
 use nexus_watcher::events::{DefaultEventHandler, EventHandler};
 use nexus_watcher::events::{Event, ParseResult};
-use nexus_watcher::homeserver::WatcherClient;
 use nexus_watcher::nexus_client::NexusHomeserverClient;
 use nexus_watcher::service::HsEventProcessorRunner;
 use nexus_watcher::service::KeyBasedEventProcessorRunner;
@@ -38,6 +37,7 @@ use pubky_social_specs::{
     PubkyId, PubkySocialFollow, PubkySocialPost, PubkySocialTag, PubkySocialUser, Root,
 };
 use pubky_testnet::Testnet;
+use pubky_watcher::WatcherClient;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};

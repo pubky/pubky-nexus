@@ -6,7 +6,7 @@
 use crate::events::translation::legacy_v0::read_blob;
 use crate::events::translation::social_v1::read_v1_file;
 use crate::events::EventProcessorError;
-use crate::homeserver::ResourceReader;
+use pubky_watcher::ResourceReader;
 
 use nexus_common::media::{file_folder, is_v1_file_id, FileVariant, V1_FILES_DIR};
 use nexus_common::models::user::UserIngestor;

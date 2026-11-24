@@ -25,7 +25,6 @@ use nexus_watcher::events::retry::{
     RetryStore,
 };
 use nexus_watcher::events::{DefaultEventHandler, EventHandler, Moderation};
-use nexus_watcher::homeserver::WatcherClient;
 use nexus_watcher::nexus_client::NexusHomeserverClient;
 use nexus_watcher::service::indexer::{KeyBasedEventProcessor, TEventProcessor};
 use nexus_watcher::service::runner::{UserNotFoundBackoff, UserResumePoints};
@@ -43,6 +42,7 @@ use pubky_social_specs::{
     PubkySocialUser, Root,
 };
 use pubky_testnet::Testnet;
+use pubky_watcher::WatcherClient;
 use serde_json::Value;
 use tempfile::TempDir;
 use tokio::sync::watch;

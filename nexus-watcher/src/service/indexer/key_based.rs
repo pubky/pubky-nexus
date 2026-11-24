@@ -7,13 +7,13 @@ use tokio::time::Instant;
 
 use crate::errors::EventProcessorError;
 use crate::events::Event;
-use crate::homeserver::{HsStreamEvent, KeyEventSource};
 use nexus_common::models::homeserver::HsBlacklist;
 use nexus_common::models::user::UserHsCursor;
 use opentelemetry::metrics::Counter;
 use opentelemetry::{global, KeyValue};
 use pubky::{EventCursor, PublicKey};
 use pubky_social_specs::PubkyId;
+use pubky_watcher::{HsStreamEvent, KeyEventSource};
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 

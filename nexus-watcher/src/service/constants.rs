@@ -7,7 +7,7 @@ pub const WATCHER_CONFIG_FILE_NAME: &str = "watcher-config.toml";
 pub(crate) const DEFAULT_WATCHER_CONFIG_TOML: &str =
     include_str!("../../default.watcher-config.toml");
 /// How long a processor run may take before it is logged as slow
-pub use crate::toolkit::SLOW_RUN_THRESHOLD;
+pub use pubky_watcher::SLOW_RUN_THRESHOLD;
 /// How long a run of the external loop may spend on one homeserver before it stops, keeping
 /// the cursors it reached, so one homeserver cannot hold up the others. A homeserver should
 /// not need more than this, so a run that spends it backs the homeserver off like a failure,

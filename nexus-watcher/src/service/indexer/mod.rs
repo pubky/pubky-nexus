@@ -4,16 +4,16 @@ mod key_based;
 pub use homeserver::HsEventProcessor;
 pub use key_based::KeyBasedEventProcessor;
 
-pub use crate::toolkit::{RunOutcome, TEventProcessor};
+pub use pubky_watcher::{RunOutcome, TEventProcessor};
 
 use crate::errors::EventProcessorError;
 use crate::events::retry::RetryScheduler;
 use crate::events::Event;
-use crate::toolkit::{dispatch_retryable_error, EventRetryScheduler};
 use pubky_social_specs::PubkyId;
+use pubky_watcher::{dispatch_retryable_error, EventRetryScheduler};
 
 /// How a run of a Nexus event processor did not complete.
-pub type RunError = crate::toolkit::RunError<EventProcessorError>;
+pub type RunError = pubky_watcher::RunError<EventProcessorError>;
 
 /// The event processors the Nexus runners build and run.
 pub type NexusEventProcessor = dyn TEventProcessor<Event, EventProcessorError>;

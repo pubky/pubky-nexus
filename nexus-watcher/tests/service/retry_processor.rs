@@ -31,7 +31,6 @@ use nexus_watcher::events::retry::{
 };
 use nexus_watcher::events::EventType;
 use nexus_watcher::events::{handlers, DefaultEventHandler, EventHandler};
-use nexus_watcher::homeserver::HsErrorKind;
 use nexus_watcher::service::{HsEventProcessor, RunOutcome, TEventProcessor};
 use pubky_social_specs::legacy_v0::traits::{HashId as _, TimestampId};
 use pubky_social_specs::legacy_v0::{
@@ -45,6 +44,7 @@ use pubky_social_specs::{
     tag_uri_builder as v1_tag_uri_builder, PubkyId, PubkySocialPost, PubkySocialPostKind,
     PubkySocialTag, PubkySocialUser, Root,
 };
+use pubky_watcher::HsErrorKind;
 use std::sync::Arc;
 use tokio::sync::watch;
 

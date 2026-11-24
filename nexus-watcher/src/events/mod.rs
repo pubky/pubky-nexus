@@ -13,7 +13,6 @@ pub use event::{Event, EventType, ParseResult};
 pub use target::EventTarget;
 
 use crate::errors::EventProcessorError;
-use crate::homeserver::ResourceReader;
 use crate::nexus_client::NexusHomeserverClient;
 use crate::METER_NAME;
 use nexus_common::models::takedown::is_taken_down;
@@ -21,6 +20,7 @@ use nexus_common::WatcherConfig;
 use opentelemetry::{global, metrics::Counter};
 use pubky::PubkyResource;
 use pubky_social_specs::PubkyId;
+use pubky_watcher::ResourceReader;
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, LazyLock},

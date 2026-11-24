@@ -7,8 +7,8 @@ use nexus_common::models::error::ModelError;
 use thiserror::Error;
 
 use crate::events::retry::RetryScheduler;
-use crate::homeserver::{HsError, HsErrorKind, HsOp};
-use crate::toolkit::RetryableError;
+use pubky_watcher::RetryableError;
+use pubky_watcher::{HsError, HsErrorKind, HsOp};
 
 #[derive(Error, Debug, Clone)]
 pub enum EventProcessorError {

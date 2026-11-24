@@ -11,15 +11,15 @@
 //! The module depends on no Nexus type: homeservers and users are [`pubky::PublicKey`]s,
 //! size caps are plain values, and it records no metrics.
 
-mod client;
 mod error;
 mod event;
 mod fetch;
 mod resolver;
+mod watcher_client;
 
-pub use client::{
-    HomeserverEventSource, HsStreamEvent, KeyEventSource, ResourceReader, WatcherClient,
-};
 pub use error::{HsError, HsErrorKind, HsOp};
 pub use event::EventMethod;
 pub use resolver::{published_homeserver, HomeserverResolver};
+pub use watcher_client::{
+    HomeserverEventSource, HsStreamEvent, KeyEventSource, ResourceReader, WatcherClient,
+};
