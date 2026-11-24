@@ -1,4 +1,4 @@
-use pubky::errors::{AuthError, BuildError, PkarrError};
+use pubky::errors::{AuthError, BuildError};
 use pubky::{CredentialRefreshError, Pubky, PubkyHttpClient};
 use std::{sync::Arc, time::Duration};
 use thiserror::Error;
@@ -30,8 +30,9 @@ pub enum PubkyClientError {
     #[error("Request failed: {message}")]
     RequestFailed { message: String },
 
+    /// A PKDNS lookup failed: no DHT node or relay gave a usable answer.
     #[error("Pkarr failed: {0}")]
-    PkarrFailed(#[from] PkarrError),
+    PkarrFailed(#[from] pubky_watcher::ResolveError),
 
     #[error("Authentication failed: {0}")]
     AuthenticationFailed(#[from] AuthError),

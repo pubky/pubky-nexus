@@ -28,9 +28,9 @@ mod traits;
 mod watcher;
 
 pub use client::{
-    published_homeserver, EventMethod, HomeserverEventSource, HomeserverResolver, HsError,
-    HsErrorKind, HsOp, HsStreamEvent, KeyEventSource, ResourceReader, WatcherClient,
-    DEFAULT_MAX_FILE_SIZE, DEFAULT_REQUEST_TIMEOUT,
+    published_homeserver, ClientError, EventMethod, HomeserverEventSource, HomeserverResolver,
+    HsError, HsErrorKind, HsOp, HsStreamEvent, KeyEventSource, ResolveError, ResourceReader,
+    WatcherClient, DEFAULT_MAX_FILE_SIZE, DEFAULT_REQUEST_TIMEOUT,
 };
 pub use events::{EventBatch, HomeserverEvent, CURSOR_PREFIX};
 pub use processor::{

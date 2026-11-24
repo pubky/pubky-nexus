@@ -17,9 +17,9 @@ mod fetch;
 mod resolver;
 mod watcher_client;
 
-pub use error::{HsError, HsErrorKind, HsOp};
+pub use error::{ClientError, HsError, HsErrorKind, HsOp};
 pub use event::EventMethod;
-pub use resolver::{published_homeserver, HomeserverResolver};
+pub use resolver::{published_homeserver, HomeserverResolver, ResolveError};
 pub use watcher_client::{
     HomeserverEventSource, HsStreamEvent, KeyEventSource, ResourceReader, WatcherClient,
     DEFAULT_MAX_FILE_SIZE, DEFAULT_REQUEST_TIMEOUT,

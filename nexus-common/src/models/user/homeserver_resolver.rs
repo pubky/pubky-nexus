@@ -1,9 +1,8 @@
-use pubky::errors::PkarrError;
 use pubky::pkarr::dns::rdata::RData;
 use pubky::pkarr::SignedPacket;
 use pubky::PublicKey;
 use pubky_social_specs::PubkyId;
-use pubky_watcher::{HomeserverResolver, WatcherClient};
+use pubky_watcher::{HomeserverResolver, ResolveError, WatcherClient};
 
 use crate::db::{PubkyClientError, PubkyClientResult};
 use crate::types::DynError;
@@ -127,15 +126,22 @@ pub trait PkdnsHomeserverResolver: Send + Sync {
 
 /// Rebuilds the client's PKDNS answer as Nexus's [`PkdnsRecord`]: a packet is
 /// [`PkdnsRecord::Published`], no packet is [`PkdnsRecord::Missing`], and a DHT or relay
-/// failure is the pkarr resolve error inside `PubkyClientError`.
+/// failure is [`PubkyClientError::PkarrFailed`].
 #[async_trait::async_trait]
 impl PkdnsHomeserverResolver for WatcherClient {
     async fn resolve_record(&self, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
-        match HomeserverResolver::resolve_record(self, user_pk).await {
-            Ok(Some(packet)) => Ok(PkdnsRecord::Published(packet)),
-            Ok(None) => Ok(PkdnsRecord::Missing),
-            Err(e) => Err(PkarrError::Resolve(e).into()),
-        }
+        pkdns_record(HomeserverResolver::resolve_record(self, user_pk).await)
+    }
+}
+
+/// The client's answer as a [`PkdnsRecord`], or the lookup failure as
+/// [`PubkyClientError::PkarrFailed`].
+fn pkdns_record(
+    answer: Result<Option<SignedPacket>, ResolveError>,
+) -> PubkyClientResult<PkdnsRecord> {
+    match answer? {
+        Some(packet) => Ok(PkdnsRecord::Published(packet)),
+        None => Ok(PkdnsRecord::Missing),
     }
 }
 
@@ -159,6 +165,26 @@ mod tests {
     use crate::utils::test_utils::{random_pubky_id, signed_packet_naming};
     use pubky::pkarr::dns::{rdata::SVCB, Name};
     use pubky::Keypair;
+
+    /// A failed lookup is a `PkarrFailed` that keeps pkarr's reason, logged as it was when
+    /// the error was pkarr's own; no packet is no record.
+    #[test]
+    fn a_failed_lookup_is_a_pkarr_failure_with_its_reason() {
+        let failed = pkdns_record(Err(pubky_watcher::ResolveError::new(
+            "no queried DHT nodes responded",
+        )))
+        .unwrap_err();
+
+        assert!(
+            matches!(failed, PubkyClientError::PkarrFailed(_)),
+            "{failed:?}"
+        );
+        assert_eq!(
+            failed.to_string(),
+            "Pkarr failed: Failed to resolve the DHT record: no queried DHT nodes responded"
+        );
+        assert_eq!(pkdns_record(Ok(None)).unwrap(), PkdnsRecord::Missing);
+    }
 
     /// The `_pubky` target is read from HTTPS and SVCB records the way the SDK
     /// reads it; a packet without one, or with a target that is no key, names none.

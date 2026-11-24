@@ -320,7 +320,6 @@ impl RetryableError for EventProcessorError {
 mod tests {
     use super::*;
     use crate::events::retry::RetryScheduler;
-    use pubky::errors::{PkarrError, RequestError};
     use pubky::CredentialRefreshError;
 
     #[test]
@@ -364,29 +363,13 @@ mod tests {
         HsError::new(&hs, op, kind).into()
     }
 
-    /// A failing body read gives a non-timeout `reqwest::Error`, as an unreachable
-    /// homeserver or a reset connection does.
-    async fn transport_error() -> reqwest::Error {
-        let body = reqwest::Body::wrap_stream(futures::stream::iter(vec![Err::<bytes::Bytes, _>(
-            std::io::Error::other("connection reset"),
-        )]));
-        reqwest::Response::from(http::Response::new(body))
-            .bytes()
-            .await
-            .unwrap_err()
-    }
-
     /// A homeserver SDK failure that the client calls `Sdk` (validation) is retried like a
     /// failed request; one building the request (`Malformed`) never is, and does not stop
     /// the run.
     #[test]
     fn sdk_and_malformed_fetch_failures_take_their_classes() {
-        let validation = HsErrorKind::from_sdk(pubky::Error::from(RequestError::Validation {
-            message: "Cannot subscribe to more than 50 users".into(),
-        }));
-        let parse = HsErrorKind::from_sdk(pubky::Error::from(
-            reqwest::Url::parse("https://").unwrap_err(),
-        ));
+        let validation = HsErrorKind::Sdk("Cannot subscribe to more than 50 users".into());
+        let parse = HsErrorKind::malformed("empty host");
 
         let retried = hs_error(HsOp::GetResource, validation);
         let dropped = hs_error(HsOp::GetResource, parse);
@@ -396,10 +379,9 @@ mod tests {
     }
 
     /// A transport failure stops the run on the event stream, and is retried on a fetch.
-    #[tokio::test]
-    async fn transport_failures_stop_the_stream_and_retry_fetches() {
-        let error = pubky::Error::from(RequestError::Transport(transport_error().await));
-        let kind = HsErrorKind::from_sdk(error);
+    #[test]
+    fn transport_failures_stop_the_stream_and_retry_fetches() {
+        let kind = HsErrorKind::transport("connection reset");
 
         let on_stream = hs_error(HsOp::UserEvents, kind.clone());
         assert!(on_stream.should_not_retry_now(), "{on_stream:?}");
@@ -568,9 +550,9 @@ mod tests {
                 HsErrorKind::Sdk("could not resolve".into()),
             ),
             EventProcessorError::from(PubkyClientError::NotInitialized),
-            EventProcessorError::from(PubkyClientError::PkarrFailed(PkarrError::InvalidRecord(
-                "`_pubky` target `example.com`".into(),
-            ))),
+            EventProcessorError::from(PubkyClientError::PkarrFailed(
+                pubky_watcher::ResolveError::new("no queried DHT nodes responded"),
+            )),
         ] {
             assert!(
                 RetryScheduler::should_enqueue_related_event(&err),

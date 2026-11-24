@@ -6,6 +6,22 @@ use reqwest::StatusCode;
 
 use super::fetch::{format_error_body, MAX_ERROR_BODY};
 
+/// Why a [`WatcherClient`](super::WatcherClient) could not be built: see
+/// [`WatcherClient::mainnet`](super::WatcherClient::mainnet) and
+/// [`WatcherClient::testnet`](super::WatcherClient::testnet).
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ClientError {
+    /// The Pubky SDK could not build its HTTP or PKARR client. The SDK's error is the
+    /// [`source`](std::error::Error::source).
+    #[error("could not build the Pubky client: {source}")]
+    Build {
+        /// The SDK's error.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+}
+
 /// A failed homeserver call, made through [`WatcherClient`](super::WatcherClient) or another
 /// implementation of the capability traits.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -92,24 +108,22 @@ impl HsErrorKind {
         Self::Malformed(capped(error))
     }
 
-    pub fn from_reqwest(error: &reqwest::Error) -> Self {
+    /// A `reqwest` failure: a timeout, or else a transport failure.
+    pub(crate) fn from_reqwest(error: &reqwest::Error) -> Self {
         match error.is_timeout() {
             true => Self::Timeout,
             false => Self::transport(error),
         }
     }
 
-    /// Classifies an SDK error so it is retried, or not, as `PubkyClientError::from`
-    /// classifies it.
+    /// Classifies an SDK error.
     ///
     /// A status lands by its code and a transport failure stays one. A validation, JSON
-    /// decode or PKARR failure, which that conversion makes a retried `RequestFailed`
-    /// (`PkarrFailed` for PKARR), is an [`HsErrorKind::Sdk`] failure, treated the same
-    /// way. An error building the request (`Parse`, `Build`, `Authentication`) is
-    /// malformed, and permanent. So is a failed grant credential refresh
-    /// (`CredentialRefresh`): only a signed-in client refreshes one, and Nexus signs in
-    /// only in tests.
-    pub fn from_sdk(error: pubky::Error) -> Self {
+    /// decode or PKARR failure is an [`HsErrorKind::Sdk`] failure. An error building the
+    /// request (`Parse`, `Build`, `Authentication`) is malformed, and permanent. So is a
+    /// failed grant credential refresh (`CredentialRefresh`): only a signed-in client
+    /// refreshes one, and the watcher never signs in.
+    pub(crate) fn from_sdk(error: pubky::Error) -> Self {
         match error {
             pubky::Error::Request(RequestError::Server { status, message }) => {
                 Self::from_status(status, message.as_bytes())

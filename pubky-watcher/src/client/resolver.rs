@@ -1,7 +1,26 @@
 use pubky::pkarr::dns::rdata::RData;
-use pubky::pkarr::errors::ResolveError;
 use pubky::pkarr::SignedPacket;
 use pubky::PublicKey;
+
+/// Why a PKDNS lookup through a [`HomeserverResolver`] failed: no DHT node or relay gave a
+/// usable answer. The underlying error, e.g. pkarr's, is its [`source`](std::error::Error::source).
+#[derive(Debug, thiserror::Error)]
+#[error("Failed to resolve the DHT record: {source}")]
+pub struct ResolveError {
+    #[source]
+    source: Box<dyn std::error::Error + Send + Sync>,
+}
+
+impl ResolveError {
+    /// A lookup that failed because of `source`. An implementation of
+    /// [`HomeserverResolver`] other than [`WatcherClient`](super::WatcherClient) builds its
+    /// failures with it.
+    pub fn new(source: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
+        Self {
+            source: source.into(),
+        }
+    }
+}
 
 /// Looks up the PKDNS record a user publishes.
 ///

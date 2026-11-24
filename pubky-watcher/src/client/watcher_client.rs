@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{FutureExt, Stream, StreamExt};
-use pubky::pkarr::errors::ResolveError;
+use pubky::pkarr::errors::ResolveError as PkarrResolveError;
 use pubky::pkarr::{ResolvePolicy, SignedPacket};
 use pubky::{EventCursor, Method, Pubky, PubkyHttpClient, PubkyResource, PublicKey};
 use tracing::{error, trace, warn};
@@ -11,7 +11,9 @@ use tracing::{error, trace, warn};
 use super::fetch::{
     fetch_capped, read_stream_capped, MAX_ERROR_BODY, MAX_EVENTS_BODY, MAX_RESOURCE_SIZE,
 };
-use super::{EventMethod, HomeserverResolver, HsError, HsErrorKind, HsOp};
+use super::{
+    ClientError, EventMethod, HomeserverResolver, HsError, HsErrorKind, HsOp, ResolveError,
+};
 
 /// The blob cap of a client that sets none ([`WatcherClient::with_max_file_size`]): 100 MiB,
 /// the homeserver's own limit.
@@ -131,13 +133,13 @@ impl std::fmt::Debug for WatcherClient {
 
 impl WatcherClient {
     /// A client for the public Pubky network.
-    pub fn mainnet() -> Result<Self, pubky::Error> {
+    pub fn mainnet() -> Result<Self, ClientError> {
         Self::build(None)
     }
 
     /// A client for the Pubky testnet whose relay and homeservers run on `host` (e.g.
     /// `"localhost"`).
-    pub fn testnet(host: &str) -> Result<Self, pubky::Error> {
+    pub fn testnet(host: &str) -> Result<Self, ClientError> {
         Self::build(Some(host))
     }
 
@@ -167,7 +169,7 @@ impl WatcherClient {
 
     /// Builds an SDK client whose requests, response bodies included, time out after
     /// [`DEFAULT_REQUEST_TIMEOUT`], for mainnet or for the testnet on `testnet_host`.
-    fn build(testnet_host: Option<&str>) -> Result<Self, pubky::Error> {
+    fn build(testnet_host: Option<&str>) -> Result<Self, ClientError> {
         let mut builder = PubkyHttpClient::builder();
         builder.request_timeout(DEFAULT_REQUEST_TIMEOUT);
         if let Some(host) = testnet_host {
@@ -183,7 +185,9 @@ impl WatcherClient {
                 });
         }
         Ok(Self::from_pubky(Pubky::with_client(
-            builder.build().map_err(pubky::Error::from)?,
+            builder.build().map_err(|e| ClientError::Build {
+                source: Box::new(e),
+            })?,
         )))
     }
 
@@ -281,8 +285,8 @@ impl HomeserverResolver for WatcherClient {
             .await
         {
             Ok(packet) => Ok(Some(packet)),
-            Err(ResolveError::NotFound) => Ok(None),
-            Err(e) => Err(e),
+            Err(PkarrResolveError::NotFound) => Ok(None),
+            Err(e) => Err(ResolveError::new(e)),
         }
     }
 }
