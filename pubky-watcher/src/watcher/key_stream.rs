@@ -322,8 +322,8 @@ mod tests {
     use tokio::sync::watch;
 
     use crate::{
-        ConfigError, EventHandler, EventMethod, HsError, HsStreamEvent, KeyEventSource,
-        ProtocolError, Watcher, WatcherError,
+        ConfigError, EventHandler, EventMethod, HsError, HsErrorKind, HsOp, HsStreamEvent,
+        KeyEventSource, ProtocolError, Watcher, WatcherError,
     };
 
     fn key() -> PublicKey {
@@ -546,6 +546,105 @@ mod tests {
             outcome.cursors,
             vec![(alice, EventCursor::new(11)), (bob, EventCursor::new(30))]
         );
+    }
+
+    /// Fails every stream request, as a homeserver that is down.
+    struct Down;
+
+    #[async_trait::async_trait]
+    impl KeyEventSource for Down {
+        async fn user_events(
+            &self,
+            hs: &PublicKey,
+            _user: &PublicKey,
+            _cursor: u64,
+            _limit: u16,
+            _path: &str,
+        ) -> Result<Vec<HsStreamEvent>, HsError> {
+            Err(HsError::new(
+                hs,
+                HsOp::UserEvents,
+                HsErrorKind::ServerError(503, "down".into()),
+            ))
+        }
+    }
+
+    /// The handler's own error: the cursor of the event it failed on.
+    #[derive(Debug, PartialEq, Eq)]
+    struct FailedAt(u64);
+
+    impl std::fmt::Display for FailedAt {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "handler failed at cursor {}", self.0)
+        }
+    }
+
+    /// Records the cursors of the events it gets, and fails on the event at `fail_at`.
+    struct FailingAt {
+        fail_at: u64,
+        cursors: Mutex<Vec<u64>>,
+    }
+
+    #[async_trait::async_trait]
+    impl EventHandler<HsStreamEvent, FailedAt> for &'static FailingAt {
+        async fn handle(&self, event: &HsStreamEvent) -> Result<(), FailedAt> {
+            if event.cursor == self.fail_at {
+                return Err(FailedAt(event.cursor));
+            }
+            self.cursors.lock().unwrap().push(event.cursor);
+            Ok(())
+        }
+    }
+
+    /// A handler error fails the run with the handler's own error, typed; the events before
+    /// it were handled.
+    #[tokio::test]
+    async fn a_handler_failure_fails_the_run_with_its_own_error() {
+        let alice = key();
+        let source = Streams::new(vec![(
+            &alice,
+            vec![event(&alice, 11), event(&alice, 12), event(&alice, 13)],
+        )]);
+        let handler: &'static FailingAt = Box::leak(Box::new(FailingAt {
+            fail_at: 12,
+            cursors: Mutex::default(),
+        }));
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+
+        let error = Watcher::key_stream(source, key(), vec![(alice, EventCursor::new(10))])
+            .handler(handler)
+            .build(shutdown_rx)
+            .unwrap()
+            .run()
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(error, WatcherError::Handler(FailedAt(12))),
+            "{error:?}"
+        );
+        assert_eq!(*handler.cursors.lock().unwrap(), [11]);
+    }
+
+    /// A failed stream request fails the run as the homeserver's error, before any event.
+    #[tokio::test]
+    async fn a_failed_stream_request_fails_the_run() {
+        let handler = recorder();
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+
+        let error = Watcher::key_stream(Down, key(), vec![(key(), EventCursor::new(10))])
+            .handler(handler)
+            .build(shutdown_rx)
+            .unwrap()
+            .run()
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(&error, WatcherError::Homeserver(e) if e.op == HsOp::UserEvents),
+            "{error:?}"
+        );
+        assert!(handler.cursors.lock().unwrap().is_empty());
     }
 
     /// An events limit of zero, no users, a user listed twice, or a path that does not start
