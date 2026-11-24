@@ -333,3 +333,45 @@ where
     }
     Ok(result)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::convert::Infallible;
+    use std::time::Duration;
+
+    use super::{run_on_own_task, RunOutcome};
+
+    /// The warning is the only sign of a run that never returns, so it repeats after every
+    /// threshold, with how long the run has been going, and the run is still waited for.
+    #[tokio::test(start_paused = true)]
+    #[tracing_test::traced_test]
+    async fn a_slow_run_is_logged_at_every_threshold_and_still_waited_for() {
+        let result = run_on_own_task::<Infallible>(
+            "SlowProcessor",
+            Some("homeserver"),
+            Duration::from_secs(60),
+            async {
+                tokio::time::sleep(Duration::from_secs(250)).await;
+                Ok(RunOutcome::Completed)
+            },
+        )
+        .await;
+
+        assert!(result.is_ok(), "the run is waited for, not stopped");
+        logs_assert(|lines| {
+            let warned: Vec<_> = lines
+                .iter()
+                .filter(|line| line.contains(" WARN ") && line.contains("run is slow"))
+                .collect();
+            for (line, secs) in warned.iter().zip([60, 120, 180, 240]) {
+                if !line.contains(&format!("running_for_secs={secs}")) {
+                    return Err(format!("expected running_for_secs={secs} in {line}"));
+                }
+            }
+            match warned.len() {
+                4 => Ok(()),
+                n => Err(format!("expected 4 slow-run warnings, got {n}")),
+            }
+        });
+    }
+}

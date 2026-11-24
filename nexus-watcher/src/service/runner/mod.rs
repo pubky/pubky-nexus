@@ -199,32 +199,6 @@ mod tests {
         );
     }
 
-    /// The warning is the only sign of a run that never returns, so it repeats after every
-    /// threshold, with how long the run has been going.
-    #[tokio::test(start_paused = true)]
-    #[tracing_test::traced_test]
-    async fn a_slow_run_is_logged_at_every_threshold() {
-        let processor = Arc::new(SlowProcessor::new(
-            Duration::from_secs(250),
-            Duration::from_secs(60),
-        ));
-
-        processor.run().await.unwrap();
-
-        logs_assert(|lines| {
-            for secs in [180, 240] {
-                let field = format!("running_for_secs={secs}");
-                if !lines
-                    .iter()
-                    .any(|line| line.contains(" WARN ") && line.contains(&field))
-                {
-                    return Err(format!("no WARN line with {field}"));
-                }
-            }
-            Ok(())
-        });
-    }
-
     /// Processor whose every run stops at its budget.
     struct BudgetProcessor {
         handler: Arc<dyn EventHandler>,
