@@ -20,6 +20,7 @@ pub mod events;
 pub mod homeserver;
 pub mod nexus_client;
 pub mod service;
+pub mod toolkit;
 
 /// OpenTelemetry meter name shared by all watcher metrics.
 pub(crate) const METER_NAME: &str = "nexus.watcher";

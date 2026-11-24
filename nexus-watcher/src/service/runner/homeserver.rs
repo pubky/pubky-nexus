@@ -2,7 +2,7 @@ use super::TEventProcessorRunner;
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
 use crate::nexus_client::NexusHomeserverClient;
-use crate::service::indexer::{HsEventProcessor, TEventProcessor};
+use crate::service::indexer::{HsEventProcessor, NexusEventProcessor};
 use crate::service::stats::{ProcessedStats, RunAllProcessorsStats};
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::types::DynError;
@@ -58,7 +58,7 @@ impl TEventProcessorRunner for HsEventProcessorRunner {
     }
 
     /// Creates and returns a new event processor instance for the specified homeserver
-    async fn build(&self, homeserver_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError> {
+    async fn build(&self, homeserver_id: &str) -> Result<Arc<NexusEventProcessor>, DynError> {
         let homeserver_id = PubkyId::try_from(homeserver_id)?;
         let homeserver = Homeserver::get_by_id(homeserver_id)
             .await?

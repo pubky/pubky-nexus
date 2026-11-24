@@ -18,7 +18,7 @@ use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info};
 
 use crate::service::{
-    indexer::{RunError, TEventProcessor},
+    indexer::{NexusEventProcessor, RunError},
     stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats},
 };
 
@@ -52,7 +52,7 @@ pub trait TEventProcessorRunner: Send + Sync {
     ///
     /// # Errors
     /// Returns an error if the event processor couldn't be built
-    async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError>;
+    async fn build(&self, hs_id: &str) -> Result<Arc<NexusEventProcessor>, DynError>;
 
     /// Pre-processing step before the main run loop.
     ///
@@ -140,7 +140,7 @@ mod tests {
     use super::*;
     use crate::errors::EventProcessorError;
     use crate::events::{Event, EventHandler};
-    use crate::service::indexer::RunOutcome;
+    use crate::service::indexer::{RunOutcome, TEventProcessor};
     use nexus_common::utils::test_utils::random_pubky_id;
     use pubky_social_specs::PubkyId;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -189,17 +189,17 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl TEventProcessor for SlowProcessor {
-        fn event_handler(&self) -> &Arc<dyn EventHandler> {
-            &self.handler
+    impl TEventProcessor<Event, EventProcessorError> for SlowProcessor {
+        async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
+            self.handler.handle(event, &self.homeserver_id).await
         }
 
         fn instance_name(&self) -> &'static str {
             "SlowProcessor"
         }
 
-        fn homeserver_id(&self) -> &PubkyId {
-            &self.homeserver_id
+        fn homeserver_id(&self) -> &str {
+            self.homeserver_id.as_ref()
         }
 
         fn slow_run_threshold(&self) -> Option<Duration> {
@@ -252,7 +252,7 @@ mod tests {
             self.shutdown_rx.clone()
         }
 
-        async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError> {
+        async fn build(&self, hs_id: &str) -> Result<Arc<NexusEventProcessor>, DynError> {
             self.built.lock().await.push(hs_id.to_string());
             let processor = self.processor.clone().ok_or("not built in this test")?;
             Ok(processor)
@@ -346,17 +346,17 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl TEventProcessor for BudgetProcessor {
-        fn event_handler(&self) -> &Arc<dyn EventHandler> {
-            &self.handler
+    impl TEventProcessor<Event, EventProcessorError> for BudgetProcessor {
+        async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
+            self.handler.handle(event, &self.homeserver_id).await
         }
 
         fn instance_name(&self) -> &'static str {
             "BudgetProcessor"
         }
 
-        fn homeserver_id(&self) -> &PubkyId {
-            &self.homeserver_id
+        fn homeserver_id(&self) -> &str {
+            self.homeserver_id.as_ref()
         }
 
         async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {

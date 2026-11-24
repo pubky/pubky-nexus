@@ -4,6 +4,7 @@ use super::route::route;
 use super::target::EventTarget;
 use crate::errors::EventProcessorError;
 use crate::homeserver::{EventMethod, HsStreamEvent};
+use crate::toolkit::{LineParseOutcome, ParseFromLine};
 use nexus_common::models::event::EventLine;
 use pubky_social_specs::PubkyId;
 use serde::{Deserialize, Serialize};
@@ -59,6 +60,21 @@ impl ParseResult {
             uri,
             reason,
         }
+    }
+}
+
+/// Parses a primary homeserver's `/events/` line with [`Event::parse_event`].
+impl ParseFromLine for Event {
+    type Error = EventProcessorError;
+
+    fn parse_line(line: &str) -> Result<LineParseOutcome<Self>, Self::Error> {
+        Ok(match Self::parse_event(line)? {
+            ParseResult::Parsed(event) => LineParseOutcome::Parsed(event),
+            ParseResult::Skipped(_) => LineParseOutcome::Skipped,
+            ParseResult::UnrecognizedUri { reason, .. } => {
+                LineParseOutcome::Unrecognized { reason }
+            }
+        })
     }
 }
 

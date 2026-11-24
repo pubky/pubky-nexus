@@ -2,7 +2,7 @@ use super::{HomeserverBackoff, TEventProcessorRunner, UserNotFoundBackoff, UserR
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
 use crate::nexus_client::NexusHomeserverClient;
-use crate::service::indexer::{KeyBasedEventProcessor, TEventProcessor};
+use crate::service::indexer::{KeyBasedEventProcessor, NexusEventProcessor};
 use crate::service::stats::{ProcessedStats, ProcessorRunStatus, RunAllProcessorsStats};
 use crate::service::KEY_BASED_RUN_BUDGET;
 use crate::METER_NAME;
@@ -145,7 +145,7 @@ impl TEventProcessorRunner for KeyBasedEventProcessorRunner {
         self.shutdown_rx.clone()
     }
 
-    async fn build(&self, hs_id: &str) -> Result<Arc<dyn TEventProcessor>, DynError> {
+    async fn build(&self, hs_id: &str) -> Result<Arc<NexusEventProcessor>, DynError> {
         let homeserver_id = PubkyId::try_from(hs_id)?;
 
         Ok(Arc::new(KeyBasedEventProcessor {

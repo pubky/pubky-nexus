@@ -6,8 +6,7 @@ use chrono::Utc;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::user::{set_user_homeserver, Epoch, UserDetails};
 use nexus_watcher::errors::EventProcessorError;
-use nexus_watcher::events::retry::RetryScheduler;
-use nexus_watcher::events::EventHandler;
+use nexus_watcher::events::{Event, EventHandler};
 use nexus_watcher::service::{RunOutcome, TEventProcessor};
 use pubky::Keypair;
 use pubky_social_specs::PubkyId;
@@ -26,9 +25,9 @@ pub struct MockEventProcessor {
 }
 
 #[async_trait::async_trait]
-impl TEventProcessor for MockEventProcessor {
-    fn event_handler(&self) -> &Arc<dyn EventHandler> {
-        &self.event_handler
+impl TEventProcessor<Event, EventProcessorError> for MockEventProcessor {
+    async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
+        self.event_handler.handle(event, &self.homeserver_id).await
     }
 
     fn slow_run_threshold(&self) -> Option<Duration> {
@@ -39,12 +38,8 @@ impl TEventProcessor for MockEventProcessor {
         "MockEventProcessor"
     }
 
-    fn homeserver_id(&self) -> &PubkyId {
-        &self.homeserver_id
-    }
-
-    fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
-        None
+    fn homeserver_id(&self) -> &str {
+        self.homeserver_id.as_ref()
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {

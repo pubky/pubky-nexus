@@ -6,7 +6,9 @@ use nexus_common::db::{GraphError, PubkyClientError};
 use nexus_common::models::error::ModelError;
 use thiserror::Error;
 
+use crate::events::retry::RetryScheduler;
 use crate::homeserver::{HsError, HsErrorKind, HsOp};
+use crate::toolkit::RetryableError;
 
 #[derive(Error, Debug, Clone)]
 pub enum EventProcessorError {
@@ -301,6 +303,22 @@ impl EventProcessorError {
     /// on a `social/v1` profile PUT is a `v1` user's and keeps the limit.
     pub fn is_flip_failed(&self) -> bool {
         matches!(self, Self::FlipFailed { .. })
+    }
+}
+
+/// The retry classes the processors dispatch on: see [`Self::should_not_retry_now`] and
+/// [`RetryScheduler::should_enqueue_related_event`].
+impl RetryableError for EventProcessorError {
+    fn should_not_retry_now(&self) -> bool {
+        EventProcessorError::should_not_retry_now(self)
+    }
+
+    fn is_missing_dependency(&self) -> bool {
+        EventProcessorError::is_missing_dependency(self)
+    }
+
+    fn should_enqueue_for_retry(&self) -> bool {
+        RetryScheduler::should_enqueue_related_event(self)
     }
 }
 

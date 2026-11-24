@@ -18,7 +18,7 @@ use tokio::sync::watch::Receiver;
 use tracing::{debug, error, info, warn};
 
 use super::homeserver::HsMapping;
-use super::{RunOutcome, TEventProcessor};
+use super::{event_span, handle_error, RunOutcome, TEventProcessor};
 use crate::events::retry::RetryScheduler;
 use crate::events::EventHandler;
 use crate::service::runner::{UserNotFoundBackoff, UserResumePoints};
@@ -72,21 +72,36 @@ pub struct KeyBasedEventProcessor {
 }
 
 #[async_trait::async_trait]
-impl TEventProcessor for KeyBasedEventProcessor {
-    fn event_handler(&self) -> &Arc<dyn EventHandler> {
-        &self.event_handler
-    }
-
+impl TEventProcessor<Event, EventProcessorError> for KeyBasedEventProcessor {
     fn instance_name(&self) -> &'static str {
         "KeyBasedEventProcessor"
     }
 
-    fn retry_scheduler(&self) -> Option<&Arc<RetryScheduler>> {
-        Some(&self.retry_scheduler)
+    fn homeserver_id(&self) -> &str {
+        self.homeserver_id.as_ref()
     }
 
-    fn homeserver_id(&self) -> &PubkyId {
-        &self.homeserver_id
+    /// The handler stores the line with the key of the homeserver the event was read from.
+    async fn handle(&self, event: &Event) -> Result<(), EventProcessorError> {
+        self.event_handler.handle(event, &self.homeserver_id).await
+    }
+
+    async fn handle_error(
+        &self,
+        event: &Event,
+        error: EventProcessorError,
+    ) -> Result<(), EventProcessorError> {
+        handle_error(
+            event,
+            error,
+            Some(&self.retry_scheduler),
+            &self.homeserver_id,
+        )
+        .await
+    }
+
+    fn event_span(&self, event: &Event) -> tracing::Span {
+        event_span(event)
     }
 
     async fn run_internal(self: Arc<Self>) -> Result<RunOutcome, EventProcessorError> {

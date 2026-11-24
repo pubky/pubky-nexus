@@ -15,8 +15,9 @@ use super::IndexKey;
 use super::RetryEvent;
 use super::RetryScheduler;
 use crate::events::{confirm_flip, is_flip, EventHandler, SkipReason};
-use crate::service::indexer::{run_on_own_task, RunError, RunOutcome};
+use crate::service::indexer::{RunError, RunOutcome};
 use crate::service::SLOW_RUN_THRESHOLD;
+use crate::toolkit::run_on_own_task;
 
 /// Maximum number of retry events to fetch per batch to avoid memory spikes
 const RETRY_BATCH_SIZE: usize = 100;
