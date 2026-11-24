@@ -113,8 +113,8 @@ impl MockHomeserverClient {
         self
     }
 
-    /// `get_resource` of `uri` fails with `kind`, labelled with the owner's key as the real
-    /// client labels a failed fetch.
+    /// A fetch of `uri` fails with `kind`, labelled as the real client labels a failed fetch:
+    /// with the homeserver asked, or with the owner's key when none was.
     pub fn with_resource_error(mut self, uri: impl Into<String>, kind: HsErrorKind) -> Self {
         self.resource_errors.insert(uri.into(), kind);
         self
@@ -152,13 +152,6 @@ impl MockHomeserverClient {
         let asked = (hs.map(ToString::to_string), resource.to_pubky_url());
         self.fetched_from.lock().await.push(asked);
     }
-}
-
-/// A 404 for `resource`, labelled with its owner's key, as the real client labels a failed
-/// resource or blob fetch.
-fn not_found(resource: &PubkyResource, op: HsOp) -> HsError {
-    let owner = PubkyId::from(resource.owner.clone());
-    HsError::new(&owner, op, HsErrorKind::NotFound(resource.to_pubky_url()))
 }
 
 #[async_trait::async_trait]
@@ -231,7 +224,7 @@ impl HomeserverClient for MockHomeserverClient {
         resource: &PubkyResource,
     ) -> Result<Vec<u8>, HsError> {
         self.record_fetch(Some(hs), resource).await;
-        self.serve(resource, HsOp::GetResource)
+        self.serve(Some(hs), resource, HsOp::GetResource)
     }
 
     async fn get_blob(
@@ -241,21 +234,29 @@ impl HomeserverClient for MockHomeserverClient {
     ) -> Result<Vec<u8>, HsError> {
         self.record_fetch(hs, resource).await;
         self.blob_fetches.lock().await.push(resource.to_pubky_url());
-        self.serve(resource, HsOp::GetBlob)
+        self.serve(hs, resource, HsOp::GetBlob)
     }
 }
 
 impl MockHomeserverClient {
-    /// The scripted answer for `resource`: its failure, its body, or a 404, labelled with `op`.
-    fn serve(&self, resource: &PubkyResource, op: HsOp) -> Result<Vec<u8>, HsError> {
+    /// The scripted answer for `resource`: its failure, its body, or a 404. A failure is
+    /// labelled with `op` and, as the real client labels it, with `hs`, the homeserver asked,
+    /// or with the owner's key when none was.
+    fn serve(
+        &self,
+        hs: Option<&PubkyId>,
+        resource: &PubkyResource,
+        op: HsOp,
+    ) -> Result<Vec<u8>, HsError> {
         let url = resource.to_pubky_url();
-        if let Some(kind) = self.resource_errors.get(&url) {
-            let owner = PubkyId::from(resource.owner.clone());
-            return Err(HsError::new(&owner, op, kind.clone()));
-        }
-        self.resources
-            .get(&url)
+        let failure = match (self.resource_errors.get(&url), self.resources.get(&url)) {
+            (Some(kind), _) => kind.clone(),
+            (None, Some(body)) => return Ok(body.clone()),
+            (None, None) => HsErrorKind::NotFound(url),
+        };
+        let asked = hs
             .cloned()
-            .ok_or_else(|| not_found(resource, op))
+            .unwrap_or_else(|| PubkyId::from(resource.owner.clone()));
+        Err(HsError::new(&asked, op, failure))
     }
 }
