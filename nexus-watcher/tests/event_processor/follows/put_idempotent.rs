@@ -1,4 +1,4 @@
-use super::utils::find_follow_relationship;
+use super::utils::{find_follow_indexed_at, find_follow_relationship};
 use crate::event_processor::users::utils::find_user_counts;
 use crate::event_processor::utils::watcher::WatcherTest;
 use anyhow::Result;
@@ -112,6 +112,52 @@ async fn test_follow_put_idempotent() -> Result<()> {
     // Verify graph relationship still exists
     let exists = find_follow_relationship(&follower_id, &followee_id).await?;
     assert!(exists, "Follow relationship should still exist in graph");
+
+    // Cleanup
+    test.cleanup_user(&follower_kp).await?;
+    test.cleanup_user(&followee_kp).await?;
+
+    Ok(())
+}
+
+/// A follow PUT applied again, as a homeserver re-index or a move to another homeserver does,
+/// keeps the time nexus first indexed it: the influencer windows count followers by that time,
+/// so a new one would give the followee a follower "today" (as #663 fixed for posts and tags).
+#[tokio_shared_rt::test(shared)]
+async fn test_follow_put_again_keeps_indexed_at() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let follower_kp = Keypair::random();
+    let follower_user = PubkyAppUser {
+        bio: Some("test_follow_put_again_keeps_indexed_at".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:FollowPutAgain:Follower".to_string(),
+        status: None,
+    };
+    let follower_id = test.create_user(&follower_kp, &follower_user).await?;
+
+    let followee_kp = Keypair::random();
+    let followee_user = PubkyAppUser {
+        bio: Some("test_follow_put_again_keeps_indexed_at".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:FollowPutAgain:Followee".to_string(),
+        status: None,
+    };
+    let followee_id = test.create_user(&followee_kp, &followee_user).await?;
+
+    test.create_follow(&follower_kp, &followee_id).await?;
+    let first_indexed_at = find_follow_indexed_at(&follower_id, &followee_id).await?;
+
+    // The same PUT again, through the homeserver
+    test.create_follow(&follower_kp, &followee_id).await?;
+
+    assert_eq!(
+        find_follow_indexed_at(&follower_id, &followee_id).await?,
+        first_indexed_at,
+        "A follow written again keeps the time it was first indexed"
+    );
 
     // Cleanup
     test.cleanup_user(&follower_kp).await?;

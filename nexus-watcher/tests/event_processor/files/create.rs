@@ -58,3 +58,59 @@ async fn test_put_pubkyapp_file() -> Result<()> {
 
     Ok(())
 }
+
+/// A file PUT applied again, as a homeserver re-index or a move to another homeserver does,
+/// keeps the time nexus first indexed it (as #663 fixed for posts and tags).
+#[tokio_shared_rt::test(shared)]
+async fn test_file_put_again_keeps_indexed_at() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: None,
+        image: None,
+        links: None,
+        name: "Watcher:FilePutAgain:User".to_string(),
+        status: None,
+    };
+    let user_id = test.create_user(&user_kp, &user).await?;
+
+    let blob = PubkyAppBlob::new("Hello World!".as_bytes().to_vec());
+    let blob_id = blob.create_id();
+    let blob_relative_url = PubkyAppBlob::create_path(&blob_id);
+    let blob_absolute_url = blob_uri_builder(user_id.clone(), blob_id);
+    test.create_file_from_body(&user_kp, blob_relative_url.as_str(), blob.0.clone())
+        .await?;
+
+    let file = PubkyAppFile {
+        name: "myfile".to_string(),
+        content_type: "text/plain".to_string(),
+        src: blob_absolute_url.clone(),
+        size: blob.0.len(),
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let (file_id, file_path) = test.create_file(&user_kp, &file).await?;
+    let first_indexed_at = assert_file_details(&user_id, &file_id, &blob_absolute_url, &file)
+        .await
+        .indexed_at;
+
+    // The same record again, through the homeserver, under a new name: every other field is
+    // written as before
+    let renamed = PubkyAppFile {
+        name: "myfile-again".to_string(),
+        ..file
+    };
+    test.put(&user_kp, &file_path, &renamed).await?;
+
+    let file_again = assert_file_details(&user_id, &file_id, &blob_absolute_url, &renamed).await;
+    assert_eq!(
+        file_again.indexed_at, first_indexed_at,
+        "A file written again keeps the time it was first indexed"
+    );
+
+    // Cleanup
+    test.cleanup_file(&user_kp, &file_path).await?;
+    test.cleanup_user(&user_kp).await?;
+
+    Ok(())
+}

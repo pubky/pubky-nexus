@@ -1,9 +1,6 @@
 use crate::db::graph::keyset_scan_composite;
 use crate::db::kv::RedisResult;
-use crate::db::{
-    execute_graph_operation, fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphResult,
-    OperationOutcome, RedisOps,
-};
+use crate::db::{fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphResult, RedisOps};
 use crate::models::error::{ModelError, ModelResult};
 use neo4rs::Relation;
 use serde::{Deserialize, Serialize};
@@ -22,13 +19,16 @@ pub struct Bookmark {
 impl RedisOps for Bookmark {}
 
 impl Bookmark {
+    /// Writes the bookmark to the graph and returns it as the graph holds it: with
+    /// `indexed_at` when this write created it, and with the time of the first write when it
+    /// was there already. `None` when the user or the post is missing.
     pub async fn put_to_graph(
         author_id: &str,
         post_id: &str,
         user_id: &str,
         bookmark_id: &str,
         indexed_at: i64,
-    ) -> GraphResult<OperationOutcome> {
+    ) -> GraphResult<Option<Bookmark>> {
         let query = queries::put::create_post_bookmark(
             user_id,
             author_id,
@@ -37,7 +37,7 @@ impl Bookmark {
             indexed_at,
         );
 
-        execute_graph_operation(query).await
+        fetch_key_from_graph(query, "b").await
     }
 
     /// Retrieves counts by user ID, first trying to get from Redis, then from Neo4j if not found.

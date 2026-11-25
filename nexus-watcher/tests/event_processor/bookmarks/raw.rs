@@ -97,3 +97,100 @@ async fn test_homeserver_bookmark() -> Result<()> {
 
     Ok(())
 }
+
+/// A bookmark PUT applied again, as a homeserver re-index or a move to another homeserver does,
+/// keeps the time nexus first indexed it, in the graph and in the index: a new one would move
+/// the post to the top of the user's bookmarks (as #663 fixed for posts and tags).
+#[tokio_shared_rt::test(shared)]
+async fn test_bookmark_put_again_keeps_indexed_at_and_order() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+
+    let user_kp = Keypair::random();
+    let user = PubkyAppUser {
+        bio: Some("test_bookmark_put_again_keeps_indexed_at_and_order".to_string()),
+        image: None,
+        links: None,
+        name: "Watcher:BookmarkPutAgain:User".to_string(),
+        status: None,
+    };
+    let user_id = test.create_user(&user_kp, &user).await?;
+
+    let post = PubkyAppPost {
+        content: "Watcher:BookmarkPutAgain:User:Post".to_string(),
+        kind: PubkyAppPost::default().kind,
+        parent: None,
+        embed: None,
+        attachments: None,
+        lock: None,
+    };
+    let (first_post_id, first_post_path) = test.create_post(&user_kp, &post).await?;
+    let (second_post_id, second_post_path) = test.create_post(&user_kp, &post).await?;
+
+    // Bookmark the first post, then the second
+    let bookmark_of = |post_id: &str| PubkyAppBookmark {
+        uri: post_uri_builder(user_id.clone(), post_id.to_string()),
+        created_at: chrono::Utc::now().timestamp_millis(),
+    };
+    let first_bookmark_path = bookmark_of(&first_post_id).hs_path();
+    test.put(&user_kp, &first_bookmark_path, bookmark_of(&first_post_id))
+        .await?;
+    let second_bookmark_path = bookmark_of(&second_post_id).hs_path();
+    test.put(
+        &user_kp,
+        &second_bookmark_path,
+        bookmark_of(&second_post_id),
+    )
+    .await?;
+
+    let first_indexed_at = find_post_bookmark(&user_id, &first_post_id, &user_id)
+        .await?
+        .indexed_at;
+
+    // The first bookmark's PUT again, through the homeserver. Its index entries are removed
+    // first, as if the first attempt had failed before writing them: the repeat must write
+    // them back.
+    Bookmark::del_from_index(&user_id, &first_post_id, &user_id).await?;
+    test.put(&user_kp, &first_bookmark_path, bookmark_of(&first_post_id))
+        .await?;
+
+    // GRAPH_OP: the edge keeps its time
+    let bookmark_in_graph = find_post_bookmark(&user_id, &first_post_id, &user_id).await?;
+    assert_eq!(
+        bookmark_in_graph.indexed_at, first_indexed_at,
+        "A bookmark written again keeps the time it was first indexed"
+    );
+
+    // INDEX_OP: the index is written back with that time, so the user's bookmarks keep their
+    // order
+    let bookmark_in_index = Bookmark::get_from_index(&user_id, &first_post_id, &user_id)
+        .await?
+        .expect("The bookmark has to be indexed");
+    assert_eq!(bookmark_in_index.indexed_at, first_indexed_at);
+
+    let bookmarks = PostStream::get_bookmarked_posts(
+        &user_id,
+        nexus_common::db::kv::SortOrder::Descending,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    assert_eq!(
+        bookmarks.post_keys,
+        vec![
+            format!("{user_id}:{second_post_id}"),
+            format!("{user_id}:{first_post_id}")
+        ],
+        "The bookmark written again stays behind the newer one"
+    );
+
+    // Cleanup
+    test.del(&user_kp, &first_bookmark_path).await?;
+    test.del(&user_kp, &second_bookmark_path).await?;
+    test.cleanup_post(&user_kp, &first_post_path).await?;
+    test.cleanup_post(&user_kp, &second_post_path).await?;
+    test.cleanup_user(&user_kp).await?;
+
+    Ok(())
+}

@@ -238,7 +238,8 @@ pub fn sync_collection_items(
 /// # Arguments
 /// * `follower_id` - The unique identifier of the user who will follow another user.
 /// * `followee_id` - The unique identifier of the user to be followed.
-/// * `indexed_at` - A timestamp representing when the relationship was indexed or updated.
+/// * `indexed_at` - When the relationship is indexed. Stored only when this write creates the
+///   relationship: a follow written again keeps the time of the first write.
 pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Query {
     Query::new(
         "create_follow",
@@ -246,7 +247,7 @@ pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Q
          // Check if follow already existed
          OPTIONAL MATCH (follower)-[existing:FOLLOWS]->(followee)
          MERGE (follower)-[r:FOLLOWS]->(followee)
-         SET r.indexed_at = $indexed_at
+         ON CREATE SET r.indexed_at = $indexed_at
          // Returns true if the follow relationship already existed
          RETURN existing IS NOT NULL AS flag;",
     )
@@ -261,7 +262,11 @@ pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Q
 /// * `author_id` - The unique identifier of the user who authored the post.
 /// * `post_id` - The unique identifier of the post being bookmarked.
 /// * `bookmark_id` - A unique identifier for the bookmark relationship.
-/// * `indexed_at` - A timestamp representing when the bookmark relationship was created or last updated.
+/// * `indexed_at` - When the bookmark is indexed. Stored only when this write creates the
+///   relationship: a bookmark written again keeps the time of the first write.
+///
+/// Returns the relationship as `b`, with the time it holds after the write, and no row when the
+/// user or the post is missing.
 pub fn create_post_bookmark(
     user_id: &str,
     author_id: &str,
@@ -274,13 +279,10 @@ pub fn create_post_bookmark(
         "MATCH (u:User {id: $user_id})
         // We assume these nodes are already created. If not we would not be able to add a bookmark
         MATCH (author:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-        // Check if bookmark already existed
-        OPTIONAL MATCH (u)-[existing:BOOKMARKED]->(p)
         MERGE (u)-[b:BOOKMARKED]->(p)
-        SET b.indexed_at = $indexed_at,
-            b.id = $bookmark_id
-        // Returns true if the bookmark relationship already existed
-        RETURN existing IS NOT NULL AS flag;",
+        ON CREATE SET b.indexed_at = $indexed_at
+        SET b.id = $bookmark_id
+        RETURN b;",
     )
     .param("user_id", user_id)
     .param("author_id", author_id)
@@ -420,12 +422,14 @@ pub fn create_resource_tag(
     .param("indexed_at", indexed_at)
 }
 
-/// Create a file node. Its variant URLs are not stored: they are rebuilt on read.
+/// Create a file node, or overwrite it: a file written again keeps the `indexed_at` of the
+/// first write. Its variant URLs are not stored: they are rebuilt on read.
 pub fn create_file(file: &FileDetails) -> GraphResult<Query> {
     let query = Query::new(
         "create_file",
         "MERGE (f:File {id: $id, owner_id: $owner_id})
-         SET f.uri = $uri, f.indexed_at = $indexed_at, f.created_at = $created_at, f.size = $size,
+         ON CREATE SET f.indexed_at = $indexed_at
+         SET f.uri = $uri, f.created_at = $created_at, f.size = $size,
             f.src = $src, f.name = $name, f.content_type = $content_type;",
     )
     .param("id", file.id.to_string())
