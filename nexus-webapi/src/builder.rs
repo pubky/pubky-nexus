@@ -98,7 +98,12 @@ impl NexusApiBuilder {
         // reads does not depend on it, so a client that cannot be built keeps that
         // route failing rather than the whole API down.
         let net = &self.api_context.api_config.stack.net;
-        if let Err(e) = PubkyConnector::initialise(net).await {
+        if let Err(e) = PubkyConnector::initialise(
+            net.pubky_client_testnet_host(),
+            net.pubky_client_http_request_timeout(),
+        )
+        .await
+        {
             warn!(error = %e, "Pubky client not initialised; ingest will fail");
         }
         let mut shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);

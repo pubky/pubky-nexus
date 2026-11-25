@@ -10,29 +10,6 @@ const fn default_pubky_http_request_timeout_secs() -> u64 {
     DEFAULT_PUBKY_HTTP_REQUEST_TIMEOUT_SECS
 }
 
-/// pkarr's own defaults, except the cache size (see [`NetConfig::pkarr_cache_size`]).
-const DEFAULT_PKARR_MINIMUM_TTL_SECS: u32 = pubky::pkarr::DEFAULT_MINIMUM_TTL;
-const DEFAULT_PKARR_MAXIMUM_TTL_SECS: u32 = pubky::pkarr::DEFAULT_MAXIMUM_TTL;
-const DEFAULT_PKARR_DHT_REQUEST_TIMEOUT_SECS: u64 = 2;
-const DEFAULT_PKARR_RELAY_REQUEST_TIMEOUT_SECS: u64 = 5;
-const DEFAULT_PKARR_CACHE_SIZE: usize = 10_000;
-
-const fn default_pkarr_minimum_ttl_secs() -> u32 {
-    DEFAULT_PKARR_MINIMUM_TTL_SECS
-}
-const fn default_pkarr_maximum_ttl_secs() -> u32 {
-    DEFAULT_PKARR_MAXIMUM_TTL_SECS
-}
-const fn default_pkarr_dht_request_timeout_secs() -> u64 {
-    DEFAULT_PKARR_DHT_REQUEST_TIMEOUT_SECS
-}
-const fn default_pkarr_relay_request_timeout_secs() -> u64 {
-    DEFAULT_PKARR_RELAY_REQUEST_TIMEOUT_SECS
-}
-const fn default_pkarr_cache_size() -> usize {
-    DEFAULT_PKARR_CACHE_SIZE
-}
-
 /// Shared Pubky network settings for the Nexus stack (`[stack.net]`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct NetConfig {
@@ -51,32 +28,6 @@ pub struct NetConfig {
         deserialize_with = "deserialize_nonzero_pubky_http_request_timeout_secs"
     )]
     pub pubky_http_request_timeout_secs: u64,
-    /// Seconds a cached PKDNS record counts as fresh at least, whatever TTL it carries.
-    /// A cached record past its TTL is looked up again; while the lookup fails, the
-    /// homeserver resolver keeps using it.
-    #[serde(default = "default_pkarr_minimum_ttl_secs")]
-    pub pkarr_minimum_ttl_secs: u32,
-    /// Seconds a cached PKDNS record counts as fresh at most. Raised to
-    /// [Self::pkarr_minimum_ttl_secs] when lower.
-    #[serde(default = "default_pkarr_maximum_ttl_secs")]
-    pub pkarr_maximum_ttl_secs: u32,
-    /// Seconds a PKDNS lookup waits for the DHT.
-    #[serde(
-        default = "default_pkarr_dht_request_timeout_secs",
-        deserialize_with = "deserialize_nonzero_secs"
-    )]
-    pub pkarr_dht_request_timeout_secs: u64,
-    /// Seconds a PKDNS lookup waits for each relay.
-    #[serde(
-        default = "default_pkarr_relay_request_timeout_secs",
-        deserialize_with = "deserialize_nonzero_secs"
-    )]
-    pub pkarr_relay_request_timeout_secs: u64,
-    /// PKDNS records kept in memory. It should exceed the number of known users plus
-    /// their homeservers: a record evicted from the cache cannot stand in for a failed
-    /// lookup.
-    #[serde(default = "default_pkarr_cache_size")]
-    pub pkarr_cache_size: usize,
     /// External HS PKs which are forbidden from being indexed.
     #[serde(default)]
     pub external_hs_pk_blacklist: Vec<PubkyId>,
@@ -88,11 +39,6 @@ impl Default for NetConfig {
             testnet: false,
             testnet_host: Self::default_testnet_host(),
             pubky_http_request_timeout_secs: DEFAULT_PUBKY_HTTP_REQUEST_TIMEOUT_SECS,
-            pkarr_minimum_ttl_secs: DEFAULT_PKARR_MINIMUM_TTL_SECS,
-            pkarr_maximum_ttl_secs: DEFAULT_PKARR_MAXIMUM_TTL_SECS,
-            pkarr_dht_request_timeout_secs: DEFAULT_PKARR_DHT_REQUEST_TIMEOUT_SECS,
-            pkarr_relay_request_timeout_secs: DEFAULT_PKARR_RELAY_REQUEST_TIMEOUT_SECS,
-            pkarr_cache_size: DEFAULT_PKARR_CACHE_SIZE,
             external_hs_pk_blacklist: Vec::new(),
         }
     }
@@ -107,18 +53,6 @@ where
     match u64::deserialize(deserializer)? {
         0 => Err(D::Error::custom(
             "pubky_http_request_timeout_secs must be at least 1 second",
-        )),
-        timeout => Ok(timeout),
-    }
-}
-
-fn deserialize_nonzero_secs<'de, D>(deserializer: D) -> Result<u64, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    match u64::deserialize(deserializer)? {
-        0 => Err(D::Error::custom(
-            "a pkarr timeout must be at least 1 second",
         )),
         timeout => Ok(timeout),
     }

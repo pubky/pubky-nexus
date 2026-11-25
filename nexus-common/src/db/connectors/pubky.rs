@@ -5,8 +5,6 @@ use thiserror::Error;
 use tokio::sync::OnceCell;
 use tracing::debug;
 
-use crate::config::NetConfig;
-
 static PUBKY_SINGLETON: OnceCell<Arc<Pubky>> = OnceCell::const_new();
 
 pub type PubkyClientResult<T> = std::result::Result<T, PubkyClientError>;
@@ -87,11 +85,13 @@ pub struct PubkyConnector;
 impl PubkyConnector {
     /// Initializes the `Pubky` singleton.
     ///
-    /// `net` picks mainnet or a testnet host, bounds every Pubky HTTP request including
-    /// response-body reads, and sets pkarr's cache and lookup timeouts.
-    pub async fn initialise(net: &NetConfig) -> PubkyClientResult<()> {
-        let testnet_host = net.pubky_client_testnet_host();
-        let http_request_timeout = net.pubky_client_http_request_timeout();
+    /// - For mainnet, pass `None`.
+    /// - For testnet, pass `Some(hostname)` (e.g., "localhost" or "homeserver").
+    /// - `http_request_timeout` bounds every Pubky HTTP request, including response-body reads.
+    pub async fn initialise(
+        testnet_host: Option<&str>,
+        http_request_timeout: Duration,
+    ) -> PubkyClientResult<()> {
         PUBKY_SINGLETON
             .get_or_try_init(|| async {
                 let mode = testnet_host
@@ -102,21 +102,14 @@ impl PubkyConnector {
                     "Initialising Pubky singleton in {mode} mode"
                 );
 
-                // `request_timeout` bounds only the HTTP client; pkarr is set here.
+                // TODO: set pkarr's `minimum_ttl` / `maximum_ttl` and its DHT and relay request
+                // timeouts explicitly, as config values; `request_timeout` bounds only the HTTP
+                // client, not pkarr.
                 let mut client_builder = PubkyHttpClient::builder();
                 client_builder.request_timeout(http_request_timeout);
-                client_builder.pkarr(|p| {
-                    // `minimum_ttl` last: it raises `maximum_ttl` when that is lower.
-                    p.maximum_ttl(net.pkarr_maximum_ttl_secs)
-                        .minimum_ttl(net.pkarr_minimum_ttl_secs)
-                        .dht_request_timeout(Duration::from_secs(
-                            net.pkarr_dht_request_timeout_secs,
-                        ))
-                        .relay_request_timeout(Duration::from_secs(
-                            net.pkarr_relay_request_timeout_secs,
-                        ))
-                        .cache_size(net.pkarr_cache_size)
-                });
+                // pkarr keeps 1 000 records by default. An evicted record cannot stand in
+                // for a failed lookup (#1114), so keep one per known user and homeserver.
+                client_builder.pkarr(|p| p.cache_size(10_000));
 
                 if let Some(host) = testnet_host {
                     client_builder
