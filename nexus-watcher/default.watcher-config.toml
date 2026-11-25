@@ -71,6 +71,16 @@ testnet_host = "localhost"
 # Total request timeout in seconds for all HTTP requests made by the shared Pubky client.
 # This includes response-body reads and should accommodate max_file_size blob downloads.
 pubky_http_request_timeout_secs = 300
+# PKDNS (pkarr) lookups. A cached record counts as fresh for its own TTL, kept
+# between these bounds; past it the record is looked up again, and while that
+# lookup fails the homeserver resolver keeps using the cached record.
+pkarr_minimum_ttl_secs = 300
+pkarr_maximum_ttl_secs = 86400
+pkarr_dht_request_timeout_secs = 2
+pkarr_relay_request_timeout_secs = 5
+# Records kept in memory. Keep it above the number of known users plus their
+# homeservers: an evicted record cannot stand in for a failed lookup.
+pkarr_cache_size = 10000
 # External HS PKs which are forbidden from being indexed
 external_hs_pk_blacklist = []
 

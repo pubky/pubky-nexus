@@ -62,11 +62,7 @@ impl NexusWatcherBuilder {
         self.0.features.toggle().await?;
         let shutdown_rx = shutdown_rx.unwrap_or_else(create_shutdown_rx);
 
-        PubkyConnector::initialise(
-            self.0.stack.net.pubky_client_testnet_host(),
-            self.0.stack.net.pubky_client_http_request_timeout(),
-        )
-        .await?;
+        PubkyConnector::initialise(&self.0.stack.net).await?;
 
         NexusWatcher::start(shutdown_rx, self.0).await
     }

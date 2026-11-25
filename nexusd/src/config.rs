@@ -521,6 +521,46 @@ mod tests {
         );
     }
 
+    /// The pkarr settings default to pkarr's own values, apart from a cache large
+    /// enough to stand in for failed lookups (#1114), whether written out or omitted.
+    #[test]
+    fn test_pkarr_settings_default() {
+        let omitted: String = DEFAULT_CONFIG_TOML
+            .lines()
+            .filter(|line| !line.starts_with("pkarr_"))
+            .map(|line| format!("{line}\n"))
+            .collect();
+
+        for toml in [DEFAULT_CONFIG_TOML, omitted.as_str()] {
+            let net = DaemonConfig::try_from_str(toml).unwrap().stack.net;
+            assert_eq!(net.pkarr_minimum_ttl_secs, 300);
+            assert_eq!(net.pkarr_maximum_ttl_secs, 86_400);
+            assert_eq!(net.pkarr_dht_request_timeout_secs, 2);
+            assert_eq!(net.pkarr_relay_request_timeout_secs, 5);
+            assert_eq!(net.pkarr_cache_size, 10_000);
+        }
+    }
+
+    #[test]
+    fn test_pkarr_timeouts_reject_zero() {
+        for field in [
+            "pkarr_dht_request_timeout_secs",
+            "pkarr_relay_request_timeout_secs",
+        ] {
+            let toml = DEFAULT_CONFIG_TOML
+                .lines()
+                .map(|line| match line.starts_with(field) {
+                    true => format!("{field} = 0\n"),
+                    false => format!("{line}\n"),
+                })
+                .collect::<String>();
+            assert!(
+                DaemonConfig::try_from_str(&toml).is_err(),
+                "{field} = 0 must fail config parsing"
+            );
+        }
+    }
+
     #[test]
     fn test_pubky_http_request_timeout_secs_defaults_when_omitted() {
         let toml = DEFAULT_CONFIG_TOML.replace("pubky_http_request_timeout_secs = 300\n", "");

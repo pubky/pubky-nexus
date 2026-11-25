@@ -130,16 +130,28 @@ pub trait PkdnsHomeserverResolver: Send + Sync {
 /// no homeserver into one `None` and fails on a malformed `_pubky` record. A
 /// missing packet is [`PkdnsRecord::Missing`]; a DHT or relay failure is an
 /// error, so the caller does not take it for "no record".
+///
+/// pkarr serves a cached record only while it is fresh, and once it has expired
+/// waits on the network. When the network gives nothing back, the expired record
+/// is used instead: it is the last thing the user published, and a miss on the
+/// relays and the DHT is no sign they stopped publishing (#1114).
 pub async fn pkdns_record_of(pubky: &Pubky, user_pk: &PublicKey) -> PubkyClientResult<PkdnsRecord> {
-    match pubky
-        .client()
-        .pkarr()
-        .resolve(user_pk, ResolvePolicy::CacheFirst)
-        .await
-    {
-        Ok(packet) => Ok(PkdnsRecord::Published(packet)),
-        Err(ResolveError::NotFound) => Ok(PkdnsRecord::Missing),
-        Err(e) => Err(PkarrError::Resolve(e).into()),
+    let pkarr = pubky.client().pkarr();
+    let failure = match pkarr.resolve(user_pk, ResolvePolicy::CacheFirst).await {
+        Ok(packet) => return Ok(PkdnsRecord::Published(packet)),
+        Err(failure) => failure,
+    };
+    if let Ok(cached) = pkarr.resolve(user_pk, ResolvePolicy::CacheOnly).await {
+        tracing::warn!(
+            user_id = %user_pk.z32(),
+            error = %failure,
+            "PKDNS lookup failed; using the expired cached record"
+        );
+        return Ok(PkdnsRecord::Published(cached));
+    }
+    match failure {
+        ResolveError::NotFound => Ok(PkdnsRecord::Missing),
+        e => Err(PkarrError::Resolve(e).into()),
     }
 }
 
@@ -329,5 +341,54 @@ mod tests {
             resolver.resolve_own_record(&user.public_key()).await.ok(),
             Some(PkdnsRecord::Missing)
         );
+    }
+
+    /// A client whose only PKDNS knowledge is `packet`, if any, in its cache: no
+    /// DHT node and no relay answers.
+    fn offline_pubky_with(packet: Option<&SignedPacket>) -> Pubky {
+        use pubky::pkarr::{Cache, InMemoryCache};
+        use std::sync::Arc;
+
+        let cache = Arc::new(InMemoryCache::new(std::num::NonZeroUsize::MIN));
+        if let Some(packet) = packet {
+            cache.put(&packet.public_key().into(), packet);
+        }
+        let mut builder = pubky::PubkyHttpClient::builder();
+        builder.pkarr(|pkarr| {
+            pkarr
+                .no_default_network()
+                .bootstrap(&["127.0.0.1:1"])
+                .cache(cache)
+        });
+        Pubky::with_client(builder.build().expect("an SDK client"))
+    }
+
+    /// #1114: a cached record past its TTL still answers while the network gives
+    /// nothing back, so a relay or DHT outage does not read as "no homeserver".
+    #[tokio::test]
+    async fn an_expired_cached_record_answers_when_the_network_fails() {
+        use pubky::pkarr::Timestamp;
+
+        let user = Keypair::random();
+        let homeserver = random_pubky_id();
+        let mut expired = signed_packet_naming(&user, Some(&homeserver), 10);
+        let two_hours_ago = Timestamp::now().as_u64() - 2 * 3600 * 1_000_000;
+        expired.set_last_seen(&Timestamp::from(two_hours_ago));
+
+        let record = pkdns_record_of(&offline_pubky_with(Some(&expired)), &user.public_key())
+            .await
+            .expect("the cached record");
+
+        assert_eq!(record.homeserver(), Some(homeserver));
+    }
+
+    /// With nothing cached, a failed lookup is still an error, not "no record".
+    #[tokio::test]
+    async fn a_failed_lookup_with_nothing_cached_is_an_error() {
+        let user = Keypair::random();
+
+        let record = pkdns_record_of(&offline_pubky_with(None), &user.public_key()).await;
+
+        assert!(record.is_err(), "{record:?}");
     }
 }
