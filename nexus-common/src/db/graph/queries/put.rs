@@ -238,7 +238,8 @@ pub fn sync_collection_items(
 /// # Arguments
 /// * `follower_id` - The unique identifier of the user who will follow another user.
 /// * `followee_id` - The unique identifier of the user to be followed.
-/// * `indexed_at` - A timestamp representing when the relationship was indexed or updated.
+/// * `indexed_at` - When the relationship is indexed. Stored only when this write creates the
+///   relationship: a follow written again keeps the time of the first write.
 pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Query {
     Query::new(
         "create_follow",
@@ -246,7 +247,7 @@ pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Q
          // Check if follow already existed
          OPTIONAL MATCH (follower)-[existing:FOLLOWS]->(followee)
          MERGE (follower)-[r:FOLLOWS]->(followee)
-         SET r.indexed_at = $indexed_at
+         ON CREATE SET r.indexed_at = $indexed_at
          // Returns true if the follow relationship already existed
          RETURN existing IS NOT NULL AS flag;",
     )

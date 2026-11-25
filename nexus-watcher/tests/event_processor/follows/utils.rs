@@ -21,3 +21,19 @@ fn user_following_query(follower: &str, followee: &str) -> Query {
     .param("followee", followee)
     .param("follower", follower)
 }
+
+/// The `indexed_at` of the `FOLLOWS` edge from `follower` to `followee`.
+pub async fn find_follow_indexed_at(follower: &str, followee: &str) -> Result<i64> {
+    let query = Query::new(
+        "follow_indexed_at",
+        "MATCH (:User {id: $follower})-[r:FOLLOWS]->(:User {id: $followee})
+         RETURN r.indexed_at AS indexed_at",
+    )
+    .param("followee", followee)
+    .param("follower", follower);
+
+    match fetch_key_from_graph(query, "indexed_at").await? {
+        Some(indexed_at) => Ok(indexed_at),
+        None => anyhow::bail!("Follow edge not found in Nexus graph"),
+    }
+}
