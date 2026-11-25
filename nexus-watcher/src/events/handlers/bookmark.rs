@@ -1,5 +1,4 @@
 use chrono::Utc;
-use nexus_common::db::OperationOutcome;
 use nexus_common::models::post::Bookmark;
 use pubky_social_specs::PubkyId;
 use tracing::debug;
@@ -30,21 +29,20 @@ pub async fn sync_put(
         )));
     };
 
-    // Save new bookmark relationship to the graph, only if the bookmarked user exists
+    // Save the bookmark relationship to the graph, only if the bookmarked post exists. The
+    // graph answers with the bookmark it holds: a PUT applied again (a retry, a re-index) keeps
+    // the time of the first one.
     let indexed_at = Utc::now().timestamp_millis();
-    if let OperationOutcome::MissingDependency =
+    let Some(bookmark_details) =
         Bookmark::put_to_graph(&author_id, &post_id, &user_id, &bookmark_id, indexed_at).await?
-    {
+    else {
         let dependency = vec![format!("{author_id}:posts:{post_id}")];
         return Err(EventProcessorError::MissingDependency { dependency });
-    }
-
-    // SAVE TO INDEX
-    let bookmark_details = Bookmark {
-        id: bookmark_id,
-        indexed_at,
     };
 
+    // SAVE TO INDEX
+    // Rewritten on a PUT applied again too, to recover an index a failed attempt left
+    // unwritten: with the time the graph holds, so the user's bookmarks keep their order.
     bookmark_details
         .put_to_index(&author_id, &post_id, &user_id)
         .await?;

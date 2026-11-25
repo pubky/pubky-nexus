@@ -262,7 +262,11 @@ pub fn create_follow(follower_id: &str, followee_id: &str, indexed_at: i64) -> Q
 /// * `author_id` - The unique identifier of the user who authored the post.
 /// * `post_id` - The unique identifier of the post being bookmarked.
 /// * `bookmark_id` - A unique identifier for the bookmark relationship.
-/// * `indexed_at` - A timestamp representing when the bookmark relationship was created or last updated.
+/// * `indexed_at` - When the bookmark is indexed. Stored only when this write creates the
+///   relationship: a bookmark written again keeps the time of the first write.
+///
+/// Returns the relationship as `b`, with the time it holds after the write, and no row when the
+/// user or the post is missing.
 pub fn create_post_bookmark(
     user_id: &str,
     author_id: &str,
@@ -275,13 +279,10 @@ pub fn create_post_bookmark(
         "MATCH (u:User {id: $user_id})
         // We assume these nodes are already created. If not we would not be able to add a bookmark
         MATCH (author:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
-        // Check if bookmark already existed
-        OPTIONAL MATCH (u)-[existing:BOOKMARKED]->(p)
         MERGE (u)-[b:BOOKMARKED]->(p)
-        SET b.indexed_at = $indexed_at,
-            b.id = $bookmark_id
-        // Returns true if the bookmark relationship already existed
-        RETURN existing IS NOT NULL AS flag;",
+        ON CREATE SET b.indexed_at = $indexed_at
+        SET b.id = $bookmark_id
+        RETURN b;",
     )
     .param("user_id", user_id)
     .param("author_id", author_id)
