@@ -422,12 +422,14 @@ pub fn create_resource_tag(
     .param("indexed_at", indexed_at)
 }
 
-/// Create a file node. Its variant URLs are not stored: they are rebuilt on read.
+/// Create a file node, or overwrite it: a file written again keeps the `indexed_at` of the
+/// first write. Its variant URLs are not stored: they are rebuilt on read.
 pub fn create_file(file: &FileDetails) -> GraphResult<Query> {
     let query = Query::new(
         "create_file",
         "MERGE (f:File {id: $id, owner_id: $owner_id})
-         SET f.uri = $uri, f.indexed_at = $indexed_at, f.created_at = $created_at, f.size = $size,
+         ON CREATE SET f.indexed_at = $indexed_at
+         SET f.uri = $uri, f.created_at = $created_at, f.size = $size,
             f.src = $src, f.name = $name, f.content_type = $content_type;",
     )
     .param("id", file.id.to_string())
