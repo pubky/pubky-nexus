@@ -1,6 +1,6 @@
 mod bookmarks;
 mod files;
-mod follows;
+pub(crate) mod follows;
 mod mentions;
 mod network;
 pub(crate) mod posts;

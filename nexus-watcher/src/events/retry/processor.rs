@@ -121,6 +121,21 @@ impl RetryProcessor {
 
         let ev_uri = &retry_event.event_uri;
 
+        // The entry is what its origin homeserver said. A user mapped to another homeserver
+        // since is read there, and that homeserver's stream delivers what they hold: a queued
+        // PUT adds nothing, and a queued DEL, which fetches nothing, would remove what they
+        // took along. The cost is a delete of something they did not take along: it is lost
+        // with the entry.
+        if !self
+            .event_handler
+            .retries(&event, &origin_homeserver_id)
+            .await?
+        {
+            return self
+                .remove_if_current(index_key, retry_event.nonce, ev_uri)
+                .await;
+        }
+
         // In principle, it's possible to check if `origin_homeserver_id` is blacklisted before
         // handling the event. A retry entry may have been queued before that HS got blacklisted.
         // Retrying those pre-existing events is acceptable for now. Newly discovered events from a

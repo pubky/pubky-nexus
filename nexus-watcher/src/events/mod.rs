@@ -14,6 +14,7 @@ pub use target::EventTarget;
 
 use crate::errors::EventProcessorError;
 use crate::homeserver::HomeserverClient;
+use crate::service::indexer::HsMapping;
 use crate::METER_NAME;
 use nexus_common::models::takedown::is_taken_down;
 use nexus_common::WatcherConfig;
@@ -24,7 +25,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, LazyLock},
 };
-use tracing::debug;
+use tracing::{debug, info};
 
 /// Counter for events skipped because the moderator took their record down.
 static TAKEN_DOWN: LazyLock<Counter<u64>> = LazyLock::new(|| {
@@ -63,6 +64,18 @@ pub trait EventHandler: Send + Sync {
         event: &Event,
         homeserver_id: &PubkyId,
     ) -> Result<(), EventProcessorError>;
+
+    /// Whether `event`, queued for a retry after it was read from `origin_homeserver_id`,
+    /// is still that homeserver's to deliver. An entry can wait an hour between attempts,
+    /// and by then its user may be read on another homeserver. A handler that keeps no
+    /// user-to-homeserver mapping retries every entry.
+    async fn retries(
+        &self,
+        _event: &Event,
+        _origin_homeserver_id: &PubkyId,
+    ) -> Result<bool, EventProcessorError> {
+        Ok(true)
+    }
 }
 
 /// Default implementation of `EventHandler` that uses the actual event handling logic.
@@ -164,6 +177,23 @@ impl EventHandler for DefaultEventHandler {
 
         event.to_event_line(homeserver_id).store().await?;
         Ok(())
+    }
+
+    async fn retries(
+        &self,
+        event: &Event,
+        origin_homeserver_id: &PubkyId,
+    ) -> Result<bool, EventProcessorError> {
+        let user_id = event.target.user_id();
+        let mapping = HsMapping::stored(user_id, origin_homeserver_id).await?;
+        let retries = HsMapping::retries_here(mapping.as_ref());
+        if !retries {
+            info!(
+                %user_id, ?mapping, origin_homeserver = %origin_homeserver_id, event.uri = %event.uri,
+                "User is mapped to another homeserver than the one this event was read from; not retrying it"
+            );
+        }
+        Ok(retries)
     }
 }
 
