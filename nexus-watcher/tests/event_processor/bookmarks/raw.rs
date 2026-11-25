@@ -146,7 +146,10 @@ async fn test_bookmark_put_again_keeps_indexed_at_and_order() -> Result<()> {
         .await?
         .indexed_at;
 
-    // The first bookmark's PUT again, through the homeserver
+    // The first bookmark's PUT again, through the homeserver. Its index entries are removed
+    // first, as if the first attempt had failed before writing them: the repeat must write
+    // them back.
+    Bookmark::del_from_index(&user_id, &first_post_id, &user_id).await?;
     test.put(&user_kp, &first_bookmark_path, bookmark_of(&first_post_id))
         .await?;
 
@@ -157,7 +160,8 @@ async fn test_bookmark_put_again_keeps_indexed_at_and_order() -> Result<()> {
         "A bookmark written again keeps the time it was first indexed"
     );
 
-    // INDEX_OP: so does the indexed bookmark, and the user's bookmarks keep their order
+    // INDEX_OP: the index is written back with that time, so the user's bookmarks keep their
+    // order
     let bookmark_in_index = Bookmark::get_from_index(&user_id, &first_post_id, &user_id)
         .await?
         .expect("The bookmark has to be indexed");
