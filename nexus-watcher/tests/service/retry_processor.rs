@@ -1,3 +1,4 @@
+use crate::event_processor::follows::utils::find_follow_relationship;
 use crate::event_processor::posts::utils::{
     corrupt_post_indexed_at, find_post_details, find_post_uri, restore_post_indexed_at,
 };
@@ -37,9 +38,9 @@ use nexus_watcher::homeserver::HsErrorKind;
 use nexus_watcher::service::{HsEventProcessor, RunOutcome, TEventProcessor};
 use pubky_social_specs::legacy_v0::traits::{HashId as _, TimestampId};
 use pubky_social_specs::legacy_v0::{
-    blob_uri_builder, file_uri_builder as v0_file_uri_builder, post_uri_builder,
-    tag_uri_builder as v0_tag_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppPost,
-    PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
+    blob_uri_builder, file_uri_builder as v0_file_uri_builder, follow_uri_builder,
+    post_uri_builder, tag_uri_builder as v0_tag_uri_builder, PubkyAppBlob, PubkyAppFile,
+    PubkyAppFollow, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
 use pubky_social_specs::traits::{HasPath as _, HashId as _, TimestampId as _};
 use pubky_social_specs::{
@@ -602,6 +603,78 @@ async fn test_retry_of_a_user_with_a_stale_mapping_to_the_origin_homeserver_is_h
         post.outcome().await?,
         (true, false),
         "(indexed, still queued)"
+    );
+    Ok(())
+}
+
+/// Retries a follow read from `origin`, by a new user mapped to `follower_homeserver` of a new
+/// user mapped to `followee_homeserver`. Returns whether the follow is indexed and whether its
+/// entry is still queued; removes both users.
+async fn retried_follow(
+    origin: &PubkyId,
+    follower_homeserver: &PubkyId,
+    followee_homeserver: &PubkyId,
+) -> Result<(bool, bool)> {
+    setup().await?;
+
+    let mut user_ids = Vec::new();
+    for homeserver_id in [follower_homeserver, followee_homeserver] {
+        let user = random_pubky_id();
+        let user_id = user.to_string();
+        UserDetails::from_pubky(user).put_to_graph().await?;
+        set_user_homeserver(&user_id, homeserver_id).await?;
+        user_ids.push(user_id);
+    }
+    let (follower_id, followee_id) = (&user_ids[0], &user_ids[1]);
+
+    let follow = PubkyAppFollow {
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let event_uri = follow_uri_builder(follower_id.clone(), followee_id.clone());
+    let client =
+        MockHomeserverClient::default().with_resource(&event_uri, serde_json::to_vec(&follow)?);
+    let files = tempfile::TempDir::new()?;
+    let store = new_in_memory_store();
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(10, 50, 60, 3600, 60, 3600),
+        default_handler(client, &files, store.clone()),
+        shutdown_rx,
+    );
+    store
+        .put(&RetryEvent {
+            origin_homeserver_id: origin.to_string(),
+            ..ready_put_entry(&event_uri, 0)
+        })
+        .await?;
+
+    processor.run_internal().await?;
+
+    let followed = find_follow_relationship(follower_id, followee_id).await?;
+    let queued = store.get(&IndexKey::for_uri(&event_uri)).await?.is_some();
+    for user_id in &user_ids {
+        exec_single_row(queries::del::delete_user(user_id)).await?;
+    }
+    Ok((followed, queued))
+}
+
+/// The mapping that decides is the one of the user who acted: the entry was read from their
+/// homeserver. Who they acted on is read wherever they are, and changes nothing.
+#[tokio_shared_rt::test(shared)]
+async fn test_retry_of_a_follow_goes_by_the_mapping_of_the_follower() -> Result<()> {
+    let (origin, elsewhere) = (random_pubky_id(), random_pubky_id());
+
+    let by_a_user_mapped_to_the_origin = retried_follow(&origin, &origin, &elsewhere).await?;
+    let of_a_user_mapped_to_the_origin = retried_follow(&origin, &elsewhere, &origin).await?;
+
+    assert_eq!(
+        (
+            by_a_user_mapped_to_the_origin,
+            of_a_user_mapped_to_the_origin
+        ),
+        ((true, false), (false, false)),
+        "(followed, still queued) of each"
     );
     Ok(())
 }
