@@ -101,8 +101,10 @@ deletion's timestamp for dels. Apply lines in list order, not timestamp order.
 `reply`, `embed` and `collection` identify references made by posts. A post
 reference's `at` is the time its edge was first indexed, whichever version file names it
 now. The flip does not
-move a post's references: each keeps the path of the post file that made it, and the
-post's later edits and deletes retract that path.
+move a post's references: each keeps the path of the post's `pubky.app` address until
+the post's first PUT after the flip, which appends one del of that path and one put of
+the post's `social/v1` address per reference, each put with the edge's first time. Until
+then, the post's deletes retract the old path.
 
 The response carries `x-events-epoch` and `x-events-length`. This feed has its
 own storage and epoch. Both headers are exposed through CORS. Epoch is opaque to
@@ -193,15 +195,18 @@ per resource.
 ### Post references
 
 Posts of either folder emit `reply`, `embed`, and `collection` for external targets. The target
-URI uses the same normalization and ID as a tag. `object_path` is the actual stored
-version file. One collection can emit multiple lines for that path.
+URI uses the same normalization and ID as a tag. `object_path` is the path of the
+post's address: `/pub/social/v1/posts/<id>` for a `social/v1` post, whichever version
+file the event names, and the post file for a `pubky.app` post. One collection can emit
+multiple lines for that path.
 
 Consumers of these kinds apply each line as an upsert or deletion keyed by
 `(author, object_path, kind, resource_id)`. Lines remain at least once and in append
 order; retries can duplicate a PUT. Keep distinct targets and kinds within one file.
-An edit emits DEL for removed references or an older source-version key, then PUT
-for each reference it gains (a new target, or a new source-version key). A PUT that
-changes no reference emits nothing, and the first PUT after a delete retracted the
+An edit emits DEL for each reference it loses, then PUT for each reference it gains.
+A PUT that changes no reference emits nothing, whichever version file it names, so
+version files that name the same targets, handled in any order and any number of
+times, emit nothing after the first. The first PUT after a delete retracted the
 post's references (a delete that stopped half-way, or one that made a tombstone) puts
 every current one again. Deleting any social version follows the social-post
 delete contract and retracts the indexed logical post's current references.

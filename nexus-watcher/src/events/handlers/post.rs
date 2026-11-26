@@ -48,29 +48,18 @@ pub async fn lock_post(author_id: &str, post_id: &str) -> MutexGuard<'static, ()
     POST_LOCKS.lock((author_id, post_id)).await
 }
 
-/// [`sync_put_at`] for a post read from the address it is stored under.
-pub async fn sync_put(
-    post: PostInput,
-    key: ResourceKey,
-    ingestor: &UserIngestor,
-) -> Result<(), EventProcessorError> {
-    let source_uri = post.uri.clone();
-    sync_put_at(post, key, ingestor, &source_uri).await
-}
-
 /// Indexes a PUT of `post`, keyed by `key`, under the post lock ([`lock_post`]): the post write
 /// ([`sync_put_details`]), then its external references and their feed lines
 /// ([`references::sync`]), then the cached relationships and lists read back from the graph
 /// when the references or the lists need it.
 ///
-/// `source_uri` is the address of the file the event names, the one the homeserver sent. The
-/// feed lines of the post's references carry its path as their `object_path`: for a `social/v1`
-/// post that is the version file, which can differ from the post's address in `post.uri`.
-pub async fn sync_put_at(
+/// The feed lines of the post's references carry the path of the post's address (`post.uri`)
+/// as their `object_path`: for a `social/v1` post that is the same for every version file, so
+/// a PUT of another version file that names the same targets publishes nothing.
+pub async fn sync_put(
     post: PostInput,
     key: ResourceKey,
     ingestor: &UserIngestor,
-    source_uri: &str,
 ) -> Result<(), EventProcessorError> {
     reject_unsupported_parent(&post)?;
     ingest_collection_item_authors(&post, ingestor).await;
@@ -78,7 +67,7 @@ pub async fn sync_put_at(
     let lines = post
         .external_references()
         .into_iter()
-        .map(|(uri, kind)| references::reference(&key.owner_id, source_uri, uri, kind))
+        .map(|(uri, kind)| references::reference(&key.owner_id, &post.uri, uri, kind))
         .collect::<Result<Vec<ResourceChange>, _>>()?;
     // Whether the post replies to anything: once its write and its references are in, the graph
     // says the same, so the first run and a retry decide from the same fact.

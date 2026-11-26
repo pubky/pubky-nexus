@@ -54,7 +54,7 @@ async fn resource_reference_routes_order_ties_by_author_then_post() -> Result<()
             &post,
             vec![references::reference(
                 author,
-                &format!("{uri}/{id}.json"),
+                &uri,
                 &target,
                 ResourceChangeKind::Reply,
             )?],
@@ -151,12 +151,7 @@ async fn resource_reference_routes_counts_pagination_and_validation() -> Result<
         post.put_to_graph(None, None).await?;
         references::sync(
             &post,
-            vec![references::reference(
-                &author,
-                &format!("{uri}/{id}.json"),
-                &target,
-                kind,
-            )?],
+            vec![references::reference(&author, &uri, &target, kind)?],
         )
         .await?;
         ids.push(id);
@@ -370,7 +365,7 @@ async fn v0_serves_an_untagged_referenced_resource_and_a_url_reply_as_a_reply() 
         reply,
         vec![references::reference(
             &author,
-            &format!("{}/{}.json", reply.uri, reply.id),
+            &reply.uri,
             &target,
             ResourceChangeKind::Reply,
         )?],

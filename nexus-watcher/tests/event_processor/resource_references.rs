@@ -3,7 +3,7 @@ use super::utils::watcher::{generate_post_id, retrieve_and_handle_event_line, Wa
 use anyhow::Result;
 use futures::TryStreamExt;
 use nexus_common::db::kv::SortOrder;
-use nexus_common::db::{get_neo4j_graph, queries, RedisOps};
+use nexus_common::db::{fetch_row_from_graph, get_neo4j_graph, queries, RedisOps};
 use nexus_common::models::event::resource_changes::{
     ResourceChange, ResourceChangeKind, ResourceChangeOp,
 };
@@ -253,15 +253,16 @@ async fn replies_embeds_and_collections_share_resources_and_replay_keys() -> Res
         .iter()
         .filter(|line| line.author == author)
         .collect();
+    // A line names the post's address, whichever version file made it
     assert!(own.iter().any(|line| line.kind == ResourceChangeKind::Reply
         && line.op == ResourceChangeOp::Put
-        && line.object_path == path.to_string()));
+        && line.object_path == format!("/pub/social/v1/posts/{id}")));
     let first_collection: Vec<_> = own
         .iter()
         .filter(|line| {
             line.kind == ResourceChangeKind::Collection
                 && line.op == ResourceChangeOp::Put
-                && line.object_path == collection.to_string()
+                && line.object_path == format!("/pub/social/v1/posts/{collection_id}")
         })
         .collect();
     assert_eq!(
@@ -669,24 +670,38 @@ async fn graph_commit_before_append_replays_put_and_a_delete_retry_replays_del()
         .await?;
     super::utils::watcher::rank_user(&author).await?;
     let target = format!("https://example.com/crash/{author}");
-    let rid = resource_id(&normalize_uri(&target).map_err(anyhow::Error::msg)?.0);
+    let embedded = format!("https://example.com/crash-embed/{author}");
+    let rid = resource_id(&normalize_uri(&embedded).map_err(anyhow::Error::msg)?.0);
     let id = generate_post_id();
     let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
-    let envelope = json!({"kind":"note","content":"first","parent":target});
-    test.put(&key, &path, &envelope).await?;
+    test.put(
+        &key,
+        &path,
+        &json!({"kind":"note","content":"first","parent":target}),
+    )
+    .await?;
     test = test.remove_event_processing().await;
+    // A later version that adds an embed
     let edit = generate_post_id();
     let version: ResourcePath = format!("/pub/social/v1/posts/{id}/{edit}.json").parse()?;
-    test.put(&key, &version, &envelope).await?;
-    let line = references::reference(
-        &author,
-        &format!("pubky://{author}{version}"),
-        &target,
-        ResourceChangeKind::Reply,
-    )?;
+    test.put(
+        &key,
+        &version,
+        &json!({"kind":"note","content":"first","parent":target,"embed":embedded}),
+    )
+    .await?;
+    let post_uri = format!("pubky://{author}/pub/social/v1/posts/{id}");
+    let post_path = format!("/pub/social/v1/posts/{id}");
+    let lines = [
+        (&target, ResourceChangeKind::Reply),
+        (&embedded, ResourceChangeKind::Embed),
+    ]
+    .into_iter()
+    .map(|(target, kind)| references::reference(&author, &post_uri, target, kind))
+    .collect::<Result<Vec<_>, _>>()?;
     let post = PostDetails::get_by_id(&author, &id).await?.unwrap();
     let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
-    references::stage(&post, vec![line]).await?; // committed graph and outbox, no append
+    references::stage(&post, lines).await?; // committed graph and outbox, no append
     assert!(ResourceChange::get_from_index(cursor, 1000)
         .await?
         .0
@@ -706,17 +721,17 @@ async fn graph_commit_before_append_replays_put_and_a_delete_retry_replays_del()
         .filter(|line| {
             line.author == author
                 && line.op == ResourceChangeOp::Put
-                && line.object_path == version.to_string()
+                && line.object_path == post_path
         })
         .collect();
     assert_eq!(
         puts.len(),
         1,
-        "the handler's retry delivers the outbox, and its own write, which finds the edge, adds nothing"
+        "the handler's retry delivers the outbox, and its own write, which finds the edges, adds nothing"
     );
     assert_eq!(
         (puts[0].resource_id.as_str(), puts[0].kind),
-        (rid.as_str(), ResourceChangeKind::Reply)
+        (rid.as_str(), ResourceChangeKind::Embed)
     );
     // A DEL that appended its dels and stopped before the graph delete: the post stays
     let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
@@ -740,19 +755,148 @@ async fn graph_commit_before_append_replays_put_and_a_delete_retry_replays_del()
         .iter()
         .filter(|line| line.author == author && line.op == ResourceChangeOp::Del)
         .collect();
-    assert_eq!(deletes.len(), 2, "the retry's duplicate, and no more");
-    assert!(deletes
-        .iter()
-        .all(|line| line.object_path == version.to_string()));
-    assert!(ResourceView::get_by_id(
-        &resource_id(&normalize_uri(&target).map_err(anyhow::Error::msg)?.0),
-        None,
-        None,
-        None,
-        None
+    assert_eq!(
+        deletes.len(),
+        4,
+        "each edge's del and the retry's duplicate, and no more"
+    );
+    assert!(deletes.iter().all(|line| line.object_path == post_path));
+    for target in [&target, &embedded] {
+        assert!(ResourceView::get_by_id(
+            &resource_id(&normalize_uri(target).map_err(anyhow::Error::msg)?.0),
+            None,
+            None,
+            None,
+            None
+        )
+        .await?
+        .is_none());
+    }
+    test.del(&key, &profile).await?;
+    Ok(())
+}
+
+/// `id`'s Resource edges as the graph holds them: kind, Resource id, path and time.
+async fn reference_edges(
+    author: &str,
+    id: &str,
+) -> Result<Vec<(ResourceChangeKind, String, String, i64)>> {
+    let row = fetch_row_from_graph(queries::get::resource_references_state(author, id))
+        .await?
+        .expect("the post");
+    let lines: Vec<ResourceChange> = row.get("lines")?;
+    Ok(lines
+        .into_iter()
+        .map(|line| (line.kind, line.resource_id, line.object_path, line.at))
+        .collect())
+}
+
+/// Two version files of one post that name the same targets, handled in turn and then again
+/// (A, B, A, B: a batch that runs again, or a homeserver that repeats both lines), append nothing
+/// after the first PUT, although their content differs: a reference is keyed by the post's
+/// address, which every version file shares. The edges keep their path and the time they were
+/// first indexed. One post is a collection of several items, the other a reply to a URL with
+/// an external embed (a collection has neither). A version that drops one item appends exactly
+/// that item's del.
+#[tokio_shared_rt::test(shared)]
+async fn version_files_of_one_post_naming_the_same_targets_append_nothing() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let key = Keypair::random();
+    test.register_user(&key).await?;
+    let author = key.public_key().to_z32();
+    let profile = test
+        .put_v1_profile(&key, &v1_test_user("Reference versions", ""))
+        .await?;
+    super::utils::watcher::rank_user(&author).await?;
+    let parent = format!("https://example.com/versions/parent/{author}");
+    let embed = format!("https://example.com/versions/embed/{author}");
+    let items: Vec<String> = (0..4)
+        .map(|n| format!("https://example.com/versions/item/{n}/{author}"))
+        .collect();
+    let collection = |name: &str, items: &[String]| {
+        let items: Vec<_> = items.iter().map(|uri| json!({ "uri": uri })).collect();
+        json!({
+            "kind": "collection",
+            "content": json!({ "name": name, "items": items }).to_string(),
+        })
+    };
+    let note =
+        |content: &str| json!({"kind":"note","content":content,"parent":parent,"embed":embed});
+    let (collection_id, note_id) = (generate_post_id(), generate_post_id());
+    let handler = test.event_processor_runner.event_handler.clone();
+    let mut last = Vec::new();
+    for (id, a_body, b_body, references) in [
+        (
+            &collection_id,
+            collection("A", &items),
+            collection("B", &items),
+            items.len(),
+        ),
+        (&note_id, note("version A"), note("version B"), 2),
+    ] {
+        let post_path = format!("/pub/social/v1/posts/{id}");
+        let a: ResourcePath = format!("{post_path}/{id}.json").parse()?;
+        let b: ResourcePath = format!("{post_path}/{}.json", generate_post_id()).parse()?;
+        let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+        test.put(&key, &a, &a_body).await?;
+        let first = own_ops_since(&author, cursor).await?;
+        assert_eq!(first.len(), references, "{id}: {first:?}");
+        assert!(first.iter().all(|(op, _)| *op == ResourceChangeOp::Put));
+        let first_edges = reference_edges(&author, id).await?;
+        assert_eq!(first_edges.len(), references, "{id}");
+        assert!(first_edges.iter().all(|(_, _, path, _)| *path == post_path));
+
+        // B is an edit (its content differs) with the same targets; then A and B again
+        let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+        test.put(&key, &b, &b_body).await?;
+        for path in [&a, &b] {
+            retrieve_and_handle_event_line(
+                &format!("PUT pubky://{author}{path}"),
+                &test.homeserver_id,
+                handler.clone(),
+            )
+            .await?;
+        }
+        assert_eq!(
+            own_ops_since(&author, cursor).await?,
+            [],
+            "{id}: no version file after the first PUT appends a line"
+        );
+        let content = PostDetails::get_from_graph(&author, id)
+            .await?
+            .unwrap()
+            .0
+            .content;
+        assert!(
+            content == "version B" || content.contains(r#""name":"B""#),
+            "the version handled last is the post: {content}"
+        );
+        assert_eq!(
+            reference_edges(&author, id).await?,
+            first_edges,
+            "{id}: the edges keep their path and first time"
+        );
+        last.push(b);
+    }
+
+    // A version that drops one item appends that item's del, and nothing else
+    let c: ResourcePath = format!(
+        "/pub/social/v1/posts/{collection_id}/{}.json",
+        generate_post_id()
     )
-    .await?
-    .is_none());
+    .parse()?;
+    let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+    test.put(&key, &c, &collection("C", &items[1..])).await?;
+    assert_eq!(
+        own_ops_since(&author, cursor).await?,
+        [(
+            ResourceChangeOp::Del,
+            resource_id(&normalize_uri(&items[0]).map_err(anyhow::Error::msg)?.0)
+        )]
+    );
+
+    test.del(&key, &c).await?;
+    test.del(&key, &last[1]).await?;
     test.del(&key, &profile).await?;
     Ok(())
 }
@@ -908,6 +1052,8 @@ async fn concurrent_delete_is_not_overtaken_by_an_outbox_append() -> Result<()> 
     let rid = resource_id(&normalize_uri(&target).map_err(anyhow::Error::msg)?.0);
     let new_target = format!("https://example.com/delete-race-newer/{author}");
     let new_rid = resource_id(&normalize_uri(&new_target).map_err(anyhow::Error::msg)?.0);
+    let lost_target = format!("https://example.com/delete-race-lost/{author}");
+    let lost_rid = resource_id(&normalize_uri(&lost_target).map_err(anyhow::Error::msg)?.0);
     let id = generate_post_id();
     let path: ResourcePath = format!("/pub/social/v1/posts/{id}/{id}.json").parse()?;
     test.put(
@@ -927,15 +1073,17 @@ async fn concurrent_delete_is_not_overtaken_by_an_outbox_append() -> Result<()> 
     )
     .await?;
     // A committed graph write whose feed append was lost leaves its outbox on the post: here
-    // the reply moved to the newer version's file.
-    let line = references::reference(
-        &author,
-        &format!("pubky://{author}{newer}"),
-        &target,
-        ResourceChangeKind::Reply,
-    )?;
+    // it added an embed the newer version replaces.
+    let post_uri = format!("pubky://{author}/pub/social/v1/posts/{id}");
+    let lines = [
+        (&target, ResourceChangeKind::Reply),
+        (&lost_target, ResourceChangeKind::Embed),
+    ]
+    .into_iter()
+    .map(|(target, kind)| references::reference(&author, &post_uri, target, kind))
+    .collect::<Result<Vec<_>, _>>()?;
     let post = PostDetails::get_by_id(&author, &id).await?.unwrap();
-    references::stage(&post, vec![line]).await?;
+    references::stage(&post, lines).await?;
     let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
 
     let handler = test.event_processor_runner.event_handler.clone();
@@ -976,6 +1124,7 @@ async fn concurrent_delete_is_not_overtaken_by_an_outbox_append() -> Result<()> 
     for (rid, name) in [
         (&rid, "the reply's target"),
         (&new_rid, "the newer embed's target"),
+        (&lost_rid, "the lost append's embed"),
     ] {
         let ops: Vec<_> = lines
             .iter()
@@ -988,7 +1137,7 @@ async fn concurrent_delete_is_not_overtaken_by_an_outbox_append() -> Result<()> 
             "a retraction is {name}'s last change (true = put): {ops:?}"
         );
     }
-    for rid in [&rid, &new_rid] {
+    for rid in [&rid, &new_rid, &lost_rid] {
         assert!(ResourceView::get_by_id(rid, None, None, None, None)
             .await?
             .is_none());

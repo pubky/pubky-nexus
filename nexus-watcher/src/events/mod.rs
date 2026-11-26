@@ -208,9 +208,7 @@ pub async fn handle_put_event(
 
     let outcome = match translated {
         TranslatedPut::User { user_id, user } => handlers::user::sync_put(user, user_id).await,
-        TranslatedPut::Post { key, post } => {
-            handlers::post::sync_put_at(post, key, &ingestor, &event.uri).await
-        }
+        TranslatedPut::Post { key, post } => handlers::post::sync_put(post, key, &ingestor).await,
         TranslatedPut::Follow {
             user_id,
             followee_id,
