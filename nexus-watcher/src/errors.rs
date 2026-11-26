@@ -310,6 +310,7 @@ mod tests {
     use super::*;
     use crate::events::retry::RetryScheduler;
     use pubky::errors::PkarrError;
+    use pubky::CredentialRefreshError;
 
     #[test]
     fn event_stream_5xx_is_not_retry_now() {
@@ -329,6 +330,20 @@ mod tests {
             !err.should_not_retry_now(),
             "a 5xx outside the event stream is per-event and must not abort the run"
         );
+    }
+
+    /// A failed grant credential refresh comes only from a signed-in client, which Nexus
+    /// is not in production: never retried, and the run goes on.
+    #[test]
+    fn credential_refresh_failure_is_not_retried() {
+        let err = EventProcessorError::from(pubky::Error::from(CredentialRefreshError::Request {
+            status: None,
+        }));
+        assert!(
+            !RetryScheduler::should_enqueue_related_event(&err),
+            "{err:?}"
+        );
+        assert!(!err.should_not_retry_now(), "{err:?}");
     }
 
     fn hs_error(op: HsOp, kind: HsErrorKind) -> EventProcessorError {

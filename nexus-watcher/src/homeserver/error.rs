@@ -105,7 +105,9 @@ impl HsErrorKind {
     /// decode or PKARR failure, which that conversion makes a retried `RequestFailed`
     /// (`PkarrFailed` for PKARR), is an [`HsErrorKind::Sdk`] failure, treated the same
     /// way. An error building the request (`Parse`, `Build`, `Authentication`) is
-    /// malformed, and permanent.
+    /// malformed, and permanent. So is a failed grant credential refresh
+    /// (`CredentialRefresh`): only a signed-in client refreshes one, and Nexus signs in
+    /// only in tests.
     pub fn from_sdk(error: pubky::Error) -> Self {
         match error {
             pubky::Error::Request(RequestError::Server { status, message }) => {
@@ -116,9 +118,10 @@ impl HsErrorKind {
                 RequestError::Validation { .. } | RequestError::DecodeJson { .. },
             )
             | pubky::Error::Pkarr(_) => Self::Sdk(capped(error)),
-            pubky::Error::Parse(_) | pubky::Error::Authentication(_) | pubky::Error::Build(_) => {
-                Self::malformed(error)
-            }
+            pubky::Error::Parse(_)
+            | pubky::Error::Authentication(_)
+            | pubky::Error::CredentialRefresh(_)
+            | pubky::Error::Build(_) => Self::malformed(error),
         }
     }
 }
@@ -148,6 +151,7 @@ mod tests {
     use crate::events::retry::RetryScheduler;
     use nexus_common::db::PubkyClientError;
     use pubky::errors::{AuthError, BuildError, PkarrError};
+    use pubky::CredentialRefreshError;
 
     /// A `reqwest::Error` that `is_timeout()`: a request to a local socket nothing answers
     /// on, with a timeout shorter than its patience.
@@ -199,6 +203,10 @@ mod tests {
             "missing token".into(),
         )));
         assert!(matches!(auth, HsErrorKind::Malformed(_)), "{auth:?}");
+        let refresh = HsErrorKind::from_sdk(pubky::Error::from(CredentialRefreshError::Request {
+            status: None,
+        }));
+        assert!(matches!(refresh, HsErrorKind::Malformed(_)), "{refresh:?}");
 
         let hs = PubkyId::try_from("1hb71xx9km3f4pw5izsy1gn19ff1uuuqonw4mcygzobwkryujoiy").unwrap();
         let retried: EventProcessorError = HsError::new(&hs, HsOp::GetResource, validation).into();

@@ -69,7 +69,7 @@ pub enum HsMapping {
 impl HsMapping {
     /// Reads a user's `HOSTED_BY` mapping relative to the homeserver `hs_id` from the graph,
     /// or `None` if the user has no edge.
-    pub(super) async fn stored(user_id: &str, hs_id: &str) -> GraphResult<Option<Self>> {
+    pub(crate) async fn stored(user_id: &str, hs_id: &str) -> GraphResult<Option<Self>> {
         let query = queries::get::get_user_homeserver(user_id);
         let Some(row) = fetch_row_from_graph(query).await? else {
             return Ok(None);
@@ -97,6 +97,18 @@ impl HsMapping {
     /// the bulk read classifies them by the homeserver they publish instead.
     pub(super) fn reads_here(mapping: Option<&Self>) -> bool {
         matches!(mapping, Some(Self::Current { stale: false }))
+    }
+
+    /// Whether a queued retry of an event read from the homeserver this mapping is relative
+    /// to is still handled: unless the stored mapping points to another homeserver. That user
+    /// is read there, and what they hold arrives through that homeserver's stream. A stale
+    /// mapping still points here and a record naming it again resumes the read past the
+    /// event, and a user with no stored mapping is the bulk read's, so both are retried.
+    ///
+    /// Known limit: a dropped DEL of something the user did not take along is lost, and the
+    /// item stays indexed, like anything else left on the homeserver they moved from.
+    pub(crate) fn retries_here(mapping: Option<&Self>) -> bool {
+        !matches!(mapping, Some(Self::Other { .. }))
     }
 }
 
@@ -559,6 +571,28 @@ mod tests {
 
         for (mapping, read) in cases {
             assert_eq!(HsMapping::reads_here(mapping.as_ref()), read, "{mapping:?}");
+        }
+    }
+
+    #[test]
+    fn a_retry_is_dropped_only_for_a_mapping_to_another_homeserver() {
+        let other = HsMapping::Other {
+            hs_id: "hs-b".into(),
+        };
+        let cases = [
+            (Some(HsMapping::Current { stale: false }), true),
+            (Some(HsMapping::Current { stale: true }), true),
+            (Some(HsMapping::Unresolved), true),
+            (None, true),
+            (Some(other), false),
+        ];
+
+        for (mapping, retried) in cases {
+            assert_eq!(
+                HsMapping::retries_here(mapping.as_ref()),
+                retried,
+                "{mapping:?}"
+            );
         }
     }
 

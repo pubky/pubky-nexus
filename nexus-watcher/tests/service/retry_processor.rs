@@ -1,3 +1,4 @@
+use crate::event_processor::follows::utils::find_follow_relationship;
 use crate::event_processor::posts::utils::{
     corrupt_post_indexed_at, find_post_details, find_post_uri, restore_post_indexed_at,
 };
@@ -22,7 +23,9 @@ use nexus_common::models::file::FileDetails;
 use nexus_common::models::homeserver::Homeserver;
 use nexus_common::models::post::{PostCounts, PostDetails};
 use nexus_common::models::traits::Collection;
-use nexus_common::models::user::{Epoch, UserCounts, UserDetails, UserIngestor};
+use nexus_common::models::user::{
+    set_user_homeserver, set_user_homeserver_stale, Epoch, UserCounts, UserDetails, UserIngestor,
+};
 use nexus_common::utils::test_utils::{default_ingestor_tests, random_pubky_id};
 use nexus_watcher::errors::EventProcessorError;
 use nexus_watcher::events::retry::{
@@ -35,9 +38,9 @@ use nexus_watcher::homeserver::HsErrorKind;
 use nexus_watcher::service::{HsEventProcessor, RunOutcome, TEventProcessor};
 use pubky_social_specs::legacy_v0::traits::{HashId as _, TimestampId};
 use pubky_social_specs::legacy_v0::{
-    blob_uri_builder, file_uri_builder as v0_file_uri_builder, post_uri_builder,
-    tag_uri_builder as v0_tag_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppPost,
-    PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
+    blob_uri_builder, file_uri_builder as v0_file_uri_builder, follow_uri_builder,
+    post_uri_builder, tag_uri_builder as v0_tag_uri_builder, PubkyAppBlob, PubkyAppFile,
+    PubkyAppFollow, PubkyAppPost, PubkyAppPostKind, PubkyAppTag, PubkyAppUser,
 };
 use pubky_social_specs::traits::{HasPath as _, HashId as _, TimestampId as _};
 use pubky_social_specs::{
@@ -442,6 +445,237 @@ async fn test_retry_handles_event_from_its_origin_homeserver() -> Result<()> {
     assert_eq!(handler.get_handled_homeserver_ids(), vec![HS_IDS[1]]);
 
     let _ = shutdown_tx.send(true);
+    Ok(())
+}
+
+/// A new user mapped to a homeserver, a post that homeserver serves, and a retry processor
+/// over the real handler with an empty queue.
+struct MappedUsersPost {
+    user_id: String,
+    post_id: String,
+    event_uri: String,
+    store: Arc<dyn RetryStore>,
+    processor: Arc<RetryProcessor>,
+    _files: tempfile::TempDir,
+    _shutdown_tx: watch::Sender<bool>,
+}
+
+impl MappedUsersPost {
+    async fn of_a_user_mapped_to(homeserver_id: &PubkyId) -> Result<Self> {
+        setup().await?;
+
+        let user = random_pubky_id();
+        let user_id = user.to_string();
+        UserDetails::from_pubky(user).put_to_graph().await?;
+        set_user_homeserver(&user_id, homeserver_id).await?;
+
+        let post = PubkyAppPost {
+            content: "Retry:Mapping:Post".to_string(),
+            kind: PubkyAppPostKind::Short,
+            parent: None,
+            embed: None,
+            attachments: None,
+            lock: None,
+        };
+        let post_id = post.create_id();
+        let event_uri = post_uri_builder(user_id.clone(), post_id.clone());
+        let client =
+            MockHomeserverClient::default().with_resource(&event_uri, serde_json::to_vec(&post)?);
+        let files = tempfile::TempDir::new()?;
+        let store = new_in_memory_store();
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let processor = build_processor(
+            store.clone(),
+            create_test_config(10, 50, 60, 3600, 60, 3600),
+            default_handler(client, &files, store.clone()),
+            shutdown_rx,
+        );
+
+        Ok(Self {
+            user_id,
+            post_id,
+            event_uri,
+            store,
+            processor,
+            _files: files,
+            _shutdown_tx: shutdown_tx,
+        })
+    }
+
+    /// Queues one ready entry for the post, read from `origin`, and runs a retry pass.
+    async fn retry(&self, event_type: EventType, origin: &PubkyId) -> Result<()> {
+        self.store
+            .put(&RetryEvent {
+                event_type,
+                origin_homeserver_id: origin.to_string(),
+                ..ready_put_entry(&self.event_uri, 0)
+            })
+            .await?;
+        self.processor.clone().run_internal().await?;
+        Ok(())
+    }
+
+    /// Whether the post is indexed and whether its entry is still queued; removes the user.
+    async fn outcome(self) -> Result<(bool, bool)> {
+        let indexed = PostDetails::get_from_graph(&self.user_id, &self.post_id)
+            .await?
+            .is_some();
+        let queued = self
+            .store
+            .get(&IndexKey::for_uri(&self.event_uri))
+            .await?
+            .is_some();
+        exec_single_row(queries::del::delete_user(&self.user_id)).await?;
+        Ok((indexed, queued))
+    }
+}
+
+/// A user mapped to another homeserver than the one an entry was read from is read
+/// there, so the entry is removed and nothing is indexed. A PUT is refetched through the
+/// user's record, which names the new homeserver, and that homeserver's own stream
+/// delivers what it holds: the entry adds nothing.
+#[tokio_shared_rt::test(shared)]
+async fn test_retry_of_a_user_mapped_to_another_homeserver_is_removed_and_nothing_indexed(
+) -> Result<()> {
+    let (origin, elsewhere) = (random_pubky_id(), random_pubky_id());
+    let post = MappedUsersPost::of_a_user_mapped_to(&elsewhere).await?;
+
+    post.retry(EventType::Put, &origin).await?;
+
+    assert_eq!(
+        post.outcome().await?,
+        (false, false),
+        "(indexed, still queued)"
+    );
+    Ok(())
+}
+
+/// A DEL fetches nothing, so a queued one removed the item whatever the user's new
+/// homeserver holds, what they took along included. It is removed with the entry instead
+/// and the post stays indexed. The cost: a delete of something they did not take along is
+/// lost, and that item stays indexed like anything else left on the old homeserver.
+#[tokio_shared_rt::test(shared)]
+async fn test_retry_of_a_del_of_a_user_mapped_to_another_homeserver_is_removed_and_the_post_stays_indexed(
+) -> Result<()> {
+    let (origin, elsewhere) = (random_pubky_id(), random_pubky_id());
+    let post = MappedUsersPost::of_a_user_mapped_to(&origin).await?;
+    post.retry(EventType::Put, &origin).await?;
+
+    set_user_homeserver(&post.user_id, &elsewhere).await?;
+    post.retry(EventType::Del, &origin).await?;
+
+    assert_eq!(
+        post.outcome().await?,
+        (true, false),
+        "(indexed, still queued)"
+    );
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_retry_of_a_user_mapped_to_the_origin_homeserver_is_handled() -> Result<()> {
+    let origin = random_pubky_id();
+    let post = MappedUsersPost::of_a_user_mapped_to(&origin).await?;
+
+    post.retry(EventType::Put, &origin).await?;
+
+    assert_eq!(
+        post.outcome().await?,
+        (true, false),
+        "(indexed, still queued)"
+    );
+    Ok(())
+}
+
+/// A stale mapping still points to the origin homeserver, and a record that names it again
+/// makes the user read there once more, past this event. Removing the entry would lose
+/// it, so it is retried as before.
+#[tokio_shared_rt::test(shared)]
+async fn test_retry_of_a_user_with_a_stale_mapping_to_the_origin_homeserver_is_handled(
+) -> Result<()> {
+    let origin = random_pubky_id();
+    let post = MappedUsersPost::of_a_user_mapped_to(&origin).await?;
+    set_user_homeserver_stale(&post.user_id, true, None).await?;
+
+    post.retry(EventType::Put, &origin).await?;
+
+    assert_eq!(
+        post.outcome().await?,
+        (true, false),
+        "(indexed, still queued)"
+    );
+    Ok(())
+}
+
+/// Retries a follow read from `origin`, by a new user mapped to `follower_homeserver` of a new
+/// user mapped to `followee_homeserver`. Returns whether the follow is indexed and whether its
+/// entry is still queued; removes both users.
+async fn retried_follow(
+    origin: &PubkyId,
+    follower_homeserver: &PubkyId,
+    followee_homeserver: &PubkyId,
+) -> Result<(bool, bool)> {
+    setup().await?;
+
+    let mut user_ids = Vec::new();
+    for homeserver_id in [follower_homeserver, followee_homeserver] {
+        let user = random_pubky_id();
+        let user_id = user.to_string();
+        UserDetails::from_pubky(user).put_to_graph().await?;
+        set_user_homeserver(&user_id, homeserver_id).await?;
+        user_ids.push(user_id);
+    }
+    let (follower_id, followee_id) = (&user_ids[0], &user_ids[1]);
+
+    let follow = PubkyAppFollow {
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let event_uri = follow_uri_builder(follower_id.clone(), followee_id.clone());
+    let client =
+        MockHomeserverClient::default().with_resource(&event_uri, serde_json::to_vec(&follow)?);
+    let files = tempfile::TempDir::new()?;
+    let store = new_in_memory_store();
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(10, 50, 60, 3600, 60, 3600),
+        default_handler(client, &files, store.clone()),
+        shutdown_rx,
+    );
+    store
+        .put(&RetryEvent {
+            origin_homeserver_id: origin.to_string(),
+            ..ready_put_entry(&event_uri, 0)
+        })
+        .await?;
+
+    processor.run_internal().await?;
+
+    let followed = find_follow_relationship(follower_id, followee_id).await?;
+    let queued = store.get(&IndexKey::for_uri(&event_uri)).await?.is_some();
+    for user_id in &user_ids {
+        exec_single_row(queries::del::delete_user(user_id)).await?;
+    }
+    Ok((followed, queued))
+}
+
+/// The mapping that decides is the one of the user who acted: the entry was read from their
+/// homeserver. Who they acted on is read wherever they are, and changes nothing.
+#[tokio_shared_rt::test(shared)]
+async fn test_retry_of_a_follow_goes_by_the_mapping_of_the_follower() -> Result<()> {
+    let (origin, elsewhere) = (random_pubky_id(), random_pubky_id());
+
+    let by_a_user_mapped_to_the_origin = retried_follow(&origin, &origin, &elsewhere).await?;
+    let of_a_user_mapped_to_the_origin = retried_follow(&origin, &elsewhere, &origin).await?;
+
+    assert_eq!(
+        (
+            by_a_user_mapped_to_the_origin,
+            of_a_user_mapped_to_the_origin
+        ),
+        ((true, false), (false, false)),
+        "(followed, still queued) of each"
+    );
     Ok(())
 }
 
@@ -3442,6 +3676,49 @@ async fn test_a_failed_flip_step_at_max_retries_is_rescheduled_while_the_user_is
     );
 
     exec_single_row(queries::del::delete_user(&user_id)).await?;
+    Ok(())
+}
+
+/// A failed read of the user's mapping decides nothing: the batch stops and the attempt does
+/// not count, as for any graph failure. Unlike a failure in handling, the entry is not
+/// rescheduled: it stays due as it was. Removing it instead would empty the queue of every
+/// due entry during an outage. The stack is never set up here, so the read fails on the
+/// uninitialised connection; nextest runs each test in its own process, so no other test
+/// initialises it first.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_failed_mapping_read_keeps_the_entry_and_stops_the_batch() -> Result<()> {
+    let post_uri = another_users_post_uri();
+    let files = tempfile::TempDir::new()?;
+    let store = new_in_memory_store();
+    let entry = ready_put_entry(&post_uri, 3);
+    store.put(&entry).await?;
+
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+    let processor = build_processor(
+        store.clone(),
+        create_test_config(MAX_RETRIES, 50, 60, 3600, 600, 7200),
+        default_handler(MockHomeserverClient::default(), &files, store.clone()),
+        shutdown_rx,
+    );
+
+    let err = processor
+        .run_internal()
+        .await
+        .expect_err("a failed graph read must stop the batch");
+    assert!(
+        matches!(err, EventProcessorError::GraphQueryFailed(true, _)),
+        "classified as the graph error it is: {err:?}"
+    );
+
+    let kept = store
+        .get(&IndexKey::for_uri(&post_uri))
+        .await?
+        .expect("the entry must stay queued");
+    assert_eq!(
+        (kept.retry_count, kept.next_retry_at),
+        (entry.retry_count, entry.next_retry_at),
+        "untouched: a graph error does not count"
+    );
     Ok(())
 }
 

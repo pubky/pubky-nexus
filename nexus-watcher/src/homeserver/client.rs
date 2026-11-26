@@ -127,9 +127,12 @@ impl PubkyHomeserverClient {
 
     /// GETs `resource`, returning the response for the caller to read under its cap.
     ///
-    /// The SDK reads a non-2xx body whole, before [`HsErrorKind::from_sdk`] keeps 4 KiB of
-    /// it, so for resources and blobs that cap limits what is kept, not what is read.
+    /// The SDK reads at most 4 KiB of a non-2xx body (its default `max_error_body_bytes`),
+    /// the same amount [`HsErrorKind::from_sdk`] keeps.
     async fn get(&self, resource: &PubkyResource) -> Result<reqwest::Response, HsErrorKind> {
+        // TODO: fetch from the homeserver that delivered the event, through `request_async`
+        // with a homeserver-addressed storage URL, instead of the one the owner's PKARR
+        // record names.
         self.pubky
             .public_storage()
             .get(resource)
@@ -218,6 +221,8 @@ impl HomeserverClient for PubkyHomeserverClient {
         cursor: u64,
         limit: u16,
     ) -> Result<Vec<String>, HsError> {
+        // TODO: move to `request_async`, which falls back to the homeserver's ICANN domain
+        // when its direct endpoint is unreachable.
         let send = self
             .pubky
             .client()

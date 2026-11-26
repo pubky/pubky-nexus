@@ -1,5 +1,5 @@
 use pubky::errors::{AuthError, BuildError, PkarrError, RequestError};
-use pubky::{Pubky, PubkyHttpClient, StatusCode};
+use pubky::{CredentialRefreshError, Pubky, PubkyHttpClient, StatusCode};
 use std::{sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::OnceCell;
@@ -37,6 +37,11 @@ pub enum PubkyClientError {
     #[error("Authentication failed: {0}")]
     AuthenticationFailed(#[from] AuthError),
 
+    /// The SDK failed to refresh a grant credential. Only a signed-in client has one,
+    /// and Nexus signs in only in tests, so a retry would not help.
+    #[error("Credential refresh failed: {0}")]
+    CredentialRefreshFailed(#[from] CredentialRefreshError),
+
     #[error("Build failed: {0}")]
     BuildFailed(#[from] BuildError),
 
@@ -68,6 +73,7 @@ impl From<pubky::Error> for PubkyClientError {
 
             pubky::Error::Pkarr(e) => e.into(),
             pubky::Error::Authentication(e) => e.into(),
+            pubky::Error::CredentialRefresh(e) => e.into(),
             pubky::Error::Build(e) => e.into(),
             pubky::Error::Parse(e) => e.into(),
         }
@@ -96,6 +102,9 @@ impl PubkyConnector {
                     "Initialising Pubky singleton in {mode} mode"
                 );
 
+                // TODO: set pkarr's `minimum_ttl` / `maximum_ttl` and its DHT and relay request
+                // timeouts explicitly, as config values; `request_timeout` bounds only the HTTP
+                // client, not pkarr.
                 let mut client_builder = PubkyHttpClient::builder();
                 client_builder.request_timeout(http_request_timeout);
 

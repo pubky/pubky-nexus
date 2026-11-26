@@ -25,13 +25,14 @@ pub trait UserFollows: Sized + RedisOps + AsRef<[String]> + Default {
         match Self::get_from_index(user_id, skip, limit).await? {
             Some(connections) => Ok(Some(Self::from_vec(connections))),
             None => {
-                // Index miss: cache the full list (check_in_index needs complete
-                // membership), then slice skip/limit in Rust.
+                // Index miss: serve the graph and slice skip/limit in Rust. No
+                // write-back: the watcher owns the index, and a read during a
+                // follow delete (Redis cleared, edge not yet deleted) would cache
+                // the unfollowed edge for good (#1244).
                 let Some(follows) = Self::get_from_graph(user_id).await? else {
                     // None is reserved for "user does not exist in the graph"
                     return Ok(None);
                 };
-                follows.put_to_index(user_id).await?;
 
                 let mut connections = follows.as_ref().to_vec();
                 if let Some(skip) = skip {
