@@ -73,13 +73,13 @@ impl KeyRepublisher {
         client: pkarr::Client,
         signed_packet: &SignedPacket,
     ) -> JoinHandle<()> {
-        let published = Self::publish_once(&client, signed_packet).await.is_ok();
+        let published = needs_no_retry(&Self::publish_once(&client, signed_packet).await);
 
         // Start the periodic republish task.
         let signed_packet = signed_packet.clone();
         tokio::spawn(republish(published, move || {
             let (client, signed_packet) = (client.clone(), signed_packet.clone());
-            async move { Self::publish_once(&client, &signed_packet).await.is_ok() }
+            async move { needs_no_retry(&Self::publish_once(&client, &signed_packet).await) }
         }))
     }
 
@@ -93,6 +93,12 @@ impl Drop for KeyRepublisher {
     fn drop(&mut self) {
         self.stop();
     }
+}
+
+/// Whether a publish result ends the retries. `NotMostRecent` means the DHT holds a newer
+/// packet for this key (another instance with the same secret): retrying cannot fix it.
+fn needs_no_retry(result: &Result<(), PublishError>) -> bool {
+    matches!(result, Ok(()) | Err(PublishError::NotMostRecent))
 }
 
 /// Calls `publish` until it succeeds, unless `published`: first after [INITIAL_RETRY_DELAY], then
@@ -195,5 +201,12 @@ mod tests {
         task.abort();
 
         assert_eq!(*calls.lock().unwrap(), [1, 3, 7, 7 + 3600, 7 + 2 * 3600]);
+    }
+
+    #[test]
+    fn a_newer_packet_on_the_dht_ends_the_retries() {
+        assert!(needs_no_retry(&Ok(())));
+        assert!(needs_no_retry(&Err(PublishError::NotMostRecent)));
+        assert!(!needs_no_retry(&Err(PublishError::NoResponses)));
     }
 }
