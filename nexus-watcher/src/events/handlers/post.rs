@@ -42,8 +42,9 @@ static POST_LOCKS: LazyLock<StripedLocks> = LazyLock::new(|| StripedLocks::new(1
 /// can pick a post id that shares another's. A crash releases it. It orders the handlers of one
 /// watcher process.
 ///
-/// A PUT looks up the unknown authors of its collection items before it takes the lock: they
-/// take network round trips, and no other handler of the post depends on them.
+/// A PUT looks up the unknown authors of its collection items after it released the lock, and
+/// only when it wrote a new post or changed one ([`sync_put`]): the lookups take network round
+/// trips, and no other handler of the post depends on them.
 pub async fn lock_post(author_id: &str, post_id: &str) -> MutexGuard<'static, ()> {
     POST_LOCKS.lock((author_id, post_id)).await
 }
@@ -56,13 +57,34 @@ pub async fn lock_post(author_id: &str, post_id: &str) -> MutexGuard<'static, ()
 /// The feed lines of the post's references carry the path of the post's address (`post.uri`)
 /// as their `object_path`: for a `social/v1` post that is the same for every version file, so
 /// a PUT of another version file that names the same targets publishes nothing.
+///
+/// Once the lock is released, a PUT that wrote a new post or changed one looks up the unknown
+/// authors of its collection items, also when a later step failed: the retry of an edit finds
+/// no change and would not look them up (the retry of a new post whose index writes failed
+/// finishes that write and looks them up again). A replay that changes nothing, a refused edit
+/// and a PUT that fails before its write (a missing dependency, retried) look up nobody.
 pub async fn sync_put(
     post: PostInput,
     key: ResourceKey,
     ingestor: &UserIngestor,
 ) -> Result<(), EventProcessorError> {
     reject_unsupported_parent(&post)?;
-    ingest_collection_item_authors(&post, ingestor).await;
+    let mut written = false;
+    let indexed = sync_put_locked(&post, key, ingestor, &mut written).await;
+    if written {
+        ingest_collection_item_authors(&post, ingestor).await;
+    }
+    indexed
+}
+
+/// [`sync_put`] under the post lock. `written` is set once the PUT wrote a new post, changed
+/// one or finished its recovery ([`sync_put_details`]).
+async fn sync_put_locked(
+    post: &PostInput,
+    key: ResourceKey,
+    ingestor: &UserIngestor,
+    written: &mut bool,
+) -> Result<(), EventProcessorError> {
     let _post_lock = lock_post(key.owner_id.as_ref(), &key.resource_id).await;
     let lines = post
         .external_references()
@@ -71,7 +93,7 @@ pub async fn sync_put(
         .collect::<Result<Vec<ResourceChange>, _>>()?;
     // Whether the post replies to anything: once its write and its references are in, the graph
     // says the same, so the first run and a retry decide from the same fact.
-    let is_reply = is_reply_input(&post);
+    let is_reply = is_reply_input(post);
     let post_details = post.clone().into_details(&key);
     let ResourceKey {
         owner_id: author_id,
@@ -83,6 +105,7 @@ pub async fn sync_put(
         author_id.clone(),
         post_id.clone(),
         ingestor,
+        written,
     )
     .await?;
     let touched = references::sync(&post_details, lines).await?;
@@ -213,17 +236,23 @@ fn put_change(existing: &PostDetails, incoming: &PostDetails) -> Option<bool> {
 
 /// [`sync_put`] with the details built by the caller, so [`del`] can write a
 /// tombstone through the same edit path.
+///
+/// `written` is set as soon as the write created the post or found a change to an existing one,
+/// before anything that can fail after it, and once it finished the index of a post an earlier
+/// attempt wrote without it. It stays unset for a replay that changes nothing, a refused edit
+/// and a write that waits for a missing dependency.
 #[tracing::instrument(name = "post.put", skip_all, fields(user_id = %author_id, post_id = %post_id))]
 async fn sync_put_details(
-    post: PostInput,
+    post: &PostInput,
     post_details: &PostDetails,
     author_id: PubkyId,
     post_id: String,
     ingestor: &UserIngestor,
+    written: &mut bool,
 ) -> Result<(), EventProcessorError> {
     debug!("Indexing post");
     // We avoid indexing replies into global feed sorted sets
-    let is_reply = is_reply_input(&post);
+    let is_reply = is_reply_input(post);
     let is_collection = post.kind == PostKind::Collection;
     // PRE-INDEX operation, identify the post relationship. These parents carry the addresses as
     // the author wrote them: only their keys reach the graph, and the addresses only the
@@ -237,7 +266,10 @@ async fn sync_put_details(
 
     let (replied_key, reposted_key) = parent_keys(&named);
     let existed = match post_details.put_to_graph(replied_key, reposted_key).await? {
-        OperationOutcome::CreatedOrDeleted => false,
+        OperationOutcome::CreatedOrDeleted => {
+            *written = true;
+            false
+        }
         OperationOutcome::Updated => true,
         OperationOutcome::MissingDependency => {
             let mut dependency_event_keys = Vec::new();
@@ -270,6 +302,8 @@ async fn sync_put_details(
         // If the post existed, let's confirm this is an edit. Is the content different?
         match PostDetails::get_from_index(&author_id, &post_id).await? {
             Some(existing_details) => {
+                let change = put_change(&existing_details, post_details);
+                *written = change.is_some();
                 let was_collection = existing_details.kind == PostKind::Collection;
                 // Before `sync_edit` overwrites the Redis details: a retry after a
                 // Collection -> Short flip would then read Short on both sides, skip
@@ -278,7 +312,7 @@ async fn sync_put_details(
                     let items = post.collected_posts();
                     sync_collected_edges(&author_id, &post_id, &items, Some(post_details)).await?;
                 }
-                if let Some(notify) = put_change(&existing_details, post_details) {
+                if let Some(notify) = change {
                     sync_edit(
                         stored.unwrap_or_default().replied,
                         author_id.clone(),
@@ -302,6 +336,11 @@ async fn sync_put_details(
                 // as a root post: for a tombstone, its Resource reply edge in the graph decides.
                 let is_reply = (!post_details.deleted).then_some(is_reply);
                 recover_post_index_state(&author_id, &post_id, is_reply).await?;
+                // Once: a recovery that fails is retried, and only the one that finishes counts. A
+                // recovery that wrote the details and then failed leaves its retry no change to
+                // see, so that post's item authors wait for its next change: the lookups are
+                // best-effort.
+                *written = true;
             }
         }
         return Ok(());
@@ -762,10 +801,10 @@ fn stored_curated_items(
         .unwrap_or_default()
 }
 
-/// Best-effort ingestion of the owner of every item a Collection lists, on every PUT before the
-/// post lock (`maybe_ingest_user` is a no-op for known users). No-op for non-Collection posts,
-/// whose item list is empty; an item that names no user is skipped, and failures (blacklisted
-/// HS) are logged so the Collection is still indexed.
+/// Best-effort ingestion of the owner of every item a Collection lists, after the post lock, for
+/// a PUT that wrote or changed the post ([`sync_put`]; `maybe_ingest_user` is a no-op for known
+/// users). No-op for non-Collection posts, whose item list is empty; an item that names no user
+/// is skipped, and failures (blacklisted HS) are logged so the Collection is still indexed.
 async fn ingest_collection_item_authors(post: &PostInput, ingestor: &UserIngestor) {
     for item in &post.collection_items {
         let Some(owner_id) = item.target.owner_id() else {
@@ -832,12 +871,14 @@ pub async fn del(key: ResourceKey, ingestor: &UserIngestor) -> Result<(), EventP
 
             // The tombstone keeps the `parent` of a deleted reply, so re-PUT may
             // still ingest the parent's author; pass on ingestor to enforce the real blacklist.
+            // A tombstone lists no collection items: nobody to look up, whatever it wrote.
             sync_put_details(
-                tombstone,
+                &tombstone,
                 &tombstone_details,
                 key.owner_id,
                 key.resource_id,
                 ingestor,
+                &mut false,
             )
             .await?;
         }

@@ -96,8 +96,10 @@ The seed writes the post reference lines after the tag lines, in edge time order
 
 A post's handlers share one lock per post (author and post id; the stripe is picked
 with a hasher seeded once per process, so nobody can pick a post id that shares
-another's). A PUT looks up the unknown authors of its collection items before it takes
-the lock. A `social/v1` post DEL that finds no post (one never indexed, or one another
+another's). A PUT looks up the unknown authors of its collection items after it releases
+the lock, and only when it wrote a new post or changed one: an unchanged replay, a
+refused edit and a PUT that waits for a missing dependency look nobody up. A
+`social/v1` post DEL that finds no post (one never indexed, or one another
 version file's DEL already deleted) is acknowledged without storing its event line, as
 for a `pubky.app` post.
 
