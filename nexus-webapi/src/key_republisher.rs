@@ -77,25 +77,10 @@ impl KeyRepublisher {
 
         // Start the periodic republish task.
         let signed_packet = signed_packet.clone();
-        tokio::spawn(async move {
-            if !published {
-                let mut delay = INITIAL_RETRY_DELAY;
-                loop {
-                    tokio::time::sleep(delay).await;
-                    if Self::publish_once(&client, &signed_packet).await.is_ok() {
-                        break;
-                    }
-                    delay = (delay * 2).min(MAX_RETRY_DELAY);
-                }
-            }
-
-            let mut interval = interval(Duration::from_secs(60 * 60)); // 1 hour in seconds
-            interval.tick().await; // This ticks immediatly. Wait for first interval before starting the loop.
-            loop {
-                interval.tick().await;
-                let _ = Self::publish_once(&client, &signed_packet).await;
-            }
-        })
+        tokio::spawn(republish(published, move || {
+            let (client, signed_packet) = (client.clone(), signed_packet.clone());
+            async move { Self::publish_once(&client, &signed_packet).await.is_ok() }
+        }))
     }
 
     /// Stop the periodic republish task.
@@ -107,6 +92,32 @@ impl KeyRepublisher {
 impl Drop for KeyRepublisher {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+/// Calls `publish` until it succeeds, unless `published`: first after [INITIAL_RETRY_DELAY], then
+/// doubling the delay up to [MAX_RETRY_DELAY]. Then calls it once every hour.
+async fn republish<F, Fut>(published: bool, mut publish: F)
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    if !published {
+        let mut delay = INITIAL_RETRY_DELAY;
+        loop {
+            tokio::time::sleep(delay).await;
+            if publish().await {
+                break;
+            }
+            delay = (delay * 2).min(MAX_RETRY_DELAY);
+        }
+    }
+
+    let mut interval = interval(Duration::from_secs(60 * 60)); // 1 hour in seconds
+    interval.tick().await; // This ticks immediatly. Wait for first interval before starting the loop.
+    loop {
+        interval.tick().await;
+        publish().await;
     }
 }
 
@@ -162,5 +173,27 @@ mod tests {
             .expect("a failed publish is retried, not returned");
 
         assert!(!republisher.join_handle.is_finished());
+    }
+
+    /// A failed first publish is retried after 1 s, 2 s, 4 s…, and once one succeeds the
+    /// packet is republished every hour.
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_first_publish_is_retried_with_backoff_then_hourly() {
+        use std::sync::{Arc, Mutex};
+
+        let start = tokio::time::Instant::now();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let mut results = [false, false, true].into_iter();
+        let recorded = calls.clone();
+        let task = tokio::spawn(republish(false, move || {
+            recorded.lock().unwrap().push(start.elapsed().as_secs());
+            let ok = results.next().unwrap_or(true);
+            async move { ok }
+        }));
+
+        tokio::time::sleep(Duration::from_secs(7 + 2 * 3600 + 1)).await;
+        task.abort();
+
+        assert_eq!(*calls.lock().unwrap(), [1, 3, 7, 7 + 3600, 7 + 2 * 3600]);
     }
 }
