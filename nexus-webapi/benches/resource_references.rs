@@ -32,9 +32,9 @@ static SEED: OnceLock<seeded::Seed> = OnceLock::new();
 static DATA: OnceLock<String> = OnceLock::new();
 
 /// One Resource with [`POSTS`] replies and [`POSTS`] embeds by [`AUTHORS`] authors, each post
-/// written as the watcher's `sync_put_at` writes a new post: the post, its counts, relationships
-/// and details, its references (from the version file it was read from, `{uri}/{id}.json`), then
-/// the relationships and details again from the graph.
+/// written as the watcher's `sync_put` writes a new post: the post, its counts, relationships
+/// and details, its references (keyed by the post's address), then the relationships and
+/// details again from the graph.
 async fn seed(seed: &seeded::Seed) -> String {
     seed.write_users().await;
     let target = format!(
@@ -72,8 +72,7 @@ async fn seed(seed: &seeded::Seed) -> String {
             .await
             .unwrap();
         post.put_to_index(author, None, false, None).await.unwrap();
-        let file = format!("{uri}/{id}.json");
-        let line = references::reference(author, &file, &target, kind).unwrap();
+        let line = references::reference(author, &uri, &target, kind).unwrap();
         resource.get_or_insert_with(|| line.resource_id.clone());
         references::sync(&post, vec![line]).await.unwrap();
         PostRelationships::reindex(author, &id).await.unwrap();

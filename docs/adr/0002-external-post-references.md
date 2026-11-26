@@ -38,9 +38,10 @@ reference revision, also with no reference. A post without a reference revision 
 Resource reply edge yet, and its next PUT gains the one it names.
 
 Each PUT diffs the post's references against its edges and publishes the change: the
-dels of the references it loses and the puts of the ones it gains (a new target, or a
-new source version file). A PUT that changes nothing writes and publishes nothing, so a
-repeated event line does not grow the feed. A delete marks the post's references as
+dels of the references it loses and the puts of the ones it gains. A reference is keyed
+by the post's address, not by the version file that names it, so a PUT that names the
+same targets writes and publishes nothing, whichever version file it is, and a repeated
+event line does not grow the feed. A delete marks the post's references as
 retracted when it appends their dels, so the next PUT (after a delete that stopped
 half-way, or one that brings a tombstone back) puts every current reference again. An
 edge keeps the time it was first indexed. A reference write whose post changed under it

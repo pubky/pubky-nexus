@@ -13,16 +13,20 @@ use futures::TryStreamExt;
 use std::collections::HashMap;
 use tracing::error;
 
+/// The put line of `author`'s post at `post_uri` referencing `target` as `kind`. Its
+/// `object_path` is the path of the post's address, not of the file an event names: every
+/// version file of a `social/v1` post names the same one, so only a change of target changes a
+/// reference's key.
 pub fn reference(
     author: &str,
-    source_uri: &str,
+    post_uri: &str,
     target: &str,
     kind: ResourceChangeKind,
 ) -> ModelResult<ResourceChange> {
-    let path = source_uri
+    let path = post_uri
         .strip_prefix(&format!("pubky://{author}"))
         .filter(|path| path.starts_with("/pub/"))
-        .ok_or_else(|| ModelError::InvalidInput("Invalid reference source URI".into()))?;
+        .ok_or_else(|| ModelError::InvalidInput("Invalid reference post URI".into()))?;
     let (uri, _) = normalize_uri(target).map_err(ModelError::InvalidInput)?;
     Ok(ResourceChange {
         op: ResourceChangeOp::Put,
@@ -196,7 +200,8 @@ async fn stage_outbox(post: &PostDetails, mut lines: Vec<ResourceChange>) -> Mod
     }
     lines.sort_by_key(|line| (format!("{:?}", line.kind), line.resource_id.clone()));
     lines.dedup_by(|a, b| same_reference(a, b));
-    // An edge keeps the time it was first indexed, whichever version file names it now.
+    // An edge keeps the time it was first indexed, also when its path changes (the flip moves
+    // the post's address).
     for line in &mut lines {
         if let Some(edge) = old
             .lines
@@ -416,9 +421,9 @@ mod tests {
     }
 
     /// The same PUT handled twice appends its references once: the replay finds the edges it
-    /// would write and publishes nothing. A later version file that names the same target
-    /// moves the edge to its path, publishes the change of key, and keeps the time the edge
-    /// was first indexed, in the graph and on the line.
+    /// would write and publishes nothing. A later version of the post that names the same
+    /// target names the same key, the post's address, so it appends nothing either, and the
+    /// edge keeps its path and the time it was first indexed.
     #[tokio_shared_rt::test(shared)]
     async fn a_replayed_put_appends_nothing_and_an_edge_keeps_its_first_time(
     ) -> Result<(), crate::types::DynError> {
@@ -426,17 +431,22 @@ mod tests {
         let post = author_with_post("replay fixture").await?;
         let (author, id) = (post.author.clone(), post.id.clone());
         let target = format!("https://example.com/{author}/replayed");
-        let first_source = format!("{}/{id}.json", post.uri);
-        let line = |source: &str| reference(&author, source, &target, ResourceChangeKind::Reply);
+        let line = || reference(&author, &post.uri, &target, ResourceChangeKind::Reply);
+        let path = post
+            .uri
+            .strip_prefix(&format!("pubky://{author}"))
+            .unwrap()
+            .to_string();
         let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
-        sync(&post, vec![line(&first_source)?]).await?;
+        sync(&post, vec![line()?]).await?;
         let first = own_lines_since(&author, cursor).await?;
         assert_eq!(first.len(), 1, "{first:?}");
+        assert_eq!(first[0].2, path, "the line names the post's address");
         let first_at = state(&author, &id).await?.lines[0].at;
 
         let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
         let revision = state(&author, &id).await?.revision;
-        sync(&post, vec![line(&first_source)?]).await?;
+        sync(&post, vec![line()?]).await?;
         assert_eq!(
             own_lines_since(&author, cursor).await?,
             [],
@@ -448,20 +458,52 @@ mod tests {
             "and writes nothing"
         );
 
+        // A later version, written as the post write does before its references
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-        let second_source = format!("{}/0033SSE3B1FQ0.json", post.uri);
+        let later = PostDetails {
+            content: "a later version".into(),
+            ..post.clone()
+        };
+        later.put_to_graph(None, None).await?;
         let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
-        sync(&post, vec![line(&second_source)?]).await?;
+        sync(&later, vec![line()?]).await?;
+        assert_eq!(
+            own_lines_since(&author, cursor).await?,
+            [],
+            "a later version naming the same target appends nothing"
+        );
         let edges = state(&author, &id).await?.lines;
         assert_eq!(edges.len(), 1);
-        let path = |source: &str| {
-            source
-                .strip_prefix(&format!("pubky://{author}"))
+        assert_eq!(edges[0].object_path, path, "the edge keeps its path");
+        assert_eq!(edges[0].at, first_at, "the edge keeps its first time");
+
+        retract(&author, &id).await?;
+        delete_posts_and_author(&author, &[&id]).await
+    }
+
+    /// The flip moves a post's address, not its references: the post's first sync at its new
+    /// address appends one del of the old path and one put of the new per reference, the put
+    /// with the time the edge was first indexed; a replay at the new address appends nothing.
+    #[tokio_shared_rt::test(shared)]
+    async fn a_moved_post_address_appends_one_del_and_one_put_per_reference(
+    ) -> Result<(), crate::types::DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let post = author_with_post("moved fixture").await?;
+        let (author, id) = (post.author.clone(), post.id.clone());
+        let old_uri = format!("pubky://{author}/pub/pubky.app/posts/{id}");
+        let target = format!("https://example.com/{author}/moved");
+        let line = |uri: &str| reference(&author, uri, &target, ResourceChangeKind::Embed);
+        let path = |uri: &str| {
+            uri.strip_prefix(&format!("pubky://{author}"))
                 .unwrap()
                 .to_string()
         };
-        assert_eq!(edges[0].object_path, path(&second_source));
-        assert_eq!(edges[0].at, first_at, "the edge keeps its first time");
+        sync(&post, vec![line(&old_uri)?]).await?;
+        let first_at = state(&author, &id).await?.lines[0].at;
+
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+        sync(&post, vec![line(&post.uri)?]).await?;
         let moved = own_lines_since(&author, cursor).await?;
         assert_eq!(
             moved
@@ -469,11 +511,24 @@ mod tests {
                 .map(|(op, _, object_path, _)| (*op, object_path.clone()))
                 .collect::<Vec<_>>(),
             [
-                (ResourceChangeOp::Del, path(&first_source)),
-                (ResourceChangeOp::Put, path(&second_source))
+                (ResourceChangeOp::Del, path(&old_uri)),
+                (ResourceChangeOp::Put, path(&post.uri))
             ]
         );
-        assert_eq!(moved[1].3, first_at, "the put carries the edge's time");
+        assert_eq!(
+            moved[1].3, first_at,
+            "the put carries the edge's first time"
+        );
+        let edges = state(&author, &id).await?.lines;
+        assert_eq!(edges.len(), 1);
+        assert_eq!(
+            (edges[0].object_path.clone(), edges[0].at),
+            (path(&post.uri), first_at)
+        );
+
+        let (_, _, cursor) = ResourceChange::get_from_index(0, 0).await?;
+        sync(&post, vec![line(&post.uri)?]).await?;
+        assert_eq!(own_lines_since(&author, cursor).await?, [], "a replay");
 
         retract(&author, &id).await?;
         delete_posts_and_author(&author, &[&id]).await
@@ -488,7 +543,7 @@ mod tests {
         StackManager::setup(&StackConfig::default()).await?;
         let post = author_with_post("the graph's content").await?;
         let (author, id) = (post.author.clone(), post.id.clone());
-        let source = format!("{}/{id}.json", post.uri);
+        let source = post.uri.clone();
         let kept = reference(
             &author,
             &source,
@@ -533,7 +588,7 @@ mod tests {
         let fresh = author_with_post("never reconciled").await?;
         let line = reference(
             &fresh.author,
-            &format!("{}/{}.json", fresh.uri, fresh.id),
+            &fresh.uri,
             &format!("https://example.com/{}/fresh", fresh.author),
             ResourceChangeKind::Reply,
         )?;
@@ -583,7 +638,7 @@ mod tests {
         StackManager::setup(&StackConfig::default()).await?;
         let post = author_with_post("unreadable outbox fixture").await?;
         let (author, id) = (post.author.clone(), post.id.clone());
-        let source = format!("{}/{id}.json", post.uri);
+        let source = post.uri.clone();
         let target = |name: &str| {
             reference(
                 &author,
@@ -695,7 +750,7 @@ mod tests {
             deleted: false,
         };
         post.put_to_graph(None, None).await?;
-        let source = format!("{}/{id}.json", post.uri);
+        let source = post.uri.clone();
         let first = reference(
             &author,
             &source,
@@ -776,7 +831,7 @@ mod tests {
             deleted: false,
         };
         post.put_to_graph(None, None).await?;
-        let source = format!("{}/{id}.json", post.uri);
+        let source = post.uri.clone();
         let lines = ["one", "two"]
             .iter()
             .map(|suffix| {
@@ -865,7 +920,7 @@ mod tests {
         }
         // A reply and an embed of one post
         let short = &posts[0];
-        let source = format!("{}/{}.json", short.uri, short.id);
+        let source = short.uri.clone();
         // Each on its own target, so a seed that swapped the two kinds is told apart
         let lines = [
             (ResourceChangeKind::Reply, "replied"),
@@ -885,14 +940,11 @@ mod tests {
         // And more collection items than a seed batch holds
         let collection = &posts[1];
         let items = 1001;
-        let items_path = format!(
-            "{}/{}.json",
-            collection
-                .uri
-                .strip_prefix(&format!("pubky://{author}"))
-                .unwrap(),
-            collection.id
-        );
+        let items_path = collection
+            .uri
+            .strip_prefix(&format!("pubky://{author}"))
+            .unwrap()
+            .to_string();
         graph
             .run(
                 Query::new(

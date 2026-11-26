@@ -602,15 +602,16 @@ pub struct ResourceReferenceWrite<'a> {
     /// The Resources the post referenced before: one left with no relationship is deleted.
     pub old_targets: Vec<String>,
     /// Per edge type (`REPLIED`, `EMBEDS`, `COLLECTED`), the targets as maps of `id`, `uri`,
-    /// `scheme` and `path` (the source file).
+    /// `scheme` and `path` (the path of the post's address).
     pub groups: Vec<(&'static str, Vec<HashMap<String, String>>)>,
 }
 
 /// Reconciles the post's external reference edges with `write.groups` and saves its revision
 /// and outbox, in one statement, only while the post is live with the content, kind and
 /// revision the write was computed from; it returns a row then. A new edge and Resource take
-/// `at`; an existing edge keeps its time and takes the new source path. Edges the groups no
-/// longer name are deleted, then each old target left with no relationship.
+/// `at`; an existing edge keeps its time and takes the write's path, which changes only when the
+/// post's address does (the flip). Edges the groups no longer name are deleted, then each old
+/// target left with no relationship.
 pub fn sync_resource_references(write: ResourceReferenceWrite) -> Query {
     let mut cypher = String::from(
         r"

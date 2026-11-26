@@ -3,8 +3,9 @@
 //! Delivery is at least once. Consumers key a tag reference by `(author, uri, label)`: `uri` is
 //! the normalized URI stored on the Resource, so every file that tags one target with one label
 //! names the same reference. `object_path` is the path of the tag file the line concerns, for
-//! information only. A post reference is keyed by `(author, object_path, kind, resource_id)`.
-//! Rebuilds preserve live appends made while the graph snapshot is assembled.
+//! information only. A post reference is keyed by `(author, object_path, kind, resource_id)`,
+//! `object_path` being the path of the post's address. Rebuilds preserve live appends made
+//! while the graph snapshot is assembled.
 
 use crate::db::graph::{GraphError, Query};
 use crate::db::kv::{RedisError, RedisResult};
@@ -55,9 +56,10 @@ pub struct ResourceChange {
     /// Present for tag references.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
-    /// The homeserver path of the tag, reply or collection file that names the URI, as
-    /// written: for a tag, the file the line concerns, for information only. A tag's replay key
-    /// is (author, uri, label); a post reference's is (author, object_path, kind, resource_id).
+    /// A homeserver path: for a tag, the tag file the line concerns, as written, for
+    /// information only; for a post reference, the post's address, the same for every version
+    /// file of a `social/v1` post. A tag's replay key is (author, uri, label); a post
+    /// reference's is (author, object_path, kind, resource_id).
     pub object_path: String,
     /// Indexed timestamp in Unix milliseconds (deletion time for del).
     pub at: i64,
