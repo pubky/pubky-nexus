@@ -72,12 +72,14 @@ pub struct PostView {
 
 impl From<post::PostView> for PostView {
     fn from(view: post::PostView) -> Self {
+        // `/v0` serves no rating: it is `/v1`'s.
         let post::PostView {
             details,
             counts,
             tags,
             relationships,
             bookmark,
+            rating: _,
         } = view;
         Self {
             details,
