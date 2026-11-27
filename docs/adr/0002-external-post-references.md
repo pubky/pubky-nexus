@@ -63,13 +63,16 @@ and an external embed URI in `embedded`. `/v0` serves typed post shapes built fr
 the stored models: a post's relationships there have no `embedded`, and `replied`
 names only a post (`null` for an external reply). Whether the reply parent is a post
 comes from the graph and is cached with the relationships, never read from the
-address. For posts without external references, `/v0` answers are the stored models'
-bytes: the same fields in the same order.
+address. A live post without external references keeps its `/v0` answer: the stored
+models' fields in the same order.
 
-Two `/v0` changes are part of the feature. A URL that only posts reference is a
+Three `/v0` changes are part of the feature. A URL that only posts reference is a
 Resource, so `GET /v0/resource/{id}/tags` and `GET /v0/resource/by-uri` answer 200 with
 `tags: []` for it. A reply to a URL is a reply on `/v0` too: it stays out of
-the root timelines and counts in the author's replies.
+the root timelines and counts in the author's replies. The view of a deleted post names
+no relationship, native ones included, whether its author deleted it or a moderator took
+it down: a deleted reply reads `replied: null` and a deleted repost `reposted: null`,
+where `/v0` named the parent and the reposted post before, and `mentioned` is empty.
 
 Resource replies stay in the author's replies rather than root timelines, including
 after cache loss, and from a new reply's first index write, before its Resource reply
