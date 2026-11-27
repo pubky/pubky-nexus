@@ -27,7 +27,7 @@ pub struct ReachSetQuery {
     get,
     path = USER_REACH_SET_ROUTE,
     tag = "User",
-    description = "The users `user_id`'s Web of Trust reaches within `depth` follows: the authors a `source=wot` post stream reads, whether or not they posted, never `user_id` itself. The users `user_id` follows come first, then the rest, each by id; at most 1000, with `truncated` set when the reach holds more. The `ETag` names the set: send it back in `If-None-Match` and an unchanged set is a 304.",
+    description = "The users `user_id`'s Web of Trust reaches within `depth` follows: the authors a `source=wot` post stream reads, whether or not they posted, never `user_id` itself. The users `user_id` follows come first, then the rest; within each, users with a profile before key-discovery stubs, then those more of `user_id`'s follows follow, then by id, so key-discovery stubs `user_id` does not follow itself rank after every user with a profile. At most 1000, with `truncated` set when the reach holds more. The `ETag` names the set: send it back in `If-None-Match` and an unchanged set is a 304.",
     params(
         ("user_id" = String, Path, description = "User Pubky ID"),
         ("depth" = Option<u8>, Query, description = "WoT traversal depth, 1-3, default 2, as for `source=wot`"),

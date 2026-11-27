@@ -1298,21 +1298,43 @@ pub fn reach_contains_user(user_id: &str, target_id: &str, reach: &StreamReach) 
 /// Up to `limit` distinct users `user_id`'s Web of Trust reaches within
 /// `depth` follows: the authors `source=wot` reads, every one of them, whether
 /// or not they posted. `user_id` is never in it, also when a follow cycle
-/// reaches it again. The users `user_id` follows come first, then the rest,
-/// each by id. An unknown user has no row; a known one reaching nobody has one
-/// row with a null `id`.
+/// reaches it again. The users `user_id` follows come first, then the rest;
+/// within each, users with a profile before key-discovery stubs, then those
+/// more of `user_id`'s follows follow, then by id. A stub has no profile, so
+/// the stubs `user_id` does not follow itself, such as keys one of its follows
+/// followed in bulk, rank after every user with one and cannot crowd them out
+/// at the limit. An unknown user has no row; a known one reaching
+/// nobody has one row with a null `id`.
 pub fn get_reach_set(user_id: &str, depth: WotDepth, limit: usize) -> Query {
+    // `vouches` counts the two-follow paths to each reached user. Matching
+    // them per reached user walks every follower of every one; instead the
+    // observer's two-follow paths are walked once, listed beside the reach,
+    // and counted per user. `listed > 0` drops the two-follow nodes outside
+    // the reach: the observer, at every depth, and at depth 1 the users only
+    // two follows away. The `[null, 1]` pair keeps the one null row of a known
+    // user who reaches nobody
     let cypher = format!(
         "
         MATCH (user:User {{id: $user_id}})
         OPTIONAL MATCH (user)-[:FOLLOWS*1..{depth}]->(reach:User)
         WHERE reach.id <> $user_id
-        WITH DISTINCT user, reach
-        WITH reach, reach IS NOT NULL AND EXISTS {{ (user)-[:FOLLOWS]->(reach) }} AS followed
-        ORDER BY followed DESC, reach.id ASC
+        WITH user, collect(DISTINCT reach) AS reached
+        CALL (user) {{
+            OPTIONAL MATCH (user)-[:FOLLOWS]->(:User)-[:FOLLOWS]->(vouched:User)
+            RETURN collect(vouched) AS vouched
+        }}
+        UNWIND CASE WHEN reached = [] THEN [[null, 1]]
+               ELSE [r IN reached | [r, 1]] + [v IN vouched | [v, 0]] END AS pair
+        WITH user, pair[0] AS reach, sum(pair[1]) AS listed, count(*) - sum(pair[1]) AS vouches
+        WHERE listed > 0
+        WITH reach, vouches,
+             reach IS NOT NULL AND EXISTS {{ (user)-[:FOLLOWS]->(reach) }} AS followed,
+             coalesce({stub}, true) AS stub
+        ORDER BY followed DESC, stub ASC, vouches DESC, reach.id ASC
         LIMIT $limit
         RETURN reach.id AS id
-        "
+        ",
+        stub = discovery_stub("reach")
     );
     reach_attrs(
         Query::new("get_reach_set", &cypher),
