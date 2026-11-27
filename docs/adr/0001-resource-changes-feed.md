@@ -197,12 +197,14 @@ per resource.
 Posts of either folder emit `reply`, `embed`, and `collection` for external targets. The target
 URI uses the same normalization and ID as a tag. `object_path` is the path of the
 post's address: `/pub/social/v1/posts/<id>` for a `social/v1` post, whichever version
-file the event names, and the post file for a `pubky.app` post. One collection can emit
+file the event names, and the post file for a `pubky.app` post. A `social/v1` post's
+address names no stored file (its files are the version files under it), so that
+`object_path` cannot be fetched: it is a key, not a location. One collection can emit
 multiple lines for that path.
 
 Consumers of these kinds apply each line as an upsert or deletion keyed by
 `(author, object_path, kind, resource_id)`. Lines remain at least once and in append
-order; retries can duplicate a PUT. Keep distinct targets and kinds within one file.
+order; retries can duplicate a PUT. Keep distinct targets and kinds within one post.
 An edit emits DEL for each reference it loses, then PUT for each reference it gains.
 A PUT that changes no reference emits nothing, whichever version file it names, so
 version files that name the same targets, handled in any order and any number of

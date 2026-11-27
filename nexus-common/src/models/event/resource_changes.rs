@@ -56,10 +56,11 @@ pub struct ResourceChange {
     /// Present for tag references.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
-    /// A homeserver path: for a tag, the tag file the line concerns, as written, for
-    /// information only; for a post reference, the post's address, the same for every version
-    /// file of a `social/v1` post. A tag's replay key is (author, uri, label); a post
-    /// reference's is (author, object_path, kind, resource_id).
+    /// For a tag, the homeserver path of the tag file the line concerns, as written, for
+    /// information only. For a post reference, the path of the post's address: the post file of
+    /// a `pubky.app` post, and for a `social/v1` post `/pub/social/v1/posts/<id>`, the same for
+    /// every version file, which names no stored file and cannot be fetched. A tag's replay key
+    /// is (author, uri, label); a post reference's is (author, object_path, kind, resource_id).
     pub object_path: String,
     /// Indexed timestamp in Unix milliseconds (deletion time for del).
     pub at: i64,
