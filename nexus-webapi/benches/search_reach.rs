@@ -152,7 +152,7 @@ fn bench_resolve_reach(c: &mut Criterion) {
 
 /// The reach set route's read, `GET /v1/user/{id}/reach-set`: the graph query
 /// of every user in reach at depths 1 to 3, up to the route's limit, and the
-/// set's tag, which a 304 needs as well.
+/// set's digest, which its tag and a 304 need as well.
 fn bench_reach_set(c: &mut Criterion) {
     run_setup();
     let rt = Runtime::new().unwrap();
@@ -170,7 +170,7 @@ fn bench_reach_set(c: &mut Criterion) {
                             .await
                             .unwrap()
                             .expect("the bench observer is stored");
-                        std::hint::black_box(set.etag());
+                        std::hint::black_box(set.digest());
                     });
                 },
             );

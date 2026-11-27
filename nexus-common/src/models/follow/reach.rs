@@ -81,17 +81,17 @@ pub struct ReachSet {
 }
 
 impl ReachSet {
-    /// A weak entity tag of the set (weak because the response may be compressed): the same for
-    /// the same `authors` in the same order and the same `truncated`, so a client holding the set
-    /// can ask whether it changed.
-    pub fn etag(&self) -> String {
+    /// A blake3 digest of the set in lowercase hex, over each id and a newline, then one byte for
+    /// `truncated`: the same for the same `authors` in the same order and the same `truncated`, so
+    /// a client holding the set can ask whether it changed.
+    pub fn digest(&self) -> String {
         let mut hasher = blake3::Hasher::new();
         for id in &self.authors {
             hasher.update(id.as_bytes());
             hasher.update(b"\n");
         }
         hasher.update(&[u8::from(self.truncated)]);
-        format!("W/\"{}\"", hasher.finalize().to_hex())
+        hasher.finalize().to_hex().to_string()
     }
 }
 
@@ -510,21 +510,27 @@ mod tests {
     }
 
     #[test]
-    fn reach_set_etag_follows_the_set() {
+    fn reach_set_digest_follows_the_set() {
         let set = |ids: &[&str], truncated| ReachSet {
             authors: owned(ids),
             truncated,
         };
-        let etag = set(&[FRIEND, D2], false).etag();
-        assert!(etag.starts_with("W/\"") && etag.ends_with('"') && etag.len() == 68);
-        assert_eq!(etag, set(&[FRIEND, D2], false).etag());
+        let digest = set(&[FRIEND, D2], false).digest();
+        assert!(
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)),
+            "{digest}"
+        );
+        assert_eq!(digest, set(&[FRIEND, D2], false).digest());
         for other in [
             set(&[FRIEND, D2], true),
             set(&[D2, FRIEND], false),
             set(&[FRIEND], false),
             set(&[], false),
         ] {
-            assert_ne!(etag, other.etag(), "{other:?}");
+            assert_ne!(digest, other.digest(), "{other:?}");
         }
     }
 
