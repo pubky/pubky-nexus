@@ -1,13 +1,18 @@
 //! A collection PUT looks up the unknown authors of its items only when it wrote a new post or
 //! changed one: an unchanged replay, a refused edit and a PUT that waits for a missing
-//! dependency look up nobody and create no stub user.
+//! dependency look up nobody and create no stub user. A PUT that wrote looks them up also when a
+//! later step of it fails, and a PUT that finishes the index write of a post an earlier attempt
+//! left without it looks them up again.
 
 use super::utils::{collection_post_with_items, resource_key, short_post, test_user};
 use crate::event_processor::utils::watcher::{generate_post_id, WatcherTest};
 use anyhow::Result;
-use nexus_common::db::{exec_single_row, queries, PubkyClientResult};
+use nexus_common::db::{exec_single_row, queries, PubkyClientResult, RedisOps};
+use nexus_common::models::post::PostDetails;
 use nexus_common::models::user::{users_exist, PkdnsHomeserverResolver, PkdnsRecord, UserIngestor};
-use nexus_common::utils::test_utils::{random_pubky_id, signed_packet_naming};
+use nexus_common::utils::test_utils::{
+    fail_references, random_pubky_id, signed_packet_naming, ReferenceFault,
+};
 use nexus_watcher::events::handlers;
 use nexus_watcher::events::inputs::PostInput;
 use nexus_watcher::EventProcessorError;
@@ -204,6 +209,101 @@ async fn a_collection_put_looks_up_item_authors_only_when_it_writes_or_changes_t
         handlers::post::del(resource_key(&author, post_id)?, &ingestor).await?;
     }
     test.cleanup_post(&author_kp, &parent_path).await?;
+    test.cleanup_user(&author_kp).await?;
+    Ok(())
+}
+
+/// The lookups run once the PUT wrote, also when a step after the write fails: the retry of an
+/// edit finds no change and looks nobody up, so the failing attempt is the one that must. A PUT
+/// that finds the post in the graph but not its details (an earlier attempt stopped before its
+/// index writes) finishes that write and looks the item authors up again.
+#[tokio_shared_rt::test(shared)]
+async fn a_collection_put_looks_up_item_authors_when_a_later_step_fails_and_after_a_recovery(
+) -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let author_kp = Keypair::random();
+    let author = test
+        .create_user(
+            &author_kp,
+            &test_user(
+                "Watcher:Post:ItemLookupsAfterFailure",
+                "item lookups after a failure",
+            ),
+        )
+        .await?;
+    // Authors with no homeserver record: only a lookup's count tells it ran
+    let first: Vec<PubkyId> = unknown_users(2).into_iter().map(|(id, _)| id).collect();
+    let added: Vec<PubkyId> = unknown_users(1).into_iter().map(|(id, _)| id).collect();
+    let resolver = Arc::new(CountingResolver {
+        published: HashMap::new(),
+        homeserver: random_pubky_id(),
+        calls: Mutex::new(HashMap::new()),
+    });
+    let ingestor = UserIngestor::new([], resolver.clone());
+    let put = |id: &str, post: &PubkyAppPost| {
+        let ingestor = ingestor.clone();
+        let input = PostInput::from_v0(post.clone(), post_uri_builder(author.clone(), id.into()));
+        let key = resource_key(&author, id).expect("a post key");
+        async move { handlers::post::sync_put(input, key, &ingestor).await }
+    };
+    // The PUT fails at its references, after its post write
+    let put_failing_after_the_write = |id: &str, post: &PubkyAppPost| {
+        let attempt = put(id, post);
+        let author = author.clone();
+        async move {
+            fail_references(ReferenceFault::BeforeStage, &author, true);
+            let result = attempt.await;
+            fail_references(ReferenceFault::BeforeStage, &author, false);
+            result.expect_err("the injected failure after the write");
+        }
+    };
+
+    // A new collection whose step after the write fails looks each unknown author up once
+    let id = generate_post_id();
+    let items = items_of(&first);
+    let collection = collection_post_with_items("Curated", &items);
+    put_failing_after_the_write(&id, &collection).await;
+    assert_eq!(
+        resolver.calls(&first),
+        [1, 1],
+        "a new collection whose later step failed"
+    );
+    // Its retry finds the post written and unchanged
+    put(&id, &collection).await?;
+    assert_eq!(resolver.calls(&first), [1, 1], "the retry finds no change");
+
+    // An edit whose step after the write fails looks up the authors it names: its retry, which
+    // finds no change, does not
+    let edited_items: Vec<String> = items.iter().cloned().chain(items_of(&added)).collect();
+    let edited = collection_post_with_items("Edited", &edited_items);
+    put_failing_after_the_write(&id, &edited).await;
+    assert_eq!(
+        (resolver.calls(&first), resolver.calls(&added)),
+        (vec![2, 2], vec![1]),
+        "an edit whose later step failed"
+    );
+    put(&id, &edited).await?;
+    assert_eq!(
+        (resolver.calls(&first), resolver.calls(&added)),
+        (vec![2, 2], vec![1]),
+        "the retry of the edit finds no change"
+    );
+
+    // The post's details lost, as after an attempt that stopped before its index writes: the
+    // PUT that writes them back looks each item author up again
+    PostDetails::remove_from_index_multiple_json(&[&[author.as_str(), id.as_str()]]).await?;
+    put(&id, &edited).await?;
+    assert!(
+        PostDetails::get_from_index(&author, &id).await?.is_some(),
+        "the recovery wrote the details back"
+    );
+    assert_eq!(
+        (resolver.calls(&first), resolver.calls(&added)),
+        (vec![3, 3], vec![2]),
+        "a finished recovery"
+    );
+
+    handlers::post::del(resource_key(&author, &id)?, &ingestor).await?;
     test.cleanup_user(&author_kp).await?;
     Ok(())
 }
