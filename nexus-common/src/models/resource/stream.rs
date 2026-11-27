@@ -18,6 +18,23 @@ pub enum ResourceSorting {
     Timeline,
 }
 
+/// How a stream with several labels matches them: `any` keeps a resource tagged with at least
+/// one of them, `all` only a resource tagged with every one, by any taggers. A label counts
+/// once however often it is listed.
+#[derive(Debug, Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TagMatch {
+    #[default]
+    Any,
+    All,
+}
+
+impl TagMatch {
+    /// The most distinct labels `all` takes, as Pinakes caps its own `match=all`, so a query
+    /// one accepts the other does too.
+    pub const MAX_ALL_LABELS: usize = 3;
+}
+
 #[derive(Serialize, Deserialize, ToSchema, Debug, Default, Clone)]
 pub struct ResourceKeyStream {
     pub resource_ids: Vec<String>,
@@ -54,7 +71,8 @@ impl ResourceKeyStream {
 pub struct ResourceStream(pub Vec<ResourceView>);
 
 impl ResourceStream {
-    /// Get a page of resource IDs for the given label filter and sorting.
+    /// Get a page of resource IDs for the given label filter, matched as `tag_match` says, and
+    /// sorting.
     ///
     /// # Errors
     /// Returns [`ModelError::GraphOperationFailed`] on graph failures, including
@@ -66,8 +84,9 @@ impl ResourceStream {
         order: SortOrder,
         sorting: &ResourceSorting,
         tags: Option<&[String]>,
+        tag_match: TagMatch,
     ) -> ModelResult<ResourceKeyStream> {
-        let query = queries::get::resource_stream(tags, sorting, &order, &pagination);
+        let query = queries::get::resource_stream(tags, tag_match, sorting, &order, &pagination);
 
         let graph = crate::db::get_neo4j_graph()?;
 

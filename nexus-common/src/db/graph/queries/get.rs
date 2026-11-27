@@ -2,7 +2,7 @@ use crate::db::graph::error::{GraphError, GraphResult};
 use crate::db::graph::Query;
 use crate::db::kv::SortOrder;
 use crate::models::post::{KindFilter, StreamSource};
-use crate::models::resource::stream::ResourceSorting;
+use crate::models::resource::stream::{ResourceSorting, TagMatch};
 use crate::types::routes::HotTagsInputDTO;
 use crate::types::CacheTimeframe;
 use crate::types::DomainTrust;
@@ -826,6 +826,7 @@ pub fn resource_label_taggers(
 /// every already-served row with that score.
 pub fn resource_stream(
     labels: Option<&[String]>,
+    tag_match: TagMatch,
     sorting: &ResourceSorting,
     order: &SortOrder,
     pagination: &Pagination,
@@ -840,6 +841,19 @@ pub fn resource_stream(
         SortOrder::Ascending => (">=", "<="),
     };
 
+    // Each label once, in the order written: `all` compares the count of distinct matched
+    // labels against this list's length, so a repeated label would leave every resource out.
+    let labels: Option<Vec<String>> = labels.map(|l| {
+        let mut unique: Vec<String> = Vec::with_capacity(l.len());
+        for label in l {
+            if !unique.contains(label) {
+                unique.push(label.clone());
+            }
+        }
+        unique
+    });
+    let match_all = labels.is_some() && tag_match == TagMatch::All;
+
     let mut cypher = String::from("MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\n");
 
     if labels.is_some() {
@@ -849,10 +863,22 @@ pub fn resource_stream(
     let score_expr = match sorting {
         ResourceSorting::Timeline => "MAX(t.indexed_at)",
     };
-    cypher.push_str(&format!("WITH r, {score_expr} AS score\n"));
+    if match_all {
+        // The edges left are those of the listed labels, so a resource carrying every one
+        // of them has as many distinct labels among its edges as the list has.
+        cypher.push_str(&format!(
+            "WITH r, {score_expr} AS score, COUNT(DISTINCT t.label) AS matched\n"
+        ));
+    } else {
+        cypher.push_str(&format!("WITH r, {score_expr} AS score\n"));
+    }
 
-    // Cursor bounds apply to the aggregated score, so they live after the WITH.
+    // The label count and the cursor bounds apply to the aggregates, so they live after
+    // the WITH, in one WHERE.
     let mut cursor_clauses = Vec::new();
+    if match_all {
+        cursor_clauses.push("matched = $label_count".to_string());
+    }
     if pagination.start.is_some() {
         cursor_clauses.push(format!("score {start_op} $start"));
     }
@@ -877,8 +903,10 @@ pub fn resource_stream(
     let mut query = Query::new("resource_stream", &cypher);
 
     if let Some(l) = labels {
-        let label_strings: Vec<String> = l.iter().map(|s| s.to_string()).collect();
-        query = query.param("labels", label_strings);
+        if match_all {
+            query = query.param("label_count", l.len() as i64);
+        }
+        query = query.param("labels", l);
     }
     if let Some(start) = pagination.start {
         query = query.param("start", start);
@@ -2587,7 +2615,7 @@ mod tests {
         order: SortOrder,
         pagination: Pagination,
     ) -> String {
-        resource_stream(labels, &sorting, &order, &pagination).to_cypher_populated()
+        resource_stream(labels, TagMatch::Any, &sorting, &order, &pagination).to_cypher_populated()
     }
 
     #[test]
@@ -2623,6 +2651,65 @@ mod tests {
         assert!(cypher.contains(
             "MATCH (tagger:User)-[t:TAGGED]->(r:Resource)\nWHERE t.label IN ['bitcoin', 'nostr']\n"
         ));
+    }
+
+    #[test]
+    fn resource_stream_any_has_no_label_count() {
+        let labels = vec!["bitcoin".to_string(), "nostr".to_string()];
+        let cypher = build_resource_stream(
+            Some(&labels),
+            ResourceSorting::Timeline,
+            SortOrder::Descending,
+            Pagination::default(),
+        );
+        assert!(!cypher.contains("matched"), "{cypher}");
+    }
+
+    #[test]
+    fn resource_stream_all_keeps_resources_carrying_every_distinct_label() {
+        let labels = vec![
+            "bitcoin".to_string(),
+            "nostr".to_string(),
+            "bitcoin".to_string(),
+        ];
+        let pagination = Pagination {
+            start: Some(200.0),
+            end: Some(100.0),
+            ..Default::default()
+        };
+        let cypher = resource_stream(
+            Some(&labels),
+            TagMatch::All,
+            &ResourceSorting::Timeline,
+            &SortOrder::Descending,
+            &pagination,
+        )
+        .to_cypher_populated();
+        assert!(
+            cypher.contains("WHERE t.label IN ['bitcoin', 'nostr']\n"),
+            "a repeated label is listed once: {cypher}"
+        );
+        assert!(
+            cypher.contains(
+                "WITH r, MAX(t.indexed_at) AS score, COUNT(DISTINCT t.label) AS matched\n\
+                 WHERE matched = 2 AND score <= 200 AND score >= 100\n"
+            ),
+            "the count compares against the distinct labels, in one WHERE with the bounds: {cypher}"
+        );
+    }
+
+    #[test]
+    fn resource_stream_all_without_labels_filters_nothing() {
+        let cypher = resource_stream(
+            None,
+            TagMatch::All,
+            &ResourceSorting::Timeline,
+            &SortOrder::Descending,
+            &Pagination::default(),
+        )
+        .to_cypher_populated();
+        assert!(!cypher.contains("WHERE"), "{cypher}");
+        assert!(!cypher.contains("matched"), "{cypher}");
     }
 
     #[test]

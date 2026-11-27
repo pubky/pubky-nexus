@@ -13,9 +13,12 @@ use crate::{Error, Result};
 use axum::Json;
 use const_format::concatcp;
 use nexus_common::db::kv::SortOrder;
-use nexus_common::models::resource::stream::{ResourceKeyStream, ResourceSorting, ResourceStream};
+use nexus_common::models::resource::stream::{
+    ResourceKeyStream, ResourceSorting, ResourceStream, TagMatch,
+};
 use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use serde::Deserialize;
+use std::collections::HashSet;
 use tracing::debug;
 use utoipa::openapi::schema::{
     AdditionalProperties, ArrayBuilder, ObjectBuilder, OneOfBuilder, Schema, Type,
@@ -36,6 +39,9 @@ pub struct ResourceStreamQuery<V: ApiVersion> {
     /// Removed filter: any value, the empty string included, is rejected with 400.
     pub app: Option<String>,
     pub tags: Option<V::Tags>,
+    /// `any` or `all` on `/v1`, nothing on `/v0`, which is frozen and always matches `any`.
+    #[serde(default, rename = "match")]
+    pub tags_match: V::TagsMatch,
     #[serde(default)]
     pub sorting: ResourceSorting,
     #[serde(default)]
@@ -55,6 +61,25 @@ impl<V: ApiVersion> ResourceStreamQuery<V> {
             None => Ok(()),
         }
     }
+
+    /// The labels and how they match, once the request is checked: no removed `app`, and
+    /// at most [`TagMatch::MAX_ALL_LABELS`] distinct labels under `match=all`. As in Pinakes,
+    /// `match=all` without `tags` filters nothing.
+    fn filter(&self) -> Result<(Option<Vec<String>>, TagMatch)> {
+        self.reject_app()?;
+        let tags = self.tags.as_ref().map(TagLabels::to_string_vec);
+        let tag_match: TagMatch = self.tags_match.into();
+        if let (TagMatch::All, Some(labels)) = (tag_match, &tags) {
+            let distinct: HashSet<&String> = labels.iter().collect();
+            if distinct.len() > TagMatch::MAX_ALL_LABELS {
+                return Err(Error::invalid_input(format!(
+                    "match=all takes at most {} distinct tags",
+                    TagMatch::MAX_ALL_LABELS
+                )));
+            }
+        }
+        Ok((tags, tag_match))
+    }
 }
 
 /// The one body behind `stream_resource_ids_handler_v0` and `stream_resource_ids_handler_v1`:
@@ -67,15 +92,19 @@ pub async fn stream_resource_ids<V: ApiVersion>(
         query.tags, query.sorting
     );
 
-    query.reject_app()?;
+    let (tags, tag_match) = query.filter()?;
 
     let order = query.order.unwrap_or(SortOrder::Descending);
-    let tags = query.tags.as_ref().map(TagLabels::to_string_vec);
     let pagination = query.pagination.to_pagination(query.start, query.end);
 
-    let keys =
-        ResourceStream::get_resource_keys(pagination, order, &query.sorting, tags.as_deref())
-            .await?;
+    let keys = ResourceStream::get_resource_keys(
+        pagination,
+        order,
+        &query.sorting,
+        tags.as_deref(),
+        tag_match,
+    )
+    .await?;
 
     Ok(Json(keys))
 }
@@ -90,7 +119,8 @@ versioned_handlers! {
         tag = "Stream",
         params(
             ("app" = Option<String>, Query, description = "Removed. A request that sends it gets 400; filter by `tags` instead"),
-            ("tags" = Option<shapes::Tags>, Query, description = "Comma-separated tag labels (max 5, OR logic)"),
+            ("tags" = Option<shapes::Tags>, Query, description = concatcp!("Comma-separated tag labels (max 5, ", shapes::RESOURCE_TAGS_MATCH, ")")),
+            shapes::TagsMatch,
             ("sorting" = Option<String>, Query, description = "timeline (the only sorting, and the default)"),
             ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
             ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Pagination skip (max 10000)"),
@@ -117,15 +147,19 @@ pub async fn stream_resources<V: ApiVersion>(
         query.tags, query.sorting
     );
 
-    query.reject_app()?;
+    let (tags, tag_match) = query.filter()?;
 
     let order = query.order.unwrap_or(SortOrder::Descending);
-    let tags = query.tags.as_ref().map(TagLabels::to_string_vec);
     let pagination = query.pagination.to_pagination(query.start, query.end);
 
-    let keys =
-        ResourceStream::get_resource_keys(pagination, order, &query.sorting, tags.as_deref())
-            .await?;
+    let keys = ResourceStream::get_resource_keys(
+        pagination,
+        order,
+        &query.sorting,
+        tags.as_deref(),
+        tag_match,
+    )
+    .await?;
 
     if keys.is_empty() {
         return Ok(Json(vec![]));
@@ -157,7 +191,8 @@ versioned_handlers! {
         tag = "Stream",
         params(
             ("app" = Option<String>, Query, description = "Removed. A request that sends it gets 400; filter by `tags` instead"),
-            ("tags" = Option<shapes::Tags>, Query, description = "Comma-separated tag labels (max 5, OR logic)"),
+            ("tags" = Option<shapes::Tags>, Query, description = concatcp!("Comma-separated tag labels (max 5, ", shapes::RESOURCE_TAGS_MATCH, ")")),
+            shapes::TagsMatch,
             ("sorting" = Option<String>, Query, description = "timeline (the only sorting, and the default)"),
             ("order" = Option<SortOrder>, Query, description = "Ordering of response list. Either 'ascending' or 'descending'. Defaults to descending."),
             ("skip" = Option<BoundedSkip<10_000>>, Query, description = "Pagination skip (max 10000)"),

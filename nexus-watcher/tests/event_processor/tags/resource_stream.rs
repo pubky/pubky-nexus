@@ -10,7 +10,9 @@ use crate::event_processor::utils::watcher::{HomeserverHashIdPath, WatcherTest};
 use anyhow::Result;
 use chrono::Utc;
 use nexus_common::db::kv::SortOrder;
-use nexus_common::models::resource::stream::{ResourceKeyStream, ResourceSorting, ResourceStream};
+use nexus_common::models::resource::stream::{
+    ResourceKeyStream, ResourceSorting, ResourceStream, TagMatch,
+};
 use nexus_common::types::Pagination;
 use pubky::Keypair;
 use pubky::ResourcePath;
@@ -26,6 +28,7 @@ async fn labels_timeline(labels: &[String], pagination: Pagination) -> Result<Re
         SortOrder::Descending,
         &ResourceSorting::Timeline,
         Some(labels),
+        TagMatch::Any,
     )
     .await?)
 }

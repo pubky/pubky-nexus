@@ -2,7 +2,7 @@ use crate::run_setup;
 use crate::streams_benches::LIMIT_20;
 use criterion::Criterion;
 use nexus_common::db::kv::SortOrder;
-use nexus_common::models::resource::stream::{ResourceSorting, ResourceStream};
+use nexus_common::models::resource::stream::{ResourceSorting, ResourceStream, TagMatch};
 use nexus_common::models::resource::view::ReferenceCounts;
 use tokio::runtime::Runtime;
 
@@ -35,6 +35,7 @@ fn bench_resource_keys(
                 SortOrder::Descending,
                 &sorting,
                 tags.as_deref(),
+                TagMatch::Any,
             )
             .await
             .unwrap();

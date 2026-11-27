@@ -27,6 +27,7 @@ use nexus_common::models::bootstrap::{AttachmentFiles, Bootstrap};
 use nexus_common::models::file::{FileDetails, FileUrls};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::{Bookmark, PostDetails, PostKind};
+use nexus_common::models::resource::stream::TagMatch;
 use nexus_common::models::resource::view::{ReferenceCounts, ResourceView};
 use nexus_common::models::tag::search::PrefixFold;
 use nexus_common::models::tag::traits::taggers::TaggersTuple;
@@ -47,8 +48,8 @@ use super::{
     bootstrap, file, notification, post, resource, resource_changes, search, stream, tag, user,
 };
 use crate::models::{
-    v0, v1, IncludeAttachmentMetadata, KindToken, PostStreamDetailed, PostViewDetailed,
-    StoredKindToken, StoredPostKinds, TagLabel, TagLabels, Tags,
+    v0, v1, IncludeAttachmentMetadata, KindToken, NoTagsMatch, PostStreamDetailed,
+    PostViewDetailed, StoredKindToken, StoredPostKinds, TagLabel, TagLabels, Tags, TagsMatch,
 };
 use crate::routes::AppState;
 
@@ -147,6 +148,19 @@ pub trait ApiVersion: Send + Sync + 'static {
         + Copy
         + fmt::Debug
         + Send;
+    /// How the resource streams match several `tags`, as a client asks in `match=`. `/v1`
+    /// reads `any` or `all` and documents the parameter; `/v0` is frozen, reads nothing under
+    /// that name and always matches `any`.
+    type TagsMatch: DeserializeOwned
+        + IntoParams
+        + Into<TagMatch>
+        + Default
+        + Copy
+        + fmt::Debug
+        + Send;
+    /// How the resource streams' `tags` description says the labels match: OR logic on `/v0`,
+    /// as `match` says on `/v1`.
+    const RESOURCE_TAGS_MATCH: &'static str;
     /// The body of `POST /stream/posts/by_ids`, converted into the one the shared body reads.
     /// `/v0`'s carries `include_attachment_metadata`; `/v1`'s has no such field.
     type PostStreamByIdsRequest: DeserializeOwned + ToSchema + Into<PostStreamByIdsRequest> + Send;
@@ -270,6 +284,8 @@ impl ApiVersion for V0 {
     const ATTACHMENT_FILES: AttachmentFiles = AttachmentFiles::Fetch;
     const REFERENCE_COUNTS: ReferenceCounts = ReferenceCounts::Skip;
     type IncludeAttachmentMetadata = IncludeAttachmentMetadata;
+    type TagsMatch = NoTagsMatch;
+    const RESOURCE_TAGS_MATCH: &'static str = "OR logic";
     type PostStreamByIdsRequest = PostStreamByIdsRequest;
 
     type StreamSource = StreamSourceKind;
@@ -412,6 +428,8 @@ impl ApiVersion for V1 {
     const ATTACHMENT_FILES: AttachmentFiles = AttachmentFiles::Skip;
     const REFERENCE_COUNTS: ReferenceCounts = ReferenceCounts::Read;
     type IncludeAttachmentMetadata = v1::NoAttachmentMetadata;
+    type TagsMatch = TagsMatch;
+    const RESOURCE_TAGS_MATCH: &'static str = "matched as `match` says";
     type PostStreamByIdsRequest = v1::PostStreamByIdsRequest;
 
     type StreamSource = v1::StreamSourceKind;
@@ -580,6 +598,7 @@ pub mod shapes {
             pub type IncludeAttachmentMetadata =
                 <$version as ApiVersion>::IncludeAttachmentMetadata;
             pub type PostStreamByIdsRequest = <$version as ApiVersion>::PostStreamByIdsRequest;
+            pub type TagsMatch = <$version as ApiVersion>::TagsMatch;
 
             /// The post view query with `include_attachment_metadata` as this version reads it.
             pub type PostViewQuery = super::super::post::view::PostViewQuery<$version>;
@@ -610,6 +629,7 @@ pub mod shapes {
             pub const KIND_RULE: &str = <$version as ApiVersion>::KIND_RULE;
             pub const EXCLUDE_KINDS_RANGE: &str = <$version as ApiVersion>::EXCLUDE_KINDS_RANGE;
             pub const MISSING_KIND_RULE: &str = <$version as ApiVersion>::MISSING_KIND_RULE;
+            pub const RESOURCE_TAGS_MATCH: &str = <$version as ApiVersion>::RESOURCE_TAGS_MATCH;
         };
     }
 

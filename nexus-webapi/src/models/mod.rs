@@ -14,6 +14,7 @@ pub mod post_kinds;
 pub mod post_search_query;
 pub mod resource_id;
 pub mod tag_label;
+pub mod tags_match;
 pub mod user_id_prefix;
 pub mod username_prefix;
 pub mod v0;
@@ -45,6 +46,7 @@ pub use post_search_query::PostSearchQuery;
 pub use pubky_social_specs::PubkyId;
 pub use resource_id::ResourceId;
 pub use tag_label::TagLabel;
+pub use tags_match::{NoTagsMatch, TagsMatch};
 pub use user_id_prefix::UserIdPrefix;
 pub use username_prefix::UsernamePrefix;
 

@@ -162,6 +162,12 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
         ("get", "/post/{author_id}/{post_id}"),
         ("get", "/stream/posts"),
     ];
+    // Method and path of the routes that take `match` on v1, and say in `tags` how the labels
+    // match: OR on v0.
+    let tags_matched = [
+        ("get", "/stream/resources"),
+        ("get", "/stream/resources/ids"),
+    ];
     // Method, path and parameter of the descriptions that name a route under the version's
     // own prefix, besides `source` on the bookmark-sourced routes below.
     let version_routed = [("get", "/stream/resources", "start")];
@@ -183,6 +189,18 @@ fn test_v0_and_v1_documents_list_the_same_paths() {
                 !has_parameter(&v1_operations[method], "include_attachment_metadata"),
                 "{operation} on v1 lists `include_attachment_metadata`"
             );
+        }
+        for (method, _) in tags_matched.iter().filter(|(_, p)| p == path) {
+            let operation = format!("{method} {path}");
+            take_parameter(&mut v1_operations[method], "match");
+            assert!(
+                !has_parameter(&v0_operations[method], "match"),
+                "{operation} on v0 lists `match`"
+            );
+            let v0_text = take_parameter_description(&mut v0_operations[method], "tags");
+            let v1_text = take_parameter_description(&mut v1_operations[method], "tags");
+            assert!(v0_text.contains("OR logic"), "{operation} on v0: {v0_text}");
+            assert!(v1_text.contains("`match`"), "{operation} on v1: {v1_text}");
         }
         for (method, _, parameter) in version_routed.iter().filter(|(_, p, _)| p == path) {
             let operation = format!("{method} {path}");
@@ -1029,6 +1047,33 @@ fn test_resource_stream_routes_document_app_as_removed() {
             assert!(description.starts_with("Removed"), "{path}: {description}");
             assert!(operation["responses"].get("400").is_some(), "{path}");
         }
+    }
+}
+
+/// `match` is documented on v1's resource streams only, `any` or `all` with `any` the default;
+/// frozen v0 keeps its OR-only `tags`.
+#[test]
+fn test_resource_stream_match_is_documented_on_v1_only() {
+    let v0 = serde_json::to_value(ApiDoc::v0_docs()).expect("serializable spec");
+    let v1 = serde_json::to_value(ApiDoc::v1_docs()).expect("serializable spec");
+    for route in ["stream/resources", "stream/resources/ids"] {
+        let v0_operation = &v0["paths"][format!("/v0/{route}")]["get"];
+        assert!(!has_parameter(v0_operation, "match"), "/v0/{route}");
+
+        let v1_operation = &v1["paths"][format!("/v1/{route}")]["get"];
+        let param = v1_operation["parameters"]
+            .as_array()
+            .expect("parameters")
+            .iter()
+            .find(|p| p["name"] == "match")
+            .unwrap_or_else(|| panic!("/v1/{route} documents no match"));
+        assert_eq!(param["in"], "query", "/v1/{route}");
+        assert_eq!(
+            param["schema"]["enum"],
+            serde_json::json!(["any", "all"]),
+            "/v1/{route}"
+        );
+        assert_eq!(param["schema"]["default"], "any", "/v1/{route}");
     }
 }
 

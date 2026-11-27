@@ -337,3 +337,107 @@ async fn test_batch_resources_is_v1_only() -> Result<()> {
     .await?;
     Ok(())
 }
+
+// =============================================
+// match=all on /v1/stream/resources and /v1/stream/resources/ids
+// =============================================
+
+const V1_ROOT_PATH: &str = "/v1/stream/resources";
+const V1_IDS_PATH: &str = "/v1/stream/resources/ids";
+
+async fn get_v1_ids(query: &str) -> Result<Vec<String>> {
+    let body = get_request(&format!("{V1_IDS_PATH}?{query}")).await?;
+    Ok(body["resource_ids"]
+        .as_array()
+        .expect("resource_ids should be an array")
+        .iter()
+        .map(|v| v.as_str().expect("resource id").to_string())
+        .collect())
+}
+
+/// The article carries bitcoin and interesting; the video only bitcoin. `all` keeps the
+/// article alone, `any` (the default) both.
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_resources_match_all_keeps_only_resources_with_every_tag() -> Result<()> {
+    let all = get_v1_ids("tags=bitcoin,interesting&match=all&limit=100").await?;
+    position(&all, ARTICLE);
+    assert!(!all.contains(&VIDEO.to_string()), "{all:?}");
+    assert!(!all.contains(&EVENT.to_string()), "{all:?}");
+
+    for query in [
+        "tags=bitcoin,interesting&limit=100",
+        "tags=bitcoin,interesting&match=any&limit=100",
+    ] {
+        let any = get_v1_ids(query).await?;
+        position(&any, ARTICLE);
+        position(&any, VIDEO);
+    }
+
+    // A label listed twice counts once.
+    let repeated = get_v1_ids("tags=bitcoin,interesting,bitcoin&match=all&limit=100").await?;
+    assert_eq!(repeated, all);
+
+    // The views route filters the same way.
+    let body = get_request(&format!(
+        "{V1_ROOT_PATH}?tags=bitcoin,interesting&match=all&limit=100"
+    ))
+    .await?;
+    let ids: Vec<&str> = body
+        .as_array()
+        .expect("Should return array of ResourceView")
+        .iter()
+        .map(|view| view["details"]["id"].as_str().expect("id"))
+        .collect();
+    assert!(ids.contains(&ARTICLE), "{ids:?}");
+    assert!(!ids.contains(&VIDEO), "{ids:?}");
+
+    Ok(())
+}
+
+/// The cursor still applies under `all`: the article's score is its latest matching tag.
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_resources_match_all_honours_the_cursor() -> Result<()> {
+    let body = get_request(&format!(
+        "{V1_IDS_PATH}?tags=bitcoin,interesting&match=all&start={ARTICLE_LATEST_TAG}&end={ARTICLE_LATEST_TAG}"
+    ))
+    .await?;
+    assert_eq!(body["resource_ids"][0], ARTICLE, "{body}");
+    assert_eq!(
+        body["last_score"].as_u64(),
+        Some(ARTICLE_LATEST_TAG),
+        "{body}"
+    );
+
+    let past = get_v1_ids(&format!(
+        "tags=bitcoin,interesting&match=all&start={}",
+        ARTICLE_LATEST_TAG - 1
+    ))
+    .await?;
+    assert!(!past.contains(&ARTICLE.to_string()), "{past:?}");
+
+    Ok(())
+}
+
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_resources_match_bad_requests() -> Result<()> {
+    for path in [V1_ROOT_PATH, V1_IDS_PATH] {
+        for query in ["tags=a,b,c,d&match=all", "tags=bitcoin&match=some"] {
+            invalid_get_request(&format!("{path}?{query}"), StatusCode::BAD_REQUEST).await?;
+        }
+        // Three distinct labels, the fourth a repeat, is within the cap; without tags, as
+        // in Pinakes, `all` filters nothing.
+        for query in ["tags=a,b,c,a&match=all", "match=all"] {
+            get_request(&format!("{path}?{query}")).await?;
+        }
+    }
+    Ok(())
+}
+
+/// `/v0` is frozen: it has no `match`, reads it as an unknown parameter and matches `any`.
+#[tokio_shared_rt::test(shared)]
+async fn test_stream_resources_match_is_v1_only() -> Result<()> {
+    let (ids, _) = get_ids("tags=bitcoin,interesting&match=all&limit=100").await?;
+    position(&ids, ARTICLE);
+    position(&ids, VIDEO);
+    Ok(())
+}
