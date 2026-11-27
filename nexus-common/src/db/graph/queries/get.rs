@@ -955,6 +955,21 @@ pub fn get_in_scope_user_ids(limit_to: Option<&[String]>) -> Query {
     .param("limit_to", limit_to.map(<[String]>::to_vec))
 }
 
+/// Retrieves, by id after `after`, up to `limit` followers of `user_id` that are outside the
+/// scope (any `scope_state`): the followers whose own streams aren't read.
+pub fn get_unread_follower_ids(user_id: &str, after: &str, limit: usize) -> Query {
+    Query::new(
+        "get_unread_follower_ids",
+        "MATCH (f:User)-[:FOLLOWS]->(:User {id: $user_id})
+         WHERE f.scope_state IS NOT NULL AND f.id > $after
+         WITH f.id AS id ORDER BY id LIMIT $limit
+         RETURN collect(id) AS user_ids",
+    )
+    .param("user_id", user_id)
+    .param("after", after)
+    .param("limit", limit as i64)
+}
+
 /// Retrieves the ids of the users with the given `scope_state`.
 pub fn get_user_ids_by_scope_state(scope_state: &str) -> Query {
     Query::new(

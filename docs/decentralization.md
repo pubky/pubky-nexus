@@ -419,11 +419,21 @@ records handled; its first poll reads `lookback_days` back (0 reads everything).
 reads at most 50 pages of 100; a longer backlog is read over the next polls
 (`Scope:Bridge:<seed>:<url>:CatchUp`). A Nexus failing, rate limiting or sending pages
 out of order is backed off; the others still run. A record that can't be indexed yet
-(the seed's post it replies to isn't indexed, or its author's homeserver is unreachable)
-waits in `Scope:BridgePending:<seed>` and is tried on each poll, up to 20 times, with
-at most 10,000 waiting, so it never holds up the others. The bridge sees only what the
-seed is notified of: not bookmarks, not outsiders replying to each other, and not an
-outsider's plain unfollow.
+(the seed's post it replies to isn't indexed, its author's homeserver is unreachable or
+its lookup fails) waits in `Scope:BridgePending:<seed>`, so it never holds up the
+others: it is tried on the next 3 polls, then after a wait doubling from 5 minutes up to
+6 hours, 20 tries in all (about three days). At most 10,000 wait; past that, the one
+tried most is given up for the new one. Only a failure of this Nexus's own stores stops a
+poll; a record its handlers reject for good (a constraint it breaks) is given up at once.
+
+An interaction more than an hour old when it is bridged (a first poll's backlog, or one
+read late after an outage) is notified at the time it happened, so it doesn't arrive as
+new; one read as it happens is notified when it is indexed.
+
+The bridge sees only what the seed is notified of: not bookmarks, not outsiders replying
+to each other. An outsider's plain unfollow isn't notified either (only a friend's is),
+so each poll also checks 25 of the seed's followers outside the scope, in turn, at their
+homeservers (`Scope:Bridge:<seed>:FollowCheck`), and removes a follow that is gone.
 
 ```toml
 [inbound_bridge]

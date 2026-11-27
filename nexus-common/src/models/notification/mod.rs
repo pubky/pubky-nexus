@@ -189,11 +189,26 @@ impl Default for NotificationBody {
 
 impl RedisOps for Notification {}
 
+tokio::task_local! {
+    /// When the interaction notified inside [`stamped_at`] happened; see there.
+    static HAPPENED_AT: i64;
+}
+
+/// Runs `f` with every notification it makes stamped `timestamp`, the time the interaction
+/// happened, instead of the time it is indexed. For interactions indexed long after they
+/// happened (an inbound bridge reading a backlog), which would otherwise all arrive as new.
+pub async fn stamped_at<F: std::future::Future>(timestamp: i64, f: F) -> F::Output {
+    HAPPENED_AT.scope(timestamp, f).await
+}
+
 impl Notification {
     pub fn new(body: NotificationBody) -> Self {
         Self {
             body,
-            timestamp: Utc::now().timestamp_millis(), //milliseconds to avoid sub second collision
+            // Milliseconds to avoid sub-second collisions.
+            timestamp: HAPPENED_AT
+                .try_with(|timestamp| *timestamp)
+                .unwrap_or_else(|_| Utc::now().timestamp_millis()),
         }
     }
 
@@ -648,6 +663,21 @@ impl Notification {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A notification made inside `stamped_at` carries its time; outside, the time it is made.
+    #[tokio::test]
+    async fn a_notification_made_inside_stamped_at_carries_its_time() {
+        let body = || NotificationBody::Follow {
+            followed_by: "someone".to_string(),
+        };
+        let before = Utc::now().timestamp_millis();
+
+        let stamped = stamped_at(1_000, async { Notification::new(body()) }).await;
+        let unstamped = Notification::new(body());
+
+        assert_eq!(stamped.timestamp, 1_000);
+        assert!(unstamped.timestamp >= before);
+    }
 
     #[test]
     fn old_rows_without_post_kind_default_to_unknown() {
