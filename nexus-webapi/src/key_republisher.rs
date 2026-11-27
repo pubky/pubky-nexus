@@ -18,6 +18,10 @@ use pubky::pkarr::{self, dns::rdata::SVCB, SignedPacket};
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
 
+/// Delay before retrying a failed first publish, doubled after each failure up to [MAX_RETRY_DELAY].
+const INITIAL_RETRY_DELAY: Duration = Duration::from_secs(1);
+const MAX_RETRY_DELAY: Duration = Duration::from_secs(60);
+
 /// Information needed to start the KeyRepublisher
 pub struct KeyRepublisherContext {
     pub public_ip: IpAddr,
@@ -36,7 +40,7 @@ impl KeyRepublisher {
     pub async fn start(context: &KeyRepublisherContext) -> Result<Self, DynError> {
         let signed_packet = create_signed_packet(context)?;
         let pkarr_client = context.pkarr_client.clone();
-        let join_handle = Self::start_periodic_republish(pkarr_client, &signed_packet).await?;
+        let join_handle = Self::start_periodic_republish(pkarr_client, &signed_packet).await;
         Ok(Self { join_handle })
     }
 
@@ -62,30 +66,21 @@ impl KeyRepublisher {
 
     /// Start the periodic republish task which will republish the server packet to the DHT every hour.
     ///
-    /// # Errors
-    /// - Throws an error if the initial publish fails.
-    /// - Throws an error if the periodic republish task is already running.
+    /// The first publish is awaited, so the packet is on the DHT when this returns if the DHT
+    /// answers. A failed first publish is not fatal (#1163): the task retries it with backoff
+    /// until it succeeds, then republishes every hour.
     async fn start_periodic_republish(
         client: pkarr::Client,
         signed_packet: &SignedPacket,
-    ) -> Result<JoinHandle<()>, DynError> {
-        // Publish once to make sure the packet is published to the DHT before this
-        // function returns.
-        // Throws an error if the packet is not published to the DHT.
-        Self::publish_once(&client, signed_packet).await?;
+    ) -> JoinHandle<()> {
+        let published = needs_no_retry(&Self::publish_once(&client, signed_packet).await);
 
         // Start the periodic republish task.
         let signed_packet = signed_packet.clone();
-        let handle = tokio::spawn(async move {
-            let mut interval = interval(Duration::from_secs(60 * 60)); // 1 hour in seconds
-            interval.tick().await; // This ticks immediatly. Wait for first interval before starting the loop.
-            loop {
-                interval.tick().await;
-                let _ = Self::publish_once(&client, &signed_packet).await;
-            }
-        });
-
-        Ok(handle)
+        tokio::spawn(republish(published, move || {
+            let (client, signed_packet) = (client.clone(), signed_packet.clone());
+            async move { needs_no_retry(&Self::publish_once(&client, &signed_packet).await) }
+        }))
     }
 
     /// Stop the periodic republish task.
@@ -97,6 +92,38 @@ impl KeyRepublisher {
 impl Drop for KeyRepublisher {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+/// Whether a publish result ends the retries. `NotMostRecent` means the DHT holds a newer
+/// packet for this key (another instance with the same secret): retrying cannot fix it.
+fn needs_no_retry(result: &Result<(), PublishError>) -> bool {
+    matches!(result, Ok(()) | Err(PublishError::NotMostRecent))
+}
+
+/// Calls `publish` until it succeeds, unless `published`: first after [INITIAL_RETRY_DELAY], then
+/// doubling the delay up to [MAX_RETRY_DELAY]. Then calls it once every hour.
+async fn republish<F, Fut>(published: bool, mut publish: F)
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    if !published {
+        let mut delay = INITIAL_RETRY_DELAY;
+        loop {
+            tokio::time::sleep(delay).await;
+            if publish().await {
+                break;
+            }
+            delay = (delay * 2).min(MAX_RETRY_DELAY);
+        }
+    }
+
+    let mut interval = interval(Duration::from_secs(60 * 60)); // 1 hour in seconds
+    interval.tick().await; // This ticks immediatly. Wait for first interval before starting the loop.
+    loop {
+        interval.tick().await;
+        publish().await;
     }
 }
 
@@ -125,4 +152,61 @@ fn create_signed_packet(context: &KeyRepublisherContext) -> Result<SignedPacket,
     signed_packet_builder = signed_packet_builder.address(root_name.clone(), public_ip, ttl_sec);
 
     Ok(signed_packet_builder.build(&context.keypair)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #1163: a first publish that fails does not stop the service from starting, and the
+    /// task keeps running to retry it.
+    #[tokio::test]
+    async fn a_failed_first_publish_still_starts_the_republisher() {
+        let pkarr_client = pkarr::Client::builder()
+            .no_default_network()
+            .bootstrap(&["127.0.0.1:1"])
+            .build()
+            .unwrap();
+        let context = KeyRepublisherContext {
+            public_ip: "127.0.0.1".parse().unwrap(),
+            public_pubky_tls_port: 4433,
+            pkarr_client,
+            keypair: Keypair::random(),
+        };
+
+        let republisher = KeyRepublisher::start(&context)
+            .await
+            .expect("a failed publish is retried, not returned");
+
+        assert!(!republisher.join_handle.is_finished());
+    }
+
+    /// A failed first publish is retried after 1 s, 2 s, 4 s…, and once one succeeds the
+    /// packet is republished every hour.
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_first_publish_is_retried_with_backoff_then_hourly() {
+        use std::sync::{Arc, Mutex};
+
+        let start = tokio::time::Instant::now();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let mut results = [false, false, true].into_iter();
+        let recorded = calls.clone();
+        let task = tokio::spawn(republish(false, move || {
+            recorded.lock().unwrap().push(start.elapsed().as_secs());
+            let ok = results.next().unwrap_or(true);
+            async move { ok }
+        }));
+
+        tokio::time::sleep(Duration::from_secs(7 + 2 * 3600 + 1)).await;
+        task.abort();
+
+        assert_eq!(*calls.lock().unwrap(), [1, 3, 7, 7 + 3600, 7 + 2 * 3600]);
+    }
+
+    #[test]
+    fn a_newer_packet_on_the_dht_ends_the_retries() {
+        assert!(needs_no_retry(&Ok(())));
+        assert!(needs_no_retry(&Err(PublishError::NotMostRecent)));
+        assert!(!needs_no_retry(&Err(PublishError::NoResponses)));
+    }
 }
