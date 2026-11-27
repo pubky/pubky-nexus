@@ -2360,9 +2360,9 @@ async fn an_unreadable_outbox_blocks_no_put_delete_or_takedown_of_its_post() -> 
 
 /// A deleted post's view names nothing it relates to, whether its author deleted it or a
 /// moderator took it down, and whatever keeps its tombstone (a reply, a tag, a mention): no parent
-/// (a URL here), no embed, no repost and no mention, from the cached relationships or the graph. The
-/// tombstone keeps its edges and its cached relationships, the gate of its later hard delete.
-/// A live post's view is unchanged.
+/// (a URL or a post), no embed, no repost and no mention, from the cached relationships or the
+/// graph. The tombstone keeps its edges and its cached relationships, the gate of its later hard
+/// delete. A live post's view is unchanged.
 #[tokio_shared_rt::test(shared)]
 async fn a_deleted_posts_view_names_no_relationships() -> Result<()> {
     use super::posts::utils::test_user;
@@ -2401,6 +2401,14 @@ async fn a_deleted_posts_view_names_no_relationships() -> Result<()> {
     let replied = normalize_uri(&reply_target).map_err(anyhow::Error::msg)?.0;
     let embedded = normalize_uri(&embed_target).map_err(anyhow::Error::msg)?.0;
     let mention = format!("mentions pubky{other}");
+    // A post of the author's that a native reply replies to and a native repost reposts
+    let (native, native_path) = test
+        .create_post(
+            &author_kp,
+            &super::posts::utils::short_post("a native parent"),
+        )
+        .await?;
+    let native_uri = post_uri_builder(author.clone(), native.clone());
     let post = |content: &str, parent: Option<&str>, embed: Option<&str>| PubkyAppPost {
         content: content.to_string(),
         kind: PubkyAppPostKind::Short,
@@ -2492,6 +2500,20 @@ async fn a_deleted_posts_view_names_no_relationships() -> Result<()> {
             Keeper::Mention,
             false,
         ),
+        (
+            "deleted reply to a post",
+            Some(&native_uri),
+            None,
+            Keeper::Reply,
+            false,
+        ),
+        (
+            "deleted repost of a post",
+            None,
+            Some(&native_uri),
+            Keeper::Tag,
+            false,
+        ),
     ] {
         let content = match keeper {
             Keeper::Mention => mention.as_str(),
@@ -2531,10 +2553,12 @@ async fn a_deleted_posts_view_names_no_relationships() -> Result<()> {
         } else {
             test.del(&author_kp, &path).await?;
         }
-        deleted.push((case, id, path, keeper));
+        let native_parent = parent == Some(&native_uri);
+        let native_repost = embed == Some(&native_uri);
+        deleted.push((case, id, path, keeper, native_parent, native_repost));
     }
 
-    for (case, id, _, keeper) in &deleted {
+    for (case, id, _, keeper, native_parent, native_repost) in &deleted {
         let details = PostDetails::get_by_id(&author, id)
             .await?
             .unwrap_or_else(|| panic!("{case}: kept as a tombstone"));
@@ -2543,8 +2567,25 @@ async fn a_deleted_posts_view_names_no_relationships() -> Result<()> {
             .await?
             .unwrap_or_else(|| panic!("{case}: the hard delete's gate stays"));
         assert!(
-            cached.replied.is_some() || cached.embedded.is_some() || !cached.mentioned.is_empty(),
+            cached.replied.is_some()
+                || cached.embedded.is_some()
+                || cached.reposted.is_some()
+                || !cached.mentioned.is_empty(),
             "{case}: the tombstone keeps its edges"
+        );
+        // A native reply or repost tombstone keeps the post it names: the view must hide it
+        if *native_parent {
+            assert_eq!(
+                cached.replied.as_deref(),
+                Some(native_uri.as_str()),
+                "{case}"
+            );
+            assert!(!cached.replied_external, "{case}");
+        }
+        assert_eq!(
+            cached.reposted.as_deref(),
+            native_repost.then_some(native_uri.as_str()),
+            "{case}"
         );
         assert_eq!(
             *keeper == Keeper::Mention,
@@ -2578,7 +2619,7 @@ async fn a_deleted_posts_view_names_no_relationships() -> Result<()> {
     for (kp, path) in &keepers {
         test.del(kp, path).await?;
     }
-    for (case, id, path, _) in deleted.iter().filter(|post| post.3 != Keeper::Mention) {
+    for (case, id, path, ..) in deleted.iter().filter(|post| post.3 != Keeper::Mention) {
         retrieve_and_handle_event_line(
             &format!("DEL pubky://{author}{path}"),
             &test.homeserver_id,
@@ -2591,6 +2632,7 @@ async fn a_deleted_posts_view_names_no_relationships() -> Result<()> {
         );
     }
     test.del(&author_kp, &live_path).await?;
+    test.del(&author_kp, &native_path).await?;
     test.cleanup_user(&author_kp).await?;
     test.cleanup_user(&other_kp).await?;
     Ok(())

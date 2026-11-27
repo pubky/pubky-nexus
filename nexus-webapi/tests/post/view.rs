@@ -12,9 +12,10 @@ use crate::{
 };
 use anyhow::Result;
 use axum::http::StatusCode;
-use nexus_common::db::{exec_single_row, queries};
+use nexus_common::db::{exec_single_row, get_neo4j_graph, graph::Query, queries};
 use nexus_common::models::post::{PostCounts, PostDetails, PostRelationships};
 use nexus_common::models::tag::TagDetails;
+use nexus_common::models::ResourceKey;
 use nexus_webapi::models::PostKind;
 
 #[tokio_shared_rt::test(shared)]
@@ -99,6 +100,118 @@ async fn test_deleted_flag_in_details_and_view() -> Result<()> {
         );
     }
 
+    Ok(())
+}
+
+/// A tombstoned reply and a tombstoned repost keep their parent edges and their cached
+/// relationships, which name the parent and the reposted post, yet their views name neither, on
+/// `/v0` as on `/v1`, as for any deleted post. Live, the same posts name both. The tombstones are
+/// written through the models, as `del` leaves them (deleted details, kept edges and cached
+/// relationships); the watcher's `a_deleted_posts_view_names_no_relationships` deletes for real.
+#[tokio_shared_rt::test(shared)]
+async fn v0_names_no_parent_or_repost_for_a_tombstoned_reply_or_repost() -> Result<()> {
+    TestServiceServer::get_test_server().await;
+    let author = pubky::Keypair::random().public_key().to_z32();
+    let owner =
+        pubky_social_specs::PubkyId::try_from(author.as_str()).map_err(anyhow::Error::msg)?;
+    let graph = get_neo4j_graph()?;
+    graph
+        .run(
+            Query::new("v0_tombstone_user", "CREATE (:User {id: $author})")
+                .param("author", author.clone()),
+        )
+        .await?;
+    let at = chrono::Utc::now().timestamp_millis();
+    let stamp = chrono::Utc::now().timestamp_micros() & !1;
+    let id = |n: i64| format!("{:013X}", stamp + 2 * n);
+    let details = |n: i64, deleted: bool| PostDetails {
+        author: author.clone(),
+        uri: format!("pubky://{author}/pub/pubky.app/posts/{}", id(n)),
+        id: id(n),
+        content: if deleted { "" } else { "v0 tombstone" }.into(),
+        indexed_at: at + n,
+        kind: PostKind::Short,
+        attachments: vec![],
+        lock: None,
+        deleted,
+    };
+    let parent = details(0, false);
+    parent.put_to_graph(None, None).await?;
+    parent.put_to_index(&author, None, true, None).await?;
+    let parent_key = ResourceKey {
+        owner_id: owner,
+        resource_id: parent.id.clone(),
+    };
+    // The details only, as an edit writes them: no stream of the shared index changes
+    let write = |post: PostDetails, field: &'static str| {
+        let parent_key = &parent_key;
+        async move {
+            let (replied, reposted) = match field {
+                "replied" => (Some(parent_key), None),
+                _ => (None, Some(parent_key)),
+            };
+            post.put_to_graph(replied, reposted).await?;
+            post.put_to_index(&post.author, None, true, None).await?;
+            anyhow::Ok(())
+        }
+    };
+    let cases = [("reply", 1, "replied"), ("repost", 2, "reposted")];
+    for (case, n, field) in cases {
+        write(details(n, false), field).await?;
+        PostRelationships::reindex(&author, &id(n)).await?;
+        for version in ["v0", "v1"] {
+            let view = get_request(&format!("/{version}/post/{author}/{}", id(n))).await?;
+            assert_eq!(
+                view["details"]["deleted"], false,
+                "live {case} on {version}"
+            );
+            assert_eq!(
+                view["relationships"][field],
+                parent.uri.as_str(),
+                "live {case} on {version}: {view}"
+            );
+        }
+    }
+
+    // Deleted, each is a tombstone: its edge and its cached relationships stay
+    for (case, n, field) in cases {
+        write(details(n, true), field).await?;
+        let cached = PostRelationships::get_from_index(&author, &id(n))
+            .await?
+            .unwrap_or_else(|| panic!("{case}: cached relationships"));
+        let kept = match field {
+            "replied" => cached.replied,
+            _ => cached.reposted,
+        };
+        assert_eq!(kept.as_deref(), Some(parent.uri.as_str()), "{case}");
+        for version in ["v0", "v1"] {
+            let view = get_request(&format!("/{version}/post/{author}/{}", id(n))).await?;
+            assert_eq!(
+                view["details"]["deleted"], true,
+                "tombstoned {case} on {version}"
+            );
+            assert_eq!(
+                view["relationships"][field],
+                serde_json::Value::Null,
+                "tombstoned {case} on {version}: {view}"
+            );
+        }
+    }
+
+    for n in 0..3 {
+        PostRelationships::delete(&author, &id(n)).await?;
+        PostCounts::invalidate(&[&author, &id(n)]).await?;
+        PostDetails::delete_from_index(&author, &id(n), None).await?;
+    }
+    graph
+        .run(
+            Query::new(
+                "v0_tombstone_cleanup",
+                "MATCH (u:User {id: $author}) OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post) DETACH DELETE p, u",
+            )
+            .param("author", author),
+        )
+        .await?;
     Ok(())
 }
 
