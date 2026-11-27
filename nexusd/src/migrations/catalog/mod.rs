@@ -1,6 +1,7 @@
 //! Concrete migrations the daemon can register. The manager does not depend on these types.
 
 use super::manager::{Migration, MigrationManager};
+use resource_changes_seed_1792071211::ResourceChangesSeed1792071211;
 
 use collected_edges_backfill_1789344000::CollectedEdgesBackfill1789344000;
 use event_line_homeserver_backfill_1794005092::EventLineHomeserverBackfill1794005092;
@@ -53,6 +54,7 @@ pub fn import_migrations(migration_manager: &mut MigrationManager) {
         Box::new(UserDetailsCacheRetire1792160000),
         Box::new(PostContentIndexSortSetup1795086590),
         Box::new(EventLineHomeserverBackfill1794005092),
+        Box::new(ResourceChangesSeed1792071211),
     ];
     for migration in migrations {
         migration_manager.register(migration);
@@ -81,3 +83,5 @@ pub mod user_epoch_backfill_1791812997;
 pub mod user_search_state_backfill_1792157548;
 pub mod users_by_pk_reindex_1751635096;
 pub mod users_by_tags_index_backfill_1786924800;
+
+pub mod resource_changes_seed_1792071211;

@@ -1,3 +1,5 @@
+pub mod resource_changes;
+
 use crate::db::{kv::RedisResult, RedisOps};
 use pubky_social_specs::PubkyId;
 use serde::{Deserialize, Serialize};

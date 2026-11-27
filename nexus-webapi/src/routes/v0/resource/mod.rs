@@ -19,8 +19,8 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 use utoipa::{OpenApi, ToSchema};
 
-/// Max length for URI used in raw URI lookup
-const MAX_URI_LENGTH: usize = 2048;
+/// The longest URI, in bytes, a request may name: the by-uri lookup and the batch route.
+pub(crate) const MAX_URI_LENGTH: usize = 2048;
 
 /// Response envelope for resource tag endpoints, matching spec Section 9.1.
 #[derive(Serialize, Deserialize, Debug, ToSchema)]

@@ -2,10 +2,11 @@ use crate::events::EventProcessorError;
 use chrono::Utc;
 use nexus_common::db::kv::ScoreAction;
 use nexus_common::db::{fetch_row_from_graph, queries, OperationOutcome, RedisOps};
+use nexus_common::models::event::resource_changes::{ResourceChange, ResourceChangeOp};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::search::PostsByTagSearch;
 use nexus_common::models::post::{PostCounts, PostStream};
-use nexus_common::models::resource::tag::TagResource;
+use nexus_common::models::resource::tag::{TagResource, RESOURCE_TAG_TARGET_MAX_LENGTH};
 use nexus_common::models::tag::post::TagPost;
 use nexus_common::models::tag::search::TagSearch;
 use nexus_common::models::tag::traits::{TagCollection, TaggersCollection};
@@ -14,12 +15,33 @@ use nexus_common::models::user::{UserIngestor, UsersByTagSearch};
 use nexus_common::types::Pagination;
 use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use pubky_social_specs::PubkyId;
-use tracing::{debug, Instrument};
+use std::sync::LazyLock;
+use tokio::sync::{Mutex, MutexGuard};
+use tracing::{debug, warn, Instrument};
 
 use super::utils::{
-    bounded, fail_on_permanent_ingest_error, post_kind, post_relationships_is_reply,
+    bounded, fail_on_permanent_ingest_error, lock_stripe, post_kind, post_relationships_is_reply,
 };
 use crate::events::inputs::{Reference, ReferenceTarget, ResourceKey, TagInput};
+
+/// Locks shared by the handlers of resource tags: see [`lock_tagger`].
+const TAGGER_LOCK_STRIPES: usize = 1024;
+static TAGGER_LOCKS: LazyLock<Vec<Mutex<()>>> =
+    LazyLock::new(|| (0..TAGGER_LOCK_STRIPES).map(|_| Mutex::new(())).collect());
+
+/// The lock of one tagger's tags. A resource tag's PUT, a tag DEL and a takedown of a tag hold
+/// it across their graph write and their resource changes feed append, so the feed lists one
+/// tagger's changes to an edge in the order the graph took them. An edge is one per tagger,
+/// target and label, and every file that lands on it is the tagger's: equivalent files and the
+/// other folder's copy wait for each other too. A DEL takes it whatever the tag's target, which
+/// it learns only from the edge. The locks are a fixed set of stripes keyed by tagger id: two
+/// taggers that share one only wait for each other, and nothing is kept per tagger. A crash
+/// releases it. It orders the handlers of one watcher process.
+pub async fn lock_tagger(tagger_id: &str) -> MutexGuard<'static, ()> {
+    TAGGER_LOCKS[lock_stripe(tagger_id, TAGGER_LOCK_STRIPES)]
+        .lock()
+        .await
+}
 
 /// `tag.uri` is the address the tag is stored under, kept as the edge `uri`; `tag.tagged` is
 /// what it tags. Only a post or a user can be tagged here; any other target is
@@ -86,7 +108,8 @@ pub async fn sync_put(
 
 /// Indexes a tag on a foreign resource or a file (at either epoch's address) as a generic
 /// `Resource` tag, keyed by the target's normalized address: a file is never waited for, and a
-/// v0 file and its v1 copy are two targets.
+/// v0 file and its v1 copy are two targets. A target longer than
+/// [`RESOURCE_TAG_TARGET_MAX_LENGTH`] is rejected for good, whichever folder wrote the tag.
 #[tracing::instrument(
     name = "tag.put_resource",
     skip_all,
@@ -94,6 +117,13 @@ pub async fn sync_put(
 )]
 pub async fn sync_put_resource(tag: TagInput, key: ResourceKey) -> Result<(), EventProcessorError> {
     debug!("Indexing resource tag");
+    if tag.tagged.uri.chars().count() > RESOURCE_TAG_TARGET_MAX_LENGTH {
+        return Err(EventProcessorError::SpecValidation(format!(
+            "The tagged resource {} is longer than {RESOURCE_TAG_TARGET_MAX_LENGTH} characters",
+            bounded(&tag.tagged.uri)
+        )));
+    }
+    let _tagger_lock = lock_tagger(key.owner_id.as_ref()).await;
     let (normalized, scheme) =
         normalize_uri(&tag.tagged.uri).map_err(EventProcessorError::generic)?;
 
@@ -122,7 +152,7 @@ async fn put_sync_resource(
     tag_label: &str,
     indexed_at: i64,
 ) -> Result<(), EventProcessorError> {
-    match TagResource::put_to_graph_resource(
+    let (outcome, edge_indexed_at) = TagResource::put_to_graph_resource(
         &tagger_id,
         resource_id,
         uri,
@@ -132,8 +162,25 @@ async fn put_sync_resource(
         tag_label,
         indexed_at,
     )
-    .await?
-    {
+    .await?;
+    if let Some(at) = edge_indexed_at {
+        // Created or Updated: a retry still publishes, so a graph commit followed by a Redis
+        // failure cannot lose the reference. Consumers upsert by (author, uri, label): a file
+        // that lands on an edge another file created (an equivalent tag, or the other folder's
+        // copy of the same tag) publishes the same reference again, with the edge's time.
+        ResourceChange::tag(
+            ResourceChangeOp::Put,
+            resource_id.to_owned(),
+            uri.to_owned(),
+            tagger_id.to_string(),
+            tag_label.to_owned(),
+            tag_uri,
+            at,
+        )?
+        .store()
+        .await?;
+    }
+    match outcome {
         OperationOutcome::MissingDependency => {
             // Tagger user not yet indexed
             let dependency = vec![format!("{tagger_id}")];
@@ -345,13 +392,19 @@ async fn put_sync_user(
 }
 
 /// Deletes the tag `key` names, whichever folder wrote it: a tag is one edge per tagger,
-/// target and label, found by its id alone.
+/// target and label, found by its id alone. It holds the tagger's lock: see [`lock_tagger`].
+/// `tag_uri` is the address of the file being deleted (or taken down).
+///
+/// A resource tag's feed del is appended before the graph delete, from the edge it read: the
+/// Resource's id and normalized URI and the label, with `tag_uri`'s path as its
+/// `object_path`. A retry reads the edge again and appends the del again; once the edge is
+/// gone, the delete is a no-op.
 #[tracing::instrument(
     name = "tag.del",
     skip_all,
     fields(user_id = %key.owner_id, tag_id = %key.resource_id)
 )]
-pub async fn del(key: ResourceKey) -> Result<(), EventProcessorError> {
+pub async fn del_at(key: ResourceKey, tag_uri: &str) -> Result<(), EventProcessorError> {
     // Prefix these vars with arg_ to indicate they come from the argument key.
     // Similarly named vars will be used in Step 2 below, reading fields from the query result
     let ResourceKey {
@@ -362,9 +415,10 @@ pub async fn del(key: ResourceKey) -> Result<(), EventProcessorError> {
     debug!("Deleting tag");
 
     // 1. Read target from graph WITHOUT deleting the edge
-    let Some(row) =
-        fetch_row_from_graph(queries::get::get_tag_target(&arg_user_id, &arg_tag_id)).await?
-    else {
+    let tagger_id: &str = arg_user_id.as_ref();
+    let _tagger_lock = lock_tagger(tagger_id).await;
+    let row = fetch_row_from_graph(queries::get::get_tag_target(tagger_id, &arg_tag_id)).await?;
+    let Some(row) = row else {
         // Edge already gone (fully completed on a prior attempt) - idempotent no-op
         return Ok(());
     };
@@ -411,8 +465,37 @@ pub async fn del(key: ResourceKey) -> Result<(), EventProcessorError> {
             .await?;
             post_counts_to_invalidate = Some([author_id, post_id]);
         }
-        // Resource tags keep no Redis index to clean up
-        (None, None, None, Some(_)) => {}
+        // Resource tags keep no Redis index to clean up. The feed writes before the graph:
+        // a delete that fails after this append leaves the edge, and its retry appends again.
+        (None, None, None, Some(res_id)) => {
+            let uri: Option<String> = row
+                .get("resource_uri")
+                .map_err(EventProcessorError::generic)?;
+            // A Resource with no `uri` (corrupt or imported data) has no feed key: a retry reads
+            // the same node, so the event is dropped as a data anomaly, as the seed skips it.
+            let Some(uri) = uri else {
+                warn!(
+                    tagger_id = %arg_user_id,
+                    tag_id = %arg_tag_id,
+                    resource_id = %res_id,
+                    "Resource tag DEL dropped: the tagged Resource has no uri"
+                );
+                return Err(EventProcessorError::DataAnomaly(format!(
+                    "Resource {res_id} tagged by {arg_user_id} (tag {arg_tag_id}) has no uri"
+                )));
+            };
+            ResourceChange::tag(
+                ResourceChangeOp::Del,
+                res_id,
+                uri,
+                arg_user_id.to_string(),
+                label.clone(),
+                tag_uri,
+                Utc::now().timestamp_millis(),
+            )?
+            .store()
+            .await?;
+        }
         _ => {
             debug!("DEL-Tag: Unexpected combination of tag details");
         }
