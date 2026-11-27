@@ -2,16 +2,19 @@ use super::utils::{create_external_test_homeserver, user_on};
 use crate::event_processor::utils::watcher::WatcherTest;
 use crate::utils::default_moderation_tests;
 use anyhow::Result;
+use chrono::Utc;
 use deadpool_redis::redis::AsyncCommands;
-use nexus_common::db::{get_redis_conn, PubkyConnector};
+use nexus_common::db::{get_redis_conn, PubkyClientError, PubkyConnector};
+use nexus_common::models::follow::{Followers, UserFollows};
 use nexus_common::models::notification::{Notification, NotificationBody};
 use nexus_common::models::post::PostDetails;
 use nexus_common::models::scope::{Scope, SeedScope};
 use nexus_common::models::user::outsider::create_outsider;
 use nexus_common::models::user::{
-    PkdnsHomeserverResolver, PubkyConnectorResolver, UserDetails, UserIngestor,
+    PkdnsHomeserverResolver, PkdnsRecord, PubkyConnectorResolver, UserDetails, UserIngestor,
 };
-use nexus_common::types::DynError;
+use nexus_common::types::{DynError, Pagination};
+use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_common::{InboundBridgeConfig, ScopeConfig, WatcherConfig};
 use nexus_watcher::homeserver::{
     HomeserverClient, HsError, HsErrorKind, HsOp, HsStreamEvent, PubkyHomeserverClient,
@@ -22,7 +25,9 @@ use nexus_watcher::service::inbound_bridge::{
 };
 use pubky::{Keypair, ResourcePath};
 use pubky_app_specs::traits::{HasIdPath, TimestampId};
-use pubky_app_specs::{post_uri_builder, PubkyAppPost, PubkyAppPostKind, PubkyAppUser, PubkyId};
+use pubky_app_specs::{
+    post_uri_builder, PubkyAppFollow, PubkyAppPost, PubkyAppPostKind, PubkyAppUser, PubkyId,
+};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch::Receiver;
@@ -96,9 +101,25 @@ fn bridge_with(
     client: Arc<dyn HomeserverClient>,
     shutdown: Receiver<bool>,
 ) -> InboundBridge {
+    bridge_looking_up(
+        seed,
+        source,
+        client,
+        Arc::new(PubkyConnectorResolver),
+        shutdown,
+    )
+}
+
+/// [`bridge_with`] looking authors' homeservers up through `resolver`.
+fn bridge_looking_up(
+    seed: &PubkyId,
+    source: Arc<FakeBigNexus>,
+    client: Arc<dyn HomeserverClient>,
+    resolver: Arc<dyn PkdnsHomeserverResolver>,
+    shutdown: Receiver<bool>,
+) -> InboundBridge {
     let scope: Arc<dyn Scope> = Arc::new(SeedScope::new(seed.clone(), 1));
-    let ingestor = UserIngestor::new(Vec::<PubkyId>::new(), Arc::new(PubkyConnectorResolver))
-        .with_scope(scope);
+    let ingestor = UserIngestor::new(Vec::<PubkyId>::new(), resolver).with_scope(scope);
     let indexing = BridgeIndexing {
         ingestor: Arc::new(ingestor),
         moderation: default_moderation_tests(),
@@ -162,6 +183,26 @@ impl HomeserverClient for FailingFor {
 
     async fn get_blob(&self, resource: &pubky::PubkyResource) -> Result<Vec<u8>, HsError> {
         self.inner.get_blob(resource).await
+    }
+}
+
+/// The real resolver, but looking one user up fails, as a DHT lookup can.
+struct LookupFailsFor {
+    failing: PubkyId,
+}
+
+#[async_trait::async_trait]
+impl PkdnsHomeserverResolver for LookupFailsFor {
+    async fn resolve_record(
+        &self,
+        user_pk: &pubky::PublicKey,
+    ) -> nexus_common::db::PubkyClientResult<PkdnsRecord> {
+        if user_pk.to_z32() == self.failing.as_ref() {
+            return Err(PubkyClientError::RequestFailed {
+                message: "the DHT is unreachable".into(),
+            });
+        }
+        PubkyConnectorResolver.resolve_record(user_pk).await
     }
 }
 
@@ -244,6 +285,32 @@ fn reply_notification(timestamp: i64, by: &PubkyId, parent: &str, reply: &str) -
     }
 }
 
+/// A follow on its follower's homeserver, written without the watcher reading it.
+async fn write_follow(follower: &Keypair, followee: &PubkyId) -> Result<ResourcePath> {
+    let follow = PubkyAppFollow {
+        created_at: Utc::now().timestamp_millis(),
+    };
+    let path: ResourcePath = format!("/pub/pubky.app/follows/{followee}").parse()?;
+    let session = PubkyConnector::get()?
+        .signer(follower.clone())
+        .signin()
+        .await?;
+    session
+        .storage()
+        .put(&path, serde_json::to_string(&follow)?)
+        .await?;
+    Ok(path)
+}
+
+/// The tries a waiting record has had, read from its stored `attempts:due:stamp`.
+async fn tries_of(seed: &PubkyId, uri: &str) -> Result<Option<u32>> {
+    let mut redis_conn = get_redis_conn().await?;
+    let value: Option<String> = redis_conn
+        .hget(format!("Scope:BridgePending:{seed}"), uri)
+        .await?;
+    Ok(value.and_then(|value| value.split(':').next()?.parse().ok()))
+}
+
 /// Removes what a poll of `seed` stored in Redis.
 async fn forget_bridge(seed: &PubkyId) -> Result<()> {
     let mut redis_conn = get_redis_conn().await?;
@@ -251,6 +318,7 @@ async fn forget_bridge(seed: &PubkyId) -> Result<()> {
         .del(&[
             format!("Scope:Bridge:{seed}:fake"),
             format!("Scope:Bridge:{seed}:fake:CatchUp"),
+            format!("Scope:Bridge:{seed}:FollowCheck"),
             format!("Scope:BridgePending:{seed}"),
         ])
         .await?;
@@ -459,10 +527,7 @@ async fn test_a_record_on_an_unreachable_homeserver_doesnt_hold_up_the_rest() ->
     let handled = bridge.poll_source(&Shared(source.clone())).await;
     let after = PostDetails::get_by_id(&outsider, &replies[1].0).await?;
     bridge.poll().await.map_err(anyhow::Error::msg)?;
-    let mut redis_conn = get_redis_conn().await?;
-    let tries: Option<u32> = redis_conn
-        .hget(format!("Scope:BridgePending:{seed}"), &replies[0].1)
-        .await?;
+    let tries = tries_of(&seed, &replies[0].1).await?;
     forget_bridge(&seed).await?;
 
     assert_eq!(handled.map_err(anyhow::Error::msg)?, 2, "both handled");
@@ -560,4 +625,158 @@ async fn test_a_long_backlog_is_read_over_several_polls() -> Result<()> {
     assert_eq!(position, Some(backlog as i64), "the newest notification");
     assert!(!still_catching_up, "done catching up");
     Ok(())
+}
+
+/// A record whose author can't be looked up waits on its own, like one whose homeserver is
+/// down: the records after it are still bridged and the position moves past it.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_record_whose_author_cant_be_looked_up_doesnt_stall_the_source() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let (seed, seed_post, outsider_kp, outsider) = seed_and_outsider(&mut test).await?;
+    let parent = post_uri_builder(seed.to_string(), seed_post);
+    let unknown = random_pubky_id();
+    let stuck = post_uri_builder(unknown.to_string(), post("Bridge:Stuck", None).create_id());
+    let (reply_id, _) = write_post(
+        &outsider_kp,
+        &post("Bridge:AfterLookup", Some(parent.clone())),
+    )
+    .await?;
+    let reply = post_uri_builder(outsider.to_string(), reply_id.clone());
+    let source = Arc::new(FakeBigNexus::new(vec![
+        reply_notification(1_000, &unknown, &parent, &stuck),
+        reply_notification(2_000, &outsider, &parent, &reply),
+    ]));
+    let client =
+        PubkyHomeserverClient::from_config(PubkyConnector::get()?, &WatcherConfig::default());
+    let resolver = LookupFailsFor {
+        failing: unknown.clone(),
+    };
+    let bridge = bridge_looking_up(
+        &seed,
+        source.clone(),
+        Arc::new(client),
+        Arc::new(resolver),
+        running(),
+    );
+
+    let handled = bridge.poll_source(&Shared(source)).await;
+    let after = PostDetails::get_by_id(&outsider, &reply_id).await?;
+    let mut redis_conn = get_redis_conn().await?;
+    let position: Option<i64> = redis_conn.get(format!("Scope:Bridge:{seed}:fake")).await?;
+    let tries = tries_of(&seed, &stuck).await?;
+    forget_bridge(&seed).await?;
+
+    assert_eq!(handled.map_err(anyhow::Error::msg)?, 2, "both handled");
+    assert!(after.is_some(), "the next record is bridged");
+    assert_eq!(position, Some(2_000), "the position moves past it");
+    assert_eq!(tries, Some(0), "it waits on its own");
+    Ok(())
+}
+
+/// An interaction read long after it happened (a first read's backlog) is notified at the
+/// time it happened, so it doesn't arrive as new; one read as it happens is notified now.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_backlog_is_notified_when_it_happened() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let (seed, seed_post, outsider_kp, outsider) = seed_and_outsider(&mut test).await?;
+    let parent = post_uri_builder(seed.to_string(), seed_post);
+    let mut replies = Vec::new();
+    for content in ["Bridge:Backlog", "Bridge:Live"] {
+        let (id, _) = write_post(&outsider_kp, &post(content, Some(parent.clone()))).await?;
+        replies.push(post_uri_builder(outsider.to_string(), id));
+    }
+    let now = Utc::now().timestamp_millis();
+    let three_days_ago = now - 3 * 86_400_000;
+    let source = Arc::new(FakeBigNexus::new(vec![
+        reply_notification(three_days_ago, &outsider, &parent, &replies[0]),
+        reply_notification(now - 60_000, &outsider, &parent, &replies[1]),
+    ]));
+    let bridge = bridge(&seed, source.clone())?;
+
+    bridge
+        .poll_source(&Shared(source))
+        .await
+        .map_err(anyhow::Error::msg)?;
+    let notifications = Notification::get_by_id(&seed, Pagination::default()).await?;
+    forget_bridge(&seed).await?;
+
+    let notified_at = |reply: &str| {
+        notifications
+            .iter()
+            .find_map(|notification| match &notification.body {
+                NotificationBody::Reply { reply_uri, .. } if reply_uri == reply => {
+                    Some(notification.timestamp)
+                }
+                _ => None,
+            })
+    };
+    assert_eq!(
+        notified_at(&replies[0]),
+        Some(three_days_ago),
+        "when it happened"
+    );
+    assert!(
+        notified_at(&replies[1]).is_some_and(|timestamp| timestamp >= now),
+        "the live one is new"
+    );
+    Ok(())
+}
+
+/// A waiting record that has backed off isn't tried again before it is due.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_waiting_record_isnt_tried_before_it_is_due() -> Result<()> {
+    WatcherTest::setup(None).await?;
+    let seed = random_pubky_id();
+    let uri = post_uri_builder(
+        random_pubky_id().to_string(),
+        post("Bridge:NotDue", None).create_id(),
+    );
+    let in_an_hour = Utc::now().timestamp_millis() + 3_600_000;
+    let stored = format!("5:{in_an_hour}:");
+    let pending_key = format!("Scope:BridgePending:{seed}");
+    let mut redis_conn = get_redis_conn().await?;
+    let () = redis_conn.hset(&pending_key, &uri, &stored).await?;
+    let bridge = bridge(&seed, Arc::new(FakeBigNexus::new(Vec::new())))?;
+
+    bridge.poll().await.map_err(anyhow::Error::msg)?;
+    let after: Option<String> = redis_conn.hget(&pending_key, &uri).await?;
+    forget_bridge(&seed).await?;
+
+    assert_eq!(after, Some(stored), "not tried: unchanged");
+    Ok(())
+}
+
+/// An outsider's unfollow of the seed reaches no notification unless they were friends, so
+/// the follow is checked at its homeserver and removed once it is gone.
+#[tokio_shared_rt::test(shared)]
+async fn test_an_outsiders_unfollow_of_the_seed_is_noticed() -> Result<()> {
+    let mut test = WatcherTest::setup(None).await?;
+    let (seed, _, outsider_kp, outsider) = seed_and_outsider(&mut test).await?;
+    let path = write_follow(&outsider_kp, &seed).await?;
+    let followed = Notification {
+        timestamp: 1_000,
+        body: NotificationBody::Follow {
+            followed_by: outsider.to_string(),
+        },
+    };
+    let bridge = bridge(&seed, Arc::new(FakeBigNexus::new(vec![followed])))?;
+    bridge.poll().await.map_err(anyhow::Error::msg)?;
+    let following = Followers::check_in_index(&seed, &outsider).await?;
+
+    // Unfollowed at its homeserver; no notification says so.
+    let session = PubkyConnector::get()?.signer(outsider_kp).signin().await?;
+    session.storage().delete(&path).await?;
+    let quiet = bridge_with_no_news(&seed)?;
+    quiet.poll().await.map_err(anyhow::Error::msg)?;
+    let still_following = Followers::check_in_index(&seed, &outsider).await?;
+    forget_bridge(&seed).await?;
+
+    assert!(following, "the bridged follow is indexed");
+    assert!(!still_following, "removed once gone from its homeserver");
+    Ok(())
+}
+
+/// A bridge of `seed` whose source has nothing new.
+fn bridge_with_no_news(seed: &PubkyId) -> Result<InboundBridge> {
+    bridge(seed, Arc::new(FakeBigNexus::new(Vec::new())))
 }
