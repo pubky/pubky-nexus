@@ -27,12 +27,11 @@ Nexus keeps an append-only feed of accepted references to generic Resources,
 contract follows.
 
 `GET /v1/resources/changes?cursor=0&limit=500` returns a JSON object with `lines` and
-`next_cursor`. Each line describes an accepted reference to a generic Resource. The
-first implementation emits only tags handled by the universal-tag flow. Post and User
-targets continue through their existing handlers and are excluded. This does not
-broaden which tag paths or targets Nexus accepts, or add indexing of external post
-parents/embeds. The feed and the hydration route below are served under `/v1` only:
-`/v0` is frozen and answers 404 for both.
+`next_cursor`. Each line describes an accepted reference to a generic Resource. Tags
+and external post replies, embeds and collection items name Resources through this
+feed. Native Post and User targets continue through their existing handlers. Tag
+routing stays unchanged. The feed and the hydration route below are served under `/v1`
+only: `/v0` is frozen and answers 404 for both.
 
 ```json
 {"lines":[{"op":"put","resource_id":"19f876713c227a568d939946496a0d30","uri":"https://example.com/","kind":"tag","author":"<pk>","label":"example","object_path":"/pub/<folder>/tags/<id>","at":1792071211000}],"next_cursor":1}
@@ -52,9 +51,10 @@ Lines are delivered **at least once, in append order**. A consumer keys a tag
 reference by **(author, uri, label)**: it applies `put` as an upsert of that key and
 `del` as a delete of it. Every file that lands on one edge publishes under the same
 key, so equivalent files and the two folders' copies of a tag are one reference.
-Duplicates are expected after retries and must be harmless: a repeated put replaces
-the same reference, and deleting an absent key is a no-op. Do not increment a
-counter for every line.
+A post reference is keyed by **(author, object_path, kind, resource_id)** (see Post
+references below). Duplicates are expected after retries and must be harmless: a
+repeated put replaces the same reference, and deleting an absent key is a no-op. Do not
+increment a counter for every line.
 
 On a put the graph commit precedes the feed append. If the handler stops between
 them, its retry finds the edge and appends the put. The put carries the edge's
@@ -83,6 +83,14 @@ appends its del for an edge whose id the batch then changes. The lock is per wat
 process: this ordering holds for one watcher process per Neo4j and Redis, the
 deployment the watcher's cursors already assume.
 
+A post's references get the same ordering from one lock per post (author and post
+id): a PUT of any of its version files and its DEL hold it from their first read
+of the post's references to their last append. The post's references then match the
+version handled last: no handler's references land between another one's post write
+and its references, and a PUT cannot append an outbox after a concurrent DEL
+published and retracted it. The handlers do not compare versions, so a PUT of an
+older version handled after a newer one replaces both its content and references.
+
 The flip appends nothing: it rewrites a tag edge's stored address, and its id where
 the target's address changes, while the key, Resource and label stay the same. The
 user's later `social/v1` delete retracts the same `(author, uri, label)` their
@@ -90,7 +98,13 @@ user's later `social/v1` delete retracts the same `(author, uri, label)` their
 
 `at` is the edge's indexed timestamp in Unix milliseconds for puts, and the
 deletion's timestamp for dels. Apply lines in list order, not timestamp order.
-`reply`, `embed` and `collection` are reserved kinds, never emitted yet.
+`reply`, `embed` and `collection` identify references made by posts. A post
+reference's `at` is the time its edge was first indexed, whichever version file names it
+now. The flip does not
+move a post's references: each keeps the path of the post's `pubky.app` address until
+the post's first PUT after the flip, which appends one del of that path and one put of
+the post's `social/v1` address per reference, each put with the edge's first time. Until
+then, the post's deletes retract the old path.
 
 The response carries `x-events-epoch` and `x-events-length`. This feed has its
 own storage and epoch. Both headers are exposed through CORS. Epoch is opaque to
@@ -178,6 +192,37 @@ reason; no matches returns 200 with an empty array. No remote fetch or resource
 creation occurs. Use this with the feed to hydrate referenced IDs without a request
 per resource.
 
+### Post references
+
+Posts of either folder emit `reply`, `embed`, and `collection` for external targets. The target
+URI uses the same normalization and ID as a tag. `object_path` is the path of the
+post's address: `/pub/social/v1/posts/<id>` for a `social/v1` post, whichever version
+file the event names, and the post file for a `pubky.app` post. A `social/v1` post's
+address names no stored file (its files are the version files under it), so that
+`object_path` cannot be fetched: it is a key, not a location. One collection can emit
+multiple lines for that path.
+
+Consumers of these kinds apply each line as an upsert or deletion keyed by
+`(author, object_path, kind, resource_id)`. Lines remain at least once and in append
+order; retries can duplicate a PUT. Keep distinct targets and kinds within one post.
+An edit emits DEL for each reference it loses, then PUT for each reference it gains.
+A PUT that changes no reference emits nothing, whichever version file it names, so
+version files that name the same targets, handled in any order and any number of
+times, emit nothing after the first. The first PUT after a delete retracted the
+post's references (a delete that stopped half-way, or one that made a tombstone) puts
+every current one again. Deleting any social version follows the social-post
+delete contract and retracts the indexed logical post's current references.
+
+The edge update and a pending append batch commit in the same graph transaction.
+Retries flush that batch before recording new changes. A delete follows the same rule as
+a tag's: the feed writes before the graph. It publishes any pending batch, appends the
+del of each of the post's current references, then deletes the post or makes it a
+tombstone; a retry reads the references again and appends their dels again. A tombstone
+keeps its Resource edges, which every Resource-side reader skips, and its later hard
+delete appends nothing. Reseeding includes the Resource edges of live posts, after all
+tag lines, each group in edge time order, and retains concurrent appends under the
+existing epoch/cursor rules. No external target is fetched.
+
 ## Consequences
 
 ### Positive ✅
@@ -196,15 +241,15 @@ per resource.
 - A handler whose retries run out between its graph write and its append leaves the
   feed and the graph apart until the seed job runs: a put missing from the feed, or a
   del for an edge still in the graph. So does a seed that starts between a delete's
-  append and its graph delete: a put for an edge that is gone.
+  append and its graph delete or tombstone: a put for a reference already retracted.
 - The per-tagger ordering holds for one watcher process per Neo4j and Redis.
 - After loss of Redis state the feed must be reseeded, and a seed gives current
   references, not past deletions.
 
 ### Neutral ⚠️
 
-- `object_path` names the file a line concerns and is not a key: two lines of one
-  reference can carry different paths.
+- For a tag, `object_path` names the file a line concerns and is not part of its key:
+  two lines of one tag reference can carry different paths.
 
 ## Alternatives Considered
 

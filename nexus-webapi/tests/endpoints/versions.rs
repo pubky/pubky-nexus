@@ -180,11 +180,32 @@ fn without_v0_only_fields(body: Value) -> Value {
     }
 }
 
-/// A `/v1` answer as `/v0` would give it: the stored kind names, and no bookmark, file or tag
-/// `relationship` fields on either side.
+/// The counts of the live posts that reply to, embed and collect a resource: fields of the
+/// resource envelope and view added since `/v0` froze, so `/v1` alone serves them.
+const V1_ONLY_FIELDS: [&str; 3] = ["replies_count", "embeds_count", "collections_count"];
+
+/// `body` without the [`V1_ONLY_FIELDS`], taken out of `/v1`'s answer so the rest is compared.
+fn without_v1_only_fields(body: Value) -> Value {
+    match body {
+        Value::Object(fields) => Value::Object(
+            fields
+                .into_iter()
+                .filter(|(key, _)| !V1_ONLY_FIELDS.contains(&key.as_str()))
+                .map(|(key, value)| (key, without_v1_only_fields(value)))
+                .collect(),
+        ),
+        Value::Array(items) => {
+            Value::Array(items.into_iter().map(without_v1_only_fields).collect())
+        }
+        other => other,
+    }
+}
+
+/// A `/v1` answer as `/v0` would give it: the stored kind names, no bookmark, file or tag
+/// `relationship` fields on either side, and no resource reference counts on `/v1`'s.
 fn comparable(v1: Value, v0: Value) -> (Value, Value) {
     (
-        without_v0_only_fields(with_stored_kind_names(v1)),
+        without_v0_only_fields(without_v1_only_fields(with_stored_kind_names(v1))),
         without_v0_only_fields(v0),
     )
 }

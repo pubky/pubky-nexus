@@ -49,7 +49,8 @@ async fn edge_keys(
 }
 
 /// An edit that adds, drops or moves a post's reply parent or repost embed is rejected whole and
-/// never retried: the edges, the content and the counts stay as they were created.
+/// never retried: the edges, the content and the counts stay as they were created. A reply
+/// parent that is a URL is fixed the same way.
 #[tokio_shared_rt::test(shared)]
 async fn test_edit_that_changes_parent_or_embed_is_rejected_and_not_retried() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -82,6 +83,9 @@ async fn test_edit_that_changes_parent_or_embed_is_rejected_and_not_retried() ->
     let (root_id, root_path) = test.create_post(&author_kp, &root).await?;
     let reply = short_reply("Watcher:EditChangesParent:Reply", p1_uri.clone());
     let (reply_id, reply_path) = test.create_post(&author_kp, &reply).await?;
+    let url = |name: &str| format!("https://example.com/{author_id}/edit-changes-parent/{name}");
+    let url_reply = short_reply("Watcher:EditChangesParent:UrlReply", url("a"));
+    let (url_reply_id, url_reply_path) = test.create_post(&author_kp, &url_reply).await?;
 
     let counts_before = find_user_counts(&author_id).await;
 
@@ -117,9 +121,30 @@ async fn test_edit_that_changes_parent_or_embed_is_rejected_and_not_retried() ->
             &reply,
             short_post("Watcher:EditChangesParent:Reply:Edited"),
         ),
+        (
+            "root edited to reply to a URL",
+            &root_id,
+            &root_path,
+            &root,
+            short_reply("Watcher:EditChangesParent:Root:Edited", url("a")),
+        ),
+        (
+            "URL parent moved to another URL",
+            &url_reply_id,
+            &url_reply_path,
+            &url_reply,
+            short_reply("Watcher:EditChangesParent:UrlReply:Edited", url("b")),
+        ),
+        (
+            "URL parent dropped",
+            &url_reply_id,
+            &url_reply_path,
+            &url_reply,
+            short_post("Watcher:EditChangesParent:UrlReply:Edited"),
+        ),
     ];
     for (case, post_id, path, original, edited) in cases {
-        let edges_before = edge_keys(&author_id, post_id).await?;
+        let edges_before = PostParents::get_from_graph(&author_id, post_id).await?;
 
         test.put(&author_kp, path, &edited).await?;
         let err = handle(&test, "PUT", &author_id, post_id)
@@ -137,7 +162,7 @@ async fn test_edit_that_changes_parent_or_embed_is_rejected_and_not_retried() ->
 
         // GRAPH_OP: the edges and the content are the ones the post was created with
         assert_eq!(
-            edge_keys(&author_id, post_id).await?,
+            PostParents::get_from_graph(&author_id, post_id).await?,
             edges_before,
             "{case}"
         );
@@ -162,10 +187,24 @@ async fn test_edit_that_changes_parent_or_embed_is_rejected_and_not_retried() ->
             .await?
             .is_none()
     );
+    assert!(
+        check_member_global_timeline_user_post(&author_id, &url_reply_id)
+            .await?
+            .is_none(),
+        "the URL reply is still a reply"
+    );
     let counts_after = find_user_counts(&author_id).await;
     assert_eq!(counts_after.posts, counts_before.posts);
     assert_eq!(counts_after.replies, counts_before.replies);
 
+    for (post_id, path) in [
+        (&url_reply_id, &url_reply_path),
+        (&reply_id, &reply_path),
+        (&root_id, &root_path),
+    ] {
+        test.del(&author_kp, path).await?;
+        handle(&test, "DEL", &author_id, post_id).await?;
+    }
     Ok(())
 }
 
@@ -288,8 +327,8 @@ async fn test_delete_after_a_rejected_parent_edit_cleans_up_as_a_root_post() -> 
     Ok(())
 }
 
-/// An edit that names the same parent, however it is written, or a parent that is not a post,
-/// is accepted: only a change to a post edge is rejected.
+/// An edit that names the same parent, however it is written, is accepted: a post by its key, a
+/// URL by its normalized Resource.
 #[tokio_shared_rt::test(shared)]
 async fn test_edit_that_keeps_the_parent_edges_is_accepted() -> Result<()> {
     let mut test = WatcherTest::setup(None).await?;
@@ -301,7 +340,7 @@ async fn test_edit_that_keeps_the_parent_edges_is_accepted() -> Result<()> {
             &test_user("Watcher:EditChangesParent:Keep:Author", "edit"),
         )
         .await?;
-    let (p_id, _) = test
+    let (p_id, p_path) = test
         .create_post(&author_kp, &short_post("Watcher:EditChangesParent:Keep:P"))
         .await?;
     let p_uri = post_uri_builder(author_id.clone(), p_id.clone());
@@ -312,15 +351,18 @@ async fn test_edit_that_keeps_the_parent_edges_is_accepted() -> Result<()> {
             &short_reply("Watcher:EditChangesParent:Keep:Reply", p_uri.clone()),
         )
         .await?;
+    let url = format!("https://example.com/{author_id}/edit-keeps-parent");
     let (url_reply_id, url_reply_path) = test
         .create_post(
             &author_kp,
-            &short_reply(
-                "Watcher:EditChangesParent:Keep:UrlReply",
-                "https://example.com/a".to_string(),
-            ),
+            &short_reply("Watcher:EditChangesParent:Keep:UrlReply", url.clone()),
         )
         .await?;
+    let url_parent = PostParents::get_from_graph(&author_id, &url_reply_id)
+        .await?
+        .expect("the URL reply is in the graph")
+        .replied_resource;
+    assert!(url_parent.is_some(), "a Resource reply edge");
 
     // Switch OFF event processing so each edit is handled only by the call below
     test = test.remove_event_processing().await;
@@ -337,12 +379,12 @@ async fn test_edit_that_keeps_the_parent_edges_is_accepted() -> Result<()> {
             (Some((author_id.clone(), p_id.clone())), None),
         ),
         (
-            "a URL parent changed to another URL",
+            "the same URL parent written in another spelling",
             &url_reply_id,
             &url_reply_path,
             short_reply(
                 "Watcher:EditChangesParent:Keep:UrlReply:Edited",
-                "https://example.com/b".to_string(),
+                url.replace("example.com", "EXAMPLE.com"),
             ),
             (None, None),
         ),
@@ -360,7 +402,23 @@ async fn test_edit_that_keeps_the_parent_edges_is_accepted() -> Result<()> {
         );
         assert_eq!(edge_keys(&author_id, post_id).await?, edges, "{case}");
     }
+    assert_eq!(
+        PostParents::get_from_graph(&author_id, &url_reply_id)
+            .await?
+            .unwrap()
+            .replied_resource,
+        url_parent,
+        "the URL reply keeps its Resource"
+    );
 
+    for (post_id, path) in [
+        (&url_reply_id, &url_reply_path),
+        (&reply_id, &reply_path),
+        (&p_id, &p_path),
+    ] {
+        test.del(&author_kp, path).await?;
+        handle(&test, "DEL", &author_id, post_id).await?;
+    }
     Ok(())
 }
 

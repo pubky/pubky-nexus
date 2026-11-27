@@ -3,7 +3,9 @@
 //! Delivery is at least once. Consumers key a tag reference by `(author, uri, label)`: `uri` is
 //! the normalized URI stored on the Resource, so every file that tags one target with one label
 //! names the same reference. `object_path` is the path of the tag file the line concerns, for
-//! information only. Rebuilds preserve live appends made while the graph snapshot is assembled.
+//! information only. A post reference is keyed by `(author, object_path, kind, resource_id)`,
+//! `object_path` being the path of the post's address. Rebuilds preserve live appends made
+//! while the graph snapshot is assembled.
 
 use crate::db::graph::{GraphError, Query};
 use crate::db::kv::{RedisError, RedisResult};
@@ -30,8 +32,7 @@ pub enum ResourceChangeOp {
     Del,
 }
 
-/// Only `tag` is emitted today. `reply`, `embed` and `collection` are reserved for the other
-/// references a post makes to a URI.
+/// Tags and external replies, embeds and collection items share this feed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ResourceChangeKind {
@@ -55,9 +56,11 @@ pub struct ResourceChange {
     /// Present for tag references.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
-    /// The homeserver path of the tag, reply or collection file that names the URI, as
-    /// written: for a tag, the file the line concerns, for information only. A tag's replay key
-    /// is (author, uri, label).
+    /// For a tag, the homeserver path of the tag file the line concerns, as written, for
+    /// information only. For a post reference, the path of the post's address: the post file of
+    /// a `pubky.app` post, and for a `social/v1` post `/pub/social/v1/posts/<id>`, the same for
+    /// every version file, which names no stored file and cannot be fetched. A tag's replay key
+    /// is (author, uri, label); a post reference's is (author, object_path, kind, resource_id).
     pub object_path: String,
     /// Indexed timestamp in Unix milliseconds (deletion time for del).
     pub at: i64,
@@ -147,6 +150,37 @@ impl ResourceChange {
         #[cfg(any(test, feature = "test-utils"))]
         if self.op == ResourceChangeOp::Del {
             crate::utils::test_utils::feed_del_fault(&self.author)?;
+        }
+        Ok(())
+    }
+
+    /// Append one post's reference changes atomically, in the supplied order.
+    pub async fn store_batch(lines: &[Self]) -> RedisResult<()> {
+        if lines.is_empty() {
+            return Ok(());
+        }
+        static BATCH: LazyLock<Script> = LazyLock::new(|| {
+            Script::new(
+                r"
+            redis.call('SETNX', KEYS[2], ARGV[1])
+            for i = 2, #ARGV do redis.call('RPUSH', KEYS[1], ARGV[i]) end
+        ",
+            )
+        });
+        let raw = lines
+            .iter()
+            .map(Self::json)
+            .collect::<RedisResult<Vec<_>>>()?;
+        BATCH
+            .key(RESOURCE_CHANGES_KEY)
+            .key(EPOCH_KEY)
+            .arg(epoch_seed())
+            .arg(raw)
+            .invoke_async::<()>(&mut get_redis_conn().await?)
+            .await?;
+        #[cfg(any(test, feature = "test-utils"))]
+        if lines.iter().any(|line| line.op == ResourceChangeOp::Del) {
+            crate::utils::test_utils::feed_del_fault(&lines[0].author)?;
         }
         Ok(())
     }
@@ -271,9 +305,37 @@ async fn seed_inner(token: &str, temp: &str, allow_empty: bool) -> ModelResult<u
     if !batch.is_empty() {
         write_seed_batch(temp, &batch).await?;
     }
+    seed_post_references(temp).await?;
     publish_seed(token, temp, start, allow_empty)
         .await
         .map_err(Into::into)
+}
+
+async fn seed_post_references(temp: &str) -> ModelResult<()> {
+    let mut rows = get_neo4j_graph()?
+        .execute(crate::db::graph::queries::get::resource_changes_post_seed())
+        .await
+        .map_err(GraphError::from)?;
+    let mut batch = Vec::with_capacity(BATCH_SIZE);
+    while let Some(row) = rows.try_next().await.map_err(GraphError::from)? {
+        // As for tags: one reference that cannot be a line must not stop the seed
+        let line: ResourceChange = match row.get("line") {
+            Ok(line) => line,
+            Err(e) => {
+                warn!(error = %e, "Resource changes seed skipped a post reference");
+                continue;
+            }
+        };
+        batch.push(line.json()?);
+        if batch.len() == BATCH_SIZE {
+            write_seed_batch(temp, &batch).await?;
+            batch.clear();
+        }
+    }
+    if !batch.is_empty() {
+        write_seed_batch(temp, &batch).await?;
+    }
+    Ok(())
 }
 
 async fn write_seed_batch(temp: &str, batch: &[String]) -> RedisResult<()> {
@@ -478,7 +540,8 @@ mod tests {
         let (seeded, new_epoch, length) = ResourceChange::get_from_index(0, 1000).await?;
         assert_ne!(new_epoch, epoch);
         assert_eq!(length as usize, seeded.lines.len());
-        assert!(seeded.lines.windows(2).all(|pair| pair[0].at <= pair[1].at));
+        // The seed writes the tag lines in edge time order, then the post reference lines in
+        // theirs: only this test's own lines, all tags, are compared, order included.
         let own: Vec<_> = seeded
             .lines
             .into_iter()

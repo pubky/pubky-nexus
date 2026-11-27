@@ -27,7 +27,7 @@ use nexus_common::models::bootstrap::{AttachmentFiles, Bootstrap};
 use nexus_common::models::file::{FileDetails, FileUrls};
 use nexus_common::models::notification::Notification;
 use nexus_common::models::post::{Bookmark, PostDetails, PostKind};
-use nexus_common::models::resource::view::ResourceView;
+use nexus_common::models::resource::view::{ReferenceCounts, ResourceView};
 use nexus_common::models::tag::search::PrefixFold;
 use nexus_common::models::tag::traits::taggers::TaggersTuple;
 use nexus_common::models::tag::TagDetails;
@@ -37,8 +37,9 @@ use serde::Serialize;
 use utoipa::{IntoParams, OpenApi, ToSchema};
 
 use super::endpoints::{
-    POST_BOOKMARK_ROUTE, STREAM_RESOURCES_BY_IDS_ROUTE, STREAM_USERS_DETAILS_BY_IDS_ROUTE,
-    USER_FOLLOWING_DETAILS_ROUTE, V0_PREFIX, V1_PREFIX,
+    POST_BOOKMARK_ROUTE, RESOURCE_EMBEDS_ROUTE, RESOURCE_REPLIES_ROUTE,
+    STREAM_RESOURCES_BY_IDS_ROUTE, STREAM_USERS_DETAILS_BY_IDS_ROUTE, USER_FOLLOWING_DETAILS_ROUTE,
+    V0_PREFIX, V1_PREFIX,
 };
 use super::stream::posts::{PostStreamByIdsRequest, StreamSourceKind};
 use super::types::TaggersInfoResponse;
@@ -46,7 +47,7 @@ use super::{
     bootstrap, file, notification, post, resource, resource_changes, search, stream, tag, user,
 };
 use crate::models::{
-    v1, IncludeAttachmentMetadata, KindToken, PostStreamDetailed, PostViewDetailed,
+    v0, v1, IncludeAttachmentMetadata, KindToken, PostStreamDetailed, PostViewDetailed,
     StoredKindToken, StoredPostKinds, TagLabel, TagLabels, Tags,
 };
 use crate::routes::AppState;
@@ -65,7 +66,8 @@ pub trait ApiVersion: Send + Sync + 'static {
     const STANDING: &'static str;
 
     /// A post with its counts, tags and relationships, `GET /post/{author_id}/{post_id}`.
-    /// `/v1` has no `bookmark` and no `attachments_metadata`.
+    /// `/v1` has no `bookmark` and no `attachments_metadata`; `/v0`'s relationships have no
+    /// `embedded` and name only a post in `replied`.
     type PostView: Serialize + ToSchema + From<PostViewDetailed> + Send;
     /// A post's own fields, `GET /post/{author_id}/{post_id}/details`.
     type PostDetails: Serialize + ToSchema + From<PostDetails> + Send;
@@ -128,6 +130,11 @@ pub trait ApiVersion: Send + Sync + 'static {
     /// Whether the bootstrap's `files` are read: `/v0` serves the list, `/v1` has no file
     /// details and drops it, so it skips the read rather than fetch what it throws away.
     const ATTACHMENT_FILES: AttachmentFiles;
+
+    /// Whether a resource view reads the counts of the live posts that reference it: `/v1`
+    /// serves them on the resource views and envelopes, `/v0` has no such fields and skips
+    /// the read rather than count what it throws away.
+    const REFERENCE_COUNTS: ReferenceCounts;
 
     /// Whether a post's `attachments_metadata` is fetched, as a client asks in
     /// `include_attachment_metadata=` on the post view and the post stream. `/v0` reads a
@@ -243,14 +250,14 @@ impl ApiVersion for V0 {
     const STANDING: &'static str =
         "`/v0` is frozen: fixes only, no new routes or fields. Every new feature lands in `/v1`.";
 
-    type PostView = PostViewDetailed;
+    type PostView = v0::PostViewDetailed;
     type PostDetails = PostDetails;
-    type PostStream = PostStreamDetailed;
+    type PostStream = v0::PostStreamDetailed;
     type Notification = Notification;
     type UserCounts = UserCounts;
     type UserView = UserView;
     type UserStream = UserStream;
-    type Bootstrap = Bootstrap;
+    type Bootstrap = v0::Bootstrap;
     type TagDetails = TagDetails;
     type TaggersInfoResponse = TaggersInfoResponse;
     type ResourceView = ResourceView;
@@ -261,6 +268,7 @@ impl ApiVersion for V0 {
     const TAG_PREFIX_FOLD: PrefixFold = PrefixFold::Lowercase;
 
     const ATTACHMENT_FILES: AttachmentFiles = AttachmentFiles::Fetch;
+    const REFERENCE_COUNTS: ReferenceCounts = ReferenceCounts::Skip;
     type IncludeAttachmentMetadata = IncludeAttachmentMetadata;
     type PostStreamByIdsRequest = PostStreamByIdsRequest;
 
@@ -402,6 +410,7 @@ impl ApiVersion for V1 {
     const TAG_PREFIX_FOLD: PrefixFold = PrefixFold::AsGiven;
 
     const ATTACHMENT_FILES: AttachmentFiles = AttachmentFiles::Skip;
+    const REFERENCE_COUNTS: ReferenceCounts = ReferenceCounts::Read;
     type IncludeAttachmentMetadata = v1::NoAttachmentMetadata;
     type PostStreamByIdsRequest = v1::PostStreamByIdsRequest;
 
@@ -502,15 +511,24 @@ impl ApiVersion for V1 {
     }
 
     /// The routes added since `/v0` froze: the resource views by IDs or URIs, the resource
-    /// changes feed, and the details-only user lookups, by ids and for a user's follows. Both
-    /// user lookups are one indexed graph read, like `/user/{user_id}/details`, so they sit in
-    /// the default bucket. `/v1` has no bookmark or file details route at all.
+    /// changes feed, the posts replying to or embedding a resource, and the details-only user
+    /// lookups, by ids and for a user's follows. Both user lookups are one indexed graph read,
+    /// like `/user/{user_id}/details`, so they sit in the default bucket. `/v1` has no bookmark
+    /// or file details route at all.
     fn own_routes() -> (Router<AppState>, Router<AppState>) {
         let expensive = Router::new().route(
             STREAM_RESOURCES_BY_IDS_ROUTE,
             axum::routing::post(stream::resources::stream_resources_by_ids_handler),
         );
         let default = resource_changes::routes()
+            .route(
+                RESOURCE_REPLIES_ROUTE,
+                axum::routing::get(resource::references::replies),
+            )
+            .route(
+                RESOURCE_EMBEDS_ROUTE,
+                axum::routing::get(resource::references::embeds),
+            )
             .route(
                 STREAM_USERS_DETAILS_BY_IDS_ROUTE,
                 axum::routing::post(stream::users::stream_users_details_by_ids_handler),
@@ -696,9 +714,9 @@ pub(crate) use versioned_handlers;
         stream::resources::stream_resource_ids_handler_v0,
     ),
     components(schemas(
-        PostViewDetailed,
+        v0::PostViewDetailed,
         PostDetails,
-        PostStreamDetailed,
+        v0::PostStreamDetailed,
         PostStreamByIdsRequest,
         Bookmark,
         FileDetails,
@@ -709,7 +727,7 @@ pub(crate) use versioned_handlers;
         UserCounts,
         UserView,
         UserStream,
-        Bootstrap,
+        v0::Bootstrap,
         StreamSourceKind,
         PostKind,
         shapes::v0::PostKinds,
@@ -759,6 +777,8 @@ struct V0Doc;
         stream::users::stream_users_details_by_ids_handler,
         user::follows::user_following_details_handler,
         resource_changes::resource_changes_handler,
+        resource::references::replies,
+        resource::references::embeds,
     ),
     components(schemas(
         v1::PostView,

@@ -7,9 +7,11 @@
 //! nor the stored models they build name a spec type.
 
 use chrono::Utc;
+use nexus_common::models::event::resource_changes::ResourceChangeKind;
 use nexus_common::models::file::{FileDetails, FileUrls};
 use nexus_common::models::post::{PostDetails, PostParent, PostParents};
 use nexus_common::models::user::{Epoch, UserDetails};
+use nexus_common::universal_tag::normalize::{normalize_uri, resource_id};
 use pubky_social_specs::PubkyId;
 
 pub use nexus_common::models::post::PostKind;
@@ -98,7 +100,8 @@ impl PostInput {
         }
     }
 
-    /// The posts the parent and embed name, each with the address as written.
+    /// The posts the parent and embed name, each with the address as written, and the Resource
+    /// an external parent names.
     ///
     /// The address is not the parent's stored one: the post handler writes the edges from the
     /// keys and reads the stored addresses back from the graph. Only a post parent gives a reply
@@ -113,9 +116,19 @@ impl PostInput {
             }),
             _ => None,
         };
+        // An external parent by the Resource id its reply edge names, so that another spelling
+        // of the same URL is the same parent. One that does not normalize makes no Resource.
+        let replied_resource = self
+            .parent
+            .as_ref()
+            .filter(|parent| matches!(parent.target, ReferenceTarget::Foreign))
+            .and_then(|parent| normalize_uri(&parent.uri).ok())
+            .map(|(uri, _)| resource_id(&uri));
         PostParents {
             replied: self.parent.as_ref().and_then(post_parent),
             reposted: self.embed.as_ref().and_then(post_parent),
+            replied_resource,
+            references_reconciled: false,
         }
     }
 
@@ -129,6 +142,23 @@ impl PostInput {
                 ReferenceTarget::Post(key) => Some((key.owner_id.clone(), key.resource_id.clone())),
                 _ => None,
             })
+            .collect()
+    }
+
+    /// The external targets the post references, as the author wrote them, each with the kind
+    /// of its reference: the parent, the embed and the collection items that name another
+    /// scheme's URL or another app's public object. Only those are Resources; native posts keep
+    /// their own edges, and nothing else a post can name is projected at all.
+    pub fn external_references(&self) -> Vec<(&str, ResourceChangeKind)> {
+        let parent = self.parent.iter().map(|r| (r, ResourceChangeKind::Reply));
+        let embed = self.embed.iter().map(|r| (r, ResourceChangeKind::Embed));
+        let items = self.collection_items.iter();
+        let items = items.map(|r| (r, ResourceChangeKind::Collection));
+        parent
+            .chain(embed)
+            .chain(items)
+            .filter(|(reference, _)| matches!(reference.target, ReferenceTarget::Foreign))
+            .map(|(reference, kind)| (reference.uri.as_str(), kind))
             .collect()
     }
 }
@@ -317,6 +347,32 @@ mod tests {
     }
 
     #[test]
+    fn external_references_keep_foreign_targets_only_with_their_kind() {
+        let foreign = |uri: &str| reference(uri, ReferenceTarget::Foreign);
+        let native = reference(
+            &format!("pubky://{AUTHOR}/pub/pubky.app/posts/{POST_ID}"),
+            ReferenceTarget::Post(key()),
+        );
+        let mut collection = post(Some(foreign("https://a.example")), Some(native.clone()));
+        collection.kind = PostKind::Collection;
+        collection.collection_items = vec![
+            native,
+            foreign("https://b.example"),
+            reference("pubky://x/pub/pubky.app/follows/y", ReferenceTarget::Other),
+            foreign("nostr:note1"),
+        ];
+        assert_eq!(
+            collection.external_references(),
+            vec![
+                ("https://a.example", ResourceChangeKind::Reply),
+                ("https://b.example", ResourceChangeKind::Collection),
+                ("nostr:note1", ResourceChangeKind::Collection),
+            ]
+        );
+        assert!(post(None, None).external_references().is_empty());
+    }
+
+    #[test]
     fn post_without_items_collects_nothing() {
         assert!(post(None, None).collected_posts().is_empty());
     }
@@ -324,15 +380,24 @@ mod tests {
     #[test]
     fn non_post_parent_and_embed_give_no_edges() {
         // A file, a foreign resource and an unresolved address: none is a reply or repost edge.
+        // A foreign parent names the Resource its reply edge goes to, by its normalized id.
         let file = reference(
             "pubky://x/pub/pubky.app/files/1",
             ReferenceTarget::File(key()),
         );
-        let foreign = reference("https://example.com", ReferenceTarget::Foreign);
+        let foreign = reference("https://EXAMPLE.com", ReferenceTarget::Foreign);
         let other = reference("pubky://x/pub/pubky.app/follows/y", ReferenceTarget::Other);
-        for target in [file, foreign, other] {
+        let foreign_id = resource_id(&normalize_uri("https://example.com").unwrap().0);
+        for (target, replied_resource) in [(file, None), (foreign, Some(foreign_id)), (other, None)]
+        {
             let parents = post(Some(target.clone()), Some(target)).parents();
-            assert_eq!(parents, PostParents::default());
+            assert_eq!(
+                parents,
+                PostParents {
+                    replied_resource,
+                    ..PostParents::default()
+                }
+            );
         }
     }
 }

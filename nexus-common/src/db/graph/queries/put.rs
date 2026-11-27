@@ -3,6 +3,7 @@ use crate::db::graph::Query;
 use crate::models::ResourceKey;
 use crate::models::{file::FileDetails, post::PostDetails, user::UserDetails};
 use pubky_social_specs::PubkyId;
+use std::collections::HashMap;
 
 /// Creates or overwrites a `User` node.
 ///
@@ -147,6 +148,26 @@ pub fn create_post(
     }
 
     Ok(cypher_query)
+}
+
+/// Claims the steps of a post's delete that must run once, the parent's score and the "a reply
+/// was deleted" notifications: `first` is true for the first claim of the post node and false for
+/// every later one. The claim is a property of the node, so it goes with the node's graph delete,
+/// and no other writer sets or clears it: a PUT handled between a delete that stopped half-way and
+/// its retry leaves it. No row when the graph has no such post. The first `SET` takes the node's
+/// write lock before the claim is read, so two writers cannot both read it unset.
+pub fn claim_post_delete(author_id: &str, post_id: &str) -> Query {
+    Query::new(
+        "claim_post_delete",
+        "MATCH (:User {id: $author_id})-[:AUTHORED]->(p:Post {id: $post_id})
+         SET p.delete_claiming = true
+         WITH p, p.delete_claimed IS NULL AS first
+         SET p.delete_claimed = true
+         REMOVE p.delete_claiming
+         RETURN first",
+    )
+    .param("author_id", author_id)
+    .param("post_id", post_id)
 }
 
 /// Creates a `MENTIONED` relationship between a post and a user
@@ -533,4 +554,113 @@ pub fn set_user_homeserver_stale(
     .param("stale", stale)
     .param("record", record.map(|record| record.packet.clone()))
     .param("record_ts", record.map(|record| record.timestamp))
+}
+
+/// Clears the post's reference outbox if it is still `outbox`: an append whose graph write
+/// committed acknowledges only what it published.
+pub fn resource_references_ack(author_id: &str, post_id: &str, outbox: &str) -> Query {
+    Query::new(
+        "resource_references_ack",
+        r"
+        MATCH (p:Post {id: $id}) WHERE EXISTS { (:User {id: $author})-[:AUTHORED]->(p) }
+          AND p.resource_ref_outbox = $outbox
+        REMOVE p.resource_ref_outbox
+    ",
+    )
+    .param("author", author_id)
+    .param("id", post_id)
+    .param("outbox", outbox)
+}
+
+/// Marks that the post's references were retracted on the feed: the next reconcile puts them all.
+pub fn resource_references_retracted(author_id: &str, post_id: &str) -> Query {
+    Query::new(
+        "resource_references_retracted",
+        r"
+        MATCH (p:Post {id: $id}) WHERE EXISTS { (:User {id: $author})-[:AUTHORED]->(p) }
+        SET p.resource_ref_retracted = true
+    ",
+    )
+    .param("author", author_id)
+    .param("id", post_id)
+}
+
+/// The arguments of [`sync_resource_references`].
+pub struct ResourceReferenceWrite<'a> {
+    pub author_id: &'a str,
+    pub post_id: &'a str,
+    /// The content and kind the write was computed for: it runs only while the post has them.
+    pub content: &'a str,
+    pub kind: &'a str,
+    /// The revision the write was computed from, and the one it writes.
+    pub previous: &'a str,
+    pub revision: &'a str,
+    /// The lines to publish, saved on the post until their append is acknowledged.
+    pub outbox: Option<String>,
+    /// The indexed time of a new edge.
+    pub at: i64,
+    /// The Resources the post referenced before: one left with no relationship is deleted.
+    pub old_targets: Vec<String>,
+    /// Per edge type (`REPLIED`, `EMBEDS`, `COLLECTED`), the targets as maps of `id`, `uri`,
+    /// `scheme` and `path` (the path of the post's address).
+    pub groups: Vec<(&'static str, Vec<HashMap<String, String>>)>,
+}
+
+/// Reconciles the post's external reference edges with `write.groups` and saves its revision
+/// and outbox, in one statement, only while the post is live with the content, kind and
+/// revision the write was computed from; it returns a row then. A new edge and Resource take
+/// `at`; an existing edge keeps its time and takes the write's path, which changes only when the
+/// post's address does (the flip). Edges the groups no longer name are deleted, then each old
+/// target left with no relationship.
+pub fn sync_resource_references(write: ResourceReferenceWrite) -> Query {
+    let mut cypher = String::from(
+        r"
+        MATCH (p:Post {id: $id}) WHERE EXISTS { (:User {id: $author})-[:AUTHORED]->(p) }
+          AND p.content = $content AND p.kind = $kind AND NOT coalesce(p.deleted, false)
+          AND coalesce(p.resource_ref_revision, '') = $previous
+        SET p.resource_ref_revision = $revision, p.resource_ref_outbox = $outbox
+        REMOVE p.resource_ref_retracted
+        WITH p
+    ",
+    );
+    for (n, (edge, _)) in write.groups.iter().enumerate() {
+        cypher.push_str(&format!(
+            r"
+            FOREACH (item IN $targets_{n} |
+                MERGE (r:Resource {{id: item.id}})
+                ON CREATE SET r.uri = item.uri, r.scheme = item.scheme, r.indexed_at = $at
+                MERGE (p)-[e:{edge}]->(r)
+                ON CREATE SET e.indexed_at = $at
+                SET e.object_path = item.path
+            )
+            WITH p
+            CALL (p) {{ MATCH (p)-[e:{edge}]->(r:Resource)
+                WHERE NOT r.id IN [item IN $targets_{n} | item.id] DELETE e }}
+        "
+        ));
+    }
+    // Orphans go in the edge transaction: a retry cannot forget an old target.
+    cypher.push_str(
+        r"
+        CALL () {
+            UNWIND $old_targets AS id MATCH (r:Resource {id: id})
+            WITH DISTINCT r WHERE NOT EXISTS { (r)--() } DELETE r
+        }
+        RETURN p.id AS id
+    ",
+    );
+    let mut query = Query::new("resource_references_sync", cypher)
+        .param("author", write.author_id)
+        .param("id", write.post_id)
+        .param("content", write.content)
+        .param("kind", write.kind)
+        .param("old_targets", write.old_targets)
+        .param("previous", write.previous)
+        .param("revision", write.revision)
+        .param("outbox", write.outbox)
+        .param("at", write.at);
+    for (n, (_, targets)) in write.groups.into_iter().enumerate() {
+        query = query.param(&format!("targets_{n}"), targets);
+    }
+    query
 }

@@ -170,7 +170,18 @@ impl EventHandler for DefaultEventHandler {
                 .await
             }
             EventType::Del => {
-                handle_del_event(event, self.files_path.as_path(), self.ingestor.clone()).await
+                match handle_del_event(event, self.files_path.as_path(), self.ingestor.clone())
+                    .await
+                {
+                    // Any version DEL removes the logical v1 post. A DEL of a post already gone
+                    // (another version's DEL, or a retry after the graph delete) or never
+                    // indexed has nothing to retract or delete: acknowledged, and, as for a
+                    // pubky.app post, its line is not stored.
+                    Err(EventProcessorError::SkipIndexing) if is_social_post(&event.target) => {
+                        return Ok(())
+                    }
+                    result => result,
+                }
             }
         }?;
 
@@ -319,6 +330,12 @@ pub async fn remove_if_taken_down(
         Ok(()) | Err(EventProcessorError::SkipIndexing) => Ok(true),
         Err(e) => Err(e),
     }
+}
+
+/// Whether `target` is a `social/v1` post version file.
+fn is_social_post(target: &target::EventTarget) -> bool {
+    matches!(target, target::EventTarget::Social(_))
+        && matches!(translate_del(target), Ok(TranslatedDel::Post(_)))
 }
 
 /// Handles a DEL event: translate, dispatch to the matching handler. A file DEL of either epoch
