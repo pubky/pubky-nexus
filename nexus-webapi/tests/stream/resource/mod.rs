@@ -421,15 +421,14 @@ async fn test_stream_resources_match_all_honours_the_cursor() -> Result<()> {
 #[tokio_shared_rt::test(shared)]
 async fn test_stream_resources_match_bad_requests() -> Result<()> {
     for path in [V1_ROOT_PATH, V1_IDS_PATH] {
-        for query in [
-            "match=all",
-            "tags=a,b,c,d&match=all",
-            "tags=bitcoin&match=some",
-        ] {
+        for query in ["tags=a,b,c,d&match=all", "tags=bitcoin&match=some"] {
             invalid_get_request(&format!("{path}?{query}"), StatusCode::BAD_REQUEST).await?;
         }
-        // Three distinct labels, the fourth a repeat, is within the cap.
-        get_request(&format!("{path}?tags=a,b,c,a&match=all")).await?;
+        // Three distinct labels, the fourth a repeat, is within the cap; without tags, as
+        // in Pinakes, `all` filters nothing.
+        for query in ["tags=a,b,c,a&match=all", "match=all"] {
+            get_request(&format!("{path}?{query}")).await?;
+        }
     }
     Ok(())
 }

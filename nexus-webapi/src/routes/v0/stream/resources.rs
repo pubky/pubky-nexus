@@ -63,15 +63,13 @@ impl<V: ApiVersion> ResourceStreamQuery<V> {
     }
 
     /// The labels and how they match, once the request is checked: no removed `app`, and
-    /// `match=all` only with 1 to [`TagMatch::MAX_ALL_LABELS`] distinct labels.
+    /// at most [`TagMatch::MAX_ALL_LABELS`] distinct labels under `match=all`. As in Pinakes,
+    /// `match=all` without `tags` filters nothing.
     fn filter(&self) -> Result<(Option<Vec<String>>, TagMatch)> {
         self.reject_app()?;
         let tags = self.tags.as_ref().map(TagLabels::to_string_vec);
         let tag_match: TagMatch = self.tags_match.into();
-        if tag_match == TagMatch::All {
-            let Some(labels) = &tags else {
-                return Err(Error::invalid_input("match=all needs tags"));
-            };
+        if let (TagMatch::All, Some(labels)) = (tag_match, &tags) {
             let distinct: HashSet<&String> = labels.iter().collect();
             if distinct.len() > TagMatch::MAX_ALL_LABELS {
                 return Err(Error::invalid_input(format!(

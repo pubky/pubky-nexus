@@ -32,8 +32,8 @@ impl IntoParams for TagsMatch {
             .description(Some(format!(
                 "How several `tags` match: `any` (default) keeps a resource tagged with at least \
                  one of them, `all` only a resource tagged with every one, by any taggers. A \
-                 label listed twice counts once. `all` takes 1-{} distinct labels and needs \
-                 `tags`; otherwise 400.",
+                 label listed twice counts once. `all` takes at most {} distinct labels, \
+                 otherwise 400; without `tags` it filters nothing.",
                 TagMatch::MAX_ALL_LABELS
             )))
             .required(Required::False)
