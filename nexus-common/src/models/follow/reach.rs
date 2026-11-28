@@ -1,9 +1,11 @@
 use crate::db::{fetch_all_rows_from_graph, fetch_key_from_graph, queries, GraphError};
 use crate::models::error::ModelResult;
-use crate::types::StreamReach;
+use crate::types::{StreamReach, WotDepth};
 use pubky_social_specs::PubkyId;
+use serde::Serialize;
 use tokio::time::{timeout, Duration};
 use tracing::warn;
+use utoipa::ToSchema;
 
 const REACH_QUERY_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -67,6 +69,73 @@ fn trim_to_limit(ids: Vec<String>, limit: usize) -> ReachAuthors {
     }
 }
 
+/// The users a Web of Trust reaches, as [`reach_set`] reads them.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, ToSchema)]
+pub struct ReachSet {
+    /// The reached users' ids, at most the limit asked: the users the observer follows first,
+    /// then the rest; within each, users with a profile before key-discovery stubs, then those
+    /// more of the observer's follows follow, then by id.
+    pub authors: Vec<String>,
+    /// The reach held more users than the limit, so `authors` is a subset.
+    pub truncated: bool,
+}
+
+impl ReachSet {
+    /// A blake3 digest of the set in lowercase hex, over each id and a newline, then one byte for
+    /// `truncated`: the same for the same `authors` in the same order and the same `truncated`, so
+    /// a client holding the set can ask whether it changed.
+    pub fn digest(&self) -> String {
+        let mut hasher = blake3::Hasher::new();
+        for id in &self.authors {
+            hasher.update(id.as_bytes());
+            hasher.update(b"\n");
+        }
+        hasher.update(&[u8::from(self.truncated)]);
+        hasher.finalize().to_hex().to_string()
+    }
+}
+
+/// Resolves up to `limit` users in `observer_id`'s Web of Trust at `depth`: every user
+/// `source=wot` reads posts from, never the observer, whether or not they posted. The users the
+/// observer follows come first, so a reach over `limit` keeps them, then the rest. Within each,
+/// users with a profile come before key-discovery stubs, then those more of the observer's follows
+/// follow, then by id: a stub has no profile, so the stubs the observer does not follow itself,
+/// such as keys made in bulk and followed by an account it follows, rank after every user with
+/// one and cannot crowd them out at the limit. A longer reach is flagged `truncated`. `None` for
+/// an unknown observer.
+///
+/// # Errors
+/// Returns an error when the graph read fails, including
+/// `GraphError::QueryTimeout` for a traversal over its budget.
+pub async fn reach_set(
+    observer_id: &str,
+    depth: WotDepth,
+    limit: usize,
+) -> ModelResult<Option<ReachSet>> {
+    // One extra row tells a reach of exactly `limit` users from a larger one
+    let query = queries::get::get_reach_set(observer_id, depth, limit.saturating_add(1));
+    let rows = timeout(REACH_QUERY_TIMEOUT, fetch_all_rows_from_graph(query))
+        .await
+        .map_err(|_| GraphError::QueryTimeout)??;
+    if rows.is_empty() {
+        return Ok(None);
+    }
+    let ids = rows
+        .iter()
+        .map(|row| row.get::<Option<String>>("id"))
+        .filter_map(Result::transpose)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(GraphError::from)?;
+    let ReachAuthors {
+        author_ids,
+        met_limit,
+    } = trim_to_limit(ids, limit);
+    Ok(Some(ReachSet {
+        authors: author_ids.iter().map(ToString::to_string).collect(),
+        truncated: met_limit,
+    }))
+}
+
 /// Whether `user_id` is in `observer_id`'s `reach`, asked of the graph like
 /// [`reach_authors`], so the two cannot disagree on membership; a user in the
 /// reach who never posted is reached here but absent from [`reach_authors`].
@@ -93,8 +162,13 @@ pub async fn reach_contains(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::{exec_single_row, queries};
+    use crate::models::user::UserDetails;
     use crate::types::WotDepth;
+    use crate::utils::test_utils::random_pubky_id;
     use crate::{types::DynError, StackConfig, StackManager};
+    use futures::FutureExt;
+    use std::panic::AssertUnwindSafe;
 
     // docker/test-graph/mocks/search-reach.cypher
     const OBS: &str = "wnhrmj3b1tt3n6fr7fhedgak4q11e9i1uxm4dmiactgeobyu9wpy";
@@ -256,6 +330,208 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    #[tokio_shared_rt::test(shared)]
+    async fn reach_set_lists_every_reached_user_without_the_observer() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+
+        let set = |ids: &[&str], truncated| ReachSet {
+            authors: owned(ids),
+            truncated,
+        };
+        let depth = |d| WotDepth::new(d).expect("valid depth");
+        // The followed users first, by id, LURKER included although it never posted; D2 is two
+        // follows away. OBS is reached again through FRIEND and LURKER and stays out, and
+        // FOLLOWER, who follows OBS, is in no Web of Trust of it
+        let direct = [FRIEND, FOLLOWED, LURKER];
+        let two_steps = [FRIEND, FOLLOWED, LURKER, D2];
+        assert_eq!(
+            reach_set(OBS, depth(1), 1_000).await?,
+            Some(set(&direct, false))
+        );
+        for d in [2, 3] {
+            assert_eq!(
+                reach_set(OBS, depth(d), 1_000).await?,
+                Some(set(&two_steps, false)),
+                "depth {d}"
+            );
+        }
+
+        // A longer reach keeps the followed users first
+        assert_eq!(reach_set(OBS, depth(2), 3).await?, Some(set(&direct, true)));
+        assert_eq!(
+            reach_set(OBS, depth(2), 4).await?,
+            Some(set(&two_steps, false)),
+            "a reach of exactly `limit` users is complete"
+        );
+        assert_eq!(reach_set(OBS, depth(2), 0).await?, Some(set(&[], true)));
+
+        // A known user reaching nobody has an empty set, an unknown one none
+        assert_eq!(
+            reach_set(STRANGER, depth(3), 1_000).await?,
+            Some(ReachSet::default())
+        );
+        assert_eq!(reach_set(UNKNOWN, depth(3), 1_000).await?, None);
+        Ok(())
+    }
+
+    /// `n` fresh users' ids, ascending, so a test can place each by id.
+    fn sorted_ids(n: usize) -> Vec<String> {
+        let mut ids: Vec<String> = (0..n).map(|_| random_pubky_id().to_string()).collect();
+        ids.sort();
+        ids
+    }
+
+    /// Writes `profiles` as users with a profile, `stubs` as key-discovery stubs and `follows`
+    /// as (follower, followee) pairs, runs `check`, then removes every node it wrote, also when
+    /// `check` fails or panics; a panic is resumed after the cleanup.
+    async fn with_users<F>(
+        profiles: &[&str],
+        stubs: &[&str],
+        follows: &[(&str, &str)],
+        check: F,
+    ) -> Result<(), DynError>
+    where
+        F: std::future::Future<Output = Result<(), DynError>>,
+    {
+        let written = async {
+            for id in profiles {
+                let mut user = UserDetails::from_pubky(PubkyId::try_from(id)?);
+                user.name = "reach set user".to_string();
+                user.put_profile_to_graph(&format!("pubky://{id}/pub/pubky.app/profile.json"))
+                    .await?;
+            }
+            for id in stubs {
+                UserDetails::create_stub_in_graph(&PubkyId::try_from(id)?).await?;
+            }
+            for (follower, followee) in follows {
+                exec_single_row(queries::put::create_follow(follower, followee, 1)).await?;
+            }
+            Ok::<(), DynError>(())
+        }
+        .await;
+        let outcome = match written {
+            Ok(()) => AssertUnwindSafe(check).catch_unwind().await,
+            Err(e) => Ok(Err(e)),
+        };
+        let mut cleanup = Ok(());
+        for id in profiles.iter().chain(stubs) {
+            if let Err(e) = exec_single_row(queries::del::delete_user(id)).await {
+                cleanup = cleanup.and(Err(e));
+            }
+        }
+        match outcome {
+            Err(panic) => std::panic::resume_unwind(panic),
+            Ok(checked) => checked.and(cleanup.map_err(Into::into)),
+        }
+    }
+
+    /// An account the observer follows follows key-discovery stubs whose ids sort before every
+    /// user with a profile: at the limit the stubs are cut, not the users two follows away. A
+    /// stub the observer follows still comes with the followed users, after those with a profile.
+    #[tokio_shared_rt::test(shared)]
+    async fn reach_set_cuts_discovery_stubs_before_users_with_a_profile() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let ids = sorted_ids(8);
+        let [followed_stub, s1, s2, s3, account, h1, h2, obs] =
+            <[&str; 8]>::try_from(ids.iter().map(String::as_str).collect::<Vec<_>>())
+                .expect("eight ids");
+        let follows = [
+            (obs, followed_stub),
+            (obs, account),
+            (account, s1),
+            (account, s2),
+            (account, s3),
+            (account, h1),
+            (account, h2),
+        ];
+        let set = |ids: &[&str], truncated| ReachSet {
+            authors: owned(ids),
+            truncated,
+        };
+        let depth = WotDepth::new(2).expect("valid depth");
+        with_users(
+            &[obs, account, h1, h2],
+            &[followed_stub, s1, s2, s3],
+            &follows,
+            async {
+                assert_eq!(
+                    reach_set(obs, depth, 1_000).await?,
+                    Some(set(&[account, followed_stub, h1, h2, s1, s2, s3], false))
+                );
+                assert_eq!(
+                    reach_set(obs, depth, 4).await?,
+                    Some(set(&[account, followed_stub, h1, h2], true)),
+                    "the stubs two follows away are cut, the users with a profile stay"
+                );
+                Ok(())
+            },
+        )
+        .await
+    }
+
+    /// Past the profile check, a user more of the observer's follows follow comes first, whatever
+    /// the ids: among the followed users as among the rest.
+    #[tokio_shared_rt::test(shared)]
+    async fn reach_set_ranks_users_more_follows_follow_first() -> Result<(), DynError> {
+        StackManager::setup(&StackConfig::default()).await?;
+        let ids = sorted_ids(5);
+        // `once` and `b` sort before `twice` and `a`, so an order by id alone puts them first
+        let [once, twice, b, a, obs] =
+            <[&str; 5]>::try_from(ids.iter().map(String::as_str).collect::<Vec<_>>())
+                .expect("five ids");
+        let follows = [
+            (obs, a),
+            (obs, b),
+            (b, a),
+            (a, twice),
+            (b, twice),
+            (a, once),
+        ];
+        let set = |ids: &[&str], truncated| ReachSet {
+            authors: owned(ids),
+            truncated,
+        };
+        let depth = WotDepth::new(2).expect("valid depth");
+        with_users(&[obs, a, b, once, twice], &[], &follows, async {
+            assert_eq!(
+                reach_set(obs, depth, 1_000).await?,
+                Some(set(&[a, b, twice, once], false))
+            );
+            assert_eq!(
+                reach_set(obs, depth, 3).await?,
+                Some(set(&[a, b, twice], true)),
+                "the user one follow follows is cut first"
+            );
+            Ok(())
+        })
+        .await
+    }
+
+    #[test]
+    fn reach_set_digest_follows_the_set() {
+        let set = |ids: &[&str], truncated| ReachSet {
+            authors: owned(ids),
+            truncated,
+        };
+        let digest = set(&[FRIEND, D2], false).digest();
+        assert!(
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)),
+            "{digest}"
+        );
+        assert_eq!(digest, set(&[FRIEND, D2], false).digest());
+        for other in [
+            set(&[FRIEND, D2], true),
+            set(&[D2, FRIEND], false),
+            set(&[FRIEND], false),
+            set(&[], false),
+        ] {
+            assert_ne!(digest, other.digest(), "{other:?}");
+        }
     }
 
     #[tokio_shared_rt::test(shared)]

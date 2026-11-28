@@ -17,11 +17,12 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use nexus_common::{
     db::kv::AuthorFilter,
     models::{
-        follow::reach::reach_authors,
+        follow::reach::{reach_authors, reach_set},
         post::search::{PostsByContentSearch, MAX_REACH_AUTHORS_FT},
     },
     types::{StreamReach, WotDepth},
 };
+use nexus_webapi::routes::v0::user::reach_set::REACH_SET_MAX_USERS;
 use pubky_social_specs::PubkyId;
 use setup::run_setup;
 use std::time::Duration;
@@ -149,6 +150,35 @@ fn bench_resolve_reach(c: &mut Criterion) {
     group.finish();
 }
 
+/// The reach set route's read, `GET /v1/user/{id}/reach-set`: the graph query
+/// of every user in reach at depths 1 to 3, up to the route's limit, and the
+/// set's digest, which its tag and a 304 need as well.
+fn bench_reach_set(c: &mut Criterion) {
+    run_setup();
+    let rt = Runtime::new().unwrap();
+    let observers = observers();
+
+    let mut group = c.benchmark_group("search_reach/reach_set");
+    for observer in &observers {
+        for depth in 1..=3 {
+            let depth = WotDepth::new(depth).unwrap();
+            group.bench_function(
+                BenchmarkId::new(format!("wot_{depth}"), label(observer)),
+                |b| {
+                    b.to_async(&rt).iter(|| async {
+                        let set = reach_set(observer, depth, REACH_SET_MAX_USERS)
+                            .await
+                            .unwrap()
+                            .expect("the bench observer is stored");
+                        std::hint::black_box(set.digest());
+                    });
+                },
+            );
+        }
+    }
+    group.finish();
+}
+
 /// FT.SEARCH scoped to N authors, next to the unscoped and single-author
 /// baselines.
 fn bench_ft_author_set(c: &mut Criterion) {
@@ -253,6 +283,7 @@ criterion_group! {
     name = benches;
     config = configure_criterion();
     targets = bench_resolve_reach,
+              bench_reach_set,
               bench_ft_author_set,
               bench_end_to_end
 }

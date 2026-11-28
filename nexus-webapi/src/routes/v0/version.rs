@@ -39,7 +39,7 @@ use utoipa::{IntoParams, OpenApi, ToSchema};
 use super::endpoints::{
     POST_BOOKMARK_ROUTE, RESOURCE_EMBEDS_ROUTE, RESOURCE_REPLIES_ROUTE,
     STREAM_RESOURCES_BY_IDS_ROUTE, STREAM_USERS_DETAILS_BY_IDS_ROUTE, USER_FOLLOWING_DETAILS_ROUTE,
-    V0_PREFIX, V1_PREFIX,
+    USER_REACH_SET_ROUTE, V0_PREFIX, V1_PREFIX,
 };
 use super::stream::posts::{PostStreamByIdsRequest, StreamSourceKind};
 use super::types::TaggersInfoResponse;
@@ -511,10 +511,10 @@ impl ApiVersion for V1 {
     }
 
     /// The routes added since `/v0` froze: the resource views by IDs or URIs, the resource
-    /// changes feed, the posts replying to or embedding a resource, and the details-only user
-    /// lookups, by ids and for a user's follows. Both user lookups are one indexed graph read,
-    /// like `/user/{user_id}/details`, so they sit in the default bucket. `/v1` has no bookmark
-    /// or file details route at all.
+    /// changes feed, the posts replying to or embedding a resource, a user's reach set, and the
+    /// details-only user lookups, by ids and for a user's follows. Both user lookups are one
+    /// indexed graph read, like `/user/{user_id}/details`, so they sit in the default bucket.
+    /// `/v1` has no bookmark or file details route at all.
     fn own_routes() -> (Router<AppState>, Router<AppState>) {
         let expensive = Router::new().route(
             STREAM_RESOURCES_BY_IDS_ROUTE,
@@ -528,6 +528,10 @@ impl ApiVersion for V1 {
             .route(
                 RESOURCE_EMBEDS_ROUTE,
                 axum::routing::get(resource::references::embeds),
+            )
+            .route(
+                USER_REACH_SET_ROUTE,
+                axum::routing::get(user::reach_set::user_reach_set_handler),
             )
             .route(
                 STREAM_USERS_DETAILS_BY_IDS_ROUTE,
@@ -779,6 +783,7 @@ struct V0Doc;
         resource_changes::resource_changes_handler,
         resource::references::replies,
         resource::references::embeds,
+        user::reach_set::user_reach_set_handler,
     ),
     components(schemas(
         v1::PostView,
@@ -801,6 +806,7 @@ struct V0Doc;
         v1::TagLabel,
         v1::Tags,
         stream::resources::ResourceStreamByIdsRequest,
+        nexus_common::models::follow::reach::ReachSet,
         stream::users::UserDetailsByIdsRequest,
         UserDetails,
     ))
