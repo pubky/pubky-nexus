@@ -46,6 +46,10 @@ pub struct MockHomeserverClient {
     /// asserts no download happened reads this.
     blob_fetches: Mutex<Vec<String>>,
 
+    /// The homeserver each `get_resource` and `get_blob` was asked of, `None` when the fetch
+    /// was left to the owner's record, with the URI asked for, in fetch order.
+    fetched_from: Mutex<Vec<(Option<String>, String)>>,
+
     /// The user whose record every lookup is answered with, and the homeserver
     /// it names, if any. None by default.
     homeserver_of: Option<(Keypair, Option<PubkyId>)>,
@@ -109,8 +113,8 @@ impl MockHomeserverClient {
         self
     }
 
-    /// `get_resource` of `uri` fails with `kind`, labelled with the owner's key as the real
-    /// client labels a failed fetch.
+    /// A fetch of `uri` fails with `kind`, labelled as the real client labels a failed fetch:
+    /// with the homeserver asked, or with the owner's key when none was.
     pub fn with_resource_error(mut self, uri: impl Into<String>, kind: HsErrorKind) -> Self {
         self.resource_errors.insert(uri.into(), kind);
         self
@@ -137,13 +141,17 @@ impl MockHomeserverClient {
     pub async fn blob_fetches(&self) -> Vec<String> {
         self.blob_fetches.lock().await.clone()
     }
-}
 
-/// A 404 for `resource`, labelled with its owner's key, as the real client labels a failed
-/// resource or blob fetch.
-fn not_found(resource: &PubkyResource, op: HsOp) -> HsError {
-    let owner = PubkyId::from(resource.owner.clone());
-    HsError::new(&owner, op, HsErrorKind::NotFound(resource.to_pubky_url()))
+    /// The homeserver each resource and blob fetch was asked of, `None` when it was left to
+    /// the owner's record, with the URI asked for, in fetch order.
+    pub async fn fetched_from(&self) -> Vec<(Option<String>, String)> {
+        self.fetched_from.lock().await.clone()
+    }
+
+    async fn record_fetch(&self, hs: Option<&PubkyId>, resource: &PubkyResource) {
+        let asked = (hs.map(ToString::to_string), resource.to_pubky_url());
+        self.fetched_from.lock().await.push(asked);
+    }
 }
 
 #[async_trait::async_trait]
@@ -210,27 +218,45 @@ impl HomeserverClient for MockHomeserverClient {
         result.map_err(|kind| HsError::new(hs, HsOp::UserEvents, kind))
     }
 
-    async fn get_resource(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
-        self.serve(resource, HsOp::GetResource)
+    async fn get_resource(
+        &self,
+        hs: &PubkyId,
+        resource: &PubkyResource,
+    ) -> Result<Vec<u8>, HsError> {
+        self.record_fetch(Some(hs), resource).await;
+        self.serve(Some(hs), resource, HsOp::GetResource)
     }
 
-    async fn get_blob(&self, resource: &PubkyResource) -> Result<Vec<u8>, HsError> {
+    async fn get_blob(
+        &self,
+        hs: Option<&PubkyId>,
+        resource: &PubkyResource,
+    ) -> Result<Vec<u8>, HsError> {
+        self.record_fetch(hs, resource).await;
         self.blob_fetches.lock().await.push(resource.to_pubky_url());
-        self.serve(resource, HsOp::GetBlob)
+        self.serve(hs, resource, HsOp::GetBlob)
     }
 }
 
 impl MockHomeserverClient {
-    /// The scripted answer for `resource`: its failure, its body, or a 404, labelled with `op`.
-    fn serve(&self, resource: &PubkyResource, op: HsOp) -> Result<Vec<u8>, HsError> {
+    /// The scripted answer for `resource`: its failure, its body, or a 404. A failure is
+    /// labelled with `op` and, as the real client labels it, with `hs`, the homeserver asked,
+    /// or with the owner's key when none was.
+    fn serve(
+        &self,
+        hs: Option<&PubkyId>,
+        resource: &PubkyResource,
+        op: HsOp,
+    ) -> Result<Vec<u8>, HsError> {
         let url = resource.to_pubky_url();
-        if let Some(kind) = self.resource_errors.get(&url) {
-            let owner = PubkyId::from(resource.owner.clone());
-            return Err(HsError::new(&owner, op, kind.clone()));
-        }
-        self.resources
-            .get(&url)
+        let failure = match (self.resource_errors.get(&url), self.resources.get(&url)) {
+            (Some(kind), _) => kind.clone(),
+            (None, Some(body)) => return Ok(body.clone()),
+            (None, None) => HsErrorKind::NotFound(url),
+        };
+        let asked = hs
             .cloned()
-            .ok_or_else(|| not_found(resource, op))
+            .unwrap_or_else(|| PubkyId::from(resource.owner.clone()));
+        Err(HsError::new(&asked, op, failure))
     }
 }

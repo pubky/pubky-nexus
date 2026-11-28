@@ -77,6 +77,7 @@ async fn test_file_ingest_aborts_on_blacklisted_source_homeserver() -> Result<()
         test.temp_dir.path(),
         &ingestor,
         test.event_processor_runner.client.as_ref(),
+        &test.homeserver_id,
     )
     .await
     .expect_err("file ingest should be refused for a blacklisted source HS");
@@ -142,6 +143,7 @@ async fn test_file_ingest_aborts_when_source_is_blacklisted_hs_pk_directly() -> 
         test.temp_dir.path(),
         &ingestor,
         test.event_processor_runner.client.as_ref(),
+        &test.homeserver_id,
     )
     .await
     .expect_err("file ingest should be refused when src addresses a blacklisted HS PK directly");
@@ -196,6 +198,7 @@ async fn test_file_ingest_proceeds_when_source_homeserver_not_blacklisted() -> R
         test.temp_dir.path(),
         &ingestor,
         test.event_processor_runner.client.as_ref(),
+        &test.homeserver_id,
     )
     .await
     .expect("file ingest should proceed when the source HS is not blacklisted");

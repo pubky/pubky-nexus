@@ -166,6 +166,7 @@ impl EventHandler for DefaultEventHandler {
                     self.moderation.clone(),
                     self.ingestor.clone(),
                     self.client.as_ref(),
+                    homeserver_id,
                 )
                 .await
             }
@@ -209,15 +210,17 @@ impl EventHandler for DefaultEventHandler {
 
 /// Handles a PUT event: translates its resource and dispatches it to the matching handler.
 ///
-/// A resource with a body is fetched through `client`, capped for a JSON object, and translated
-/// from its bytes. A resource with none, a `social/v1` file, is translated from its path alone
-/// and its handler downloads the bytes under the file cap, so the JSON fetch is skipped.
+/// A resource with a body is fetched through `client` from `homeserver_id`, the homeserver whose
+/// stream delivered the event, capped for a JSON object, and translated from its bytes. A
+/// resource with none, a `social/v1` file, is translated from its path alone and its handler
+/// downloads the bytes under the file cap, so the JSON fetch is skipped.
 pub async fn handle_put_event(
     event: &Event,
     files_path: &Path,
     moderation: Arc<Moderation>,
     ingestor: Arc<UserIngestor>,
     client: &dyn HomeserverClient,
+    homeserver_id: &PubkyId,
 ) -> Result<(), EventProcessorError> {
     // Whatever order events arrive in, a record the moderator took down stays down. A
     // copy left behind by an earlier attempt whose removal failed is removed here too.
@@ -231,7 +234,7 @@ pub async fn handle_put_event(
         Some(translated) => translated,
         None => {
             let pubky_resource: PubkyResource = event.uri.parse()?;
-            let blob = client.get_resource(&pubky_resource).await?;
+            let blob = client.get_resource(homeserver_id, &pubky_resource).await?;
             translate_put(&event.uri, &event.target, &blob)?
         }
     };
@@ -257,10 +260,11 @@ pub async fn handle_put_event(
             }
         }
         TranslatedPut::File { key, file } => {
-            handlers::file::sync_put(file, key, files_path, &ingestor, client).await
+            handlers::file::sync_put(file, key, files_path, &ingestor, client, homeserver_id).await
         }
         TranslatedPut::V1File { key, hash } => {
-            handlers::file::sync_put_v1(key, &hash, files_path, &ingestor, client).await
+            handlers::file::sync_put_v1(key, &hash, files_path, &ingestor, client, homeserver_id)
+                .await
         }
     };
     outcome?;

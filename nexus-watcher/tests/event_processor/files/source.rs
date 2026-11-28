@@ -9,7 +9,8 @@ use anyhow::Result;
 use chrono::Utc;
 use nexus_common::models::file::FileDetails;
 use nexus_common::models::traits::Collection;
-use nexus_common::utils::test_utils::{default_ingestor_tests, random_pubky_id};
+use nexus_common::models::user::UserIngestor;
+use nexus_common::utils::test_utils::random_pubky_id;
 use nexus_watcher::events::retry::event::RetryEvent;
 use nexus_watcher::events::retry::{IndexKey, RetryScheduler};
 use nexus_watcher::events::{DefaultEventHandler, EventHandler};
@@ -19,6 +20,7 @@ use pubky_social_specs::legacy_v0::traits::{HasIdPath, HashId, TimestampId};
 use pubky_social_specs::legacy_v0::{
     blob_uri_builder, file_uri_builder, post_uri_builder, PubkyAppBlob, PubkyAppFile, PubkyAppUser,
 };
+use pubky_social_specs::PubkyId;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -80,22 +82,81 @@ async fn handle_over_mock(
     file: &PubkyAppFile,
     files_path: &Path,
 ) -> Result<(EventProcessorError, Vec<String>)> {
+    let (err, client, _) =
+        handle_delivered_over_mock(owner_id, file, files_path, &random_pubky_id()).await?;
+    Ok((err, client.blob_fetches().await))
+}
+
+/// Handles the PUT of `file` for `owner_id`, delivered by `homeserver`, through the real
+/// handler over a mock homeserver that serves only the metadata, and returns the error, the
+/// mock, which recorded what it was asked for, and the URI of the file's metadata.
+async fn handle_delivered_over_mock(
+    owner_id: &str,
+    file: &PubkyAppFile,
+    files_path: &Path,
+    homeserver: &PubkyId,
+) -> Result<(EventProcessorError, Arc<MockHomeserverClient>, String)> {
     let file_uri = file_uri_builder(owner_id.to_string(), file.create_id());
     let client = Arc::new(
         MockHomeserverClient::default().with_resource(&file_uri, serde_json::to_vec(file)?),
     );
+    // The mock answers the lookup of the blob owner's homeserver too: none published, so the
+    // blacklist check passes and the handler goes on to the blob.
     let handler: Arc<dyn EventHandler> = Arc::new(DefaultEventHandler::new(
         default_moderation_tests(),
-        default_ingestor_tests(),
+        Arc::new(UserIngestor::new([], client.clone())),
         client.clone(),
         files_path.to_path_buf(),
         new_in_memory_store(),
     ));
-    let err =
-        retrieve_and_handle_event_line(&format!("PUT {file_uri}"), &random_pubky_id(), handler)
-            .await
-            .expect_err("a file with an unreadable source must be rejected");
-    Ok((err, client.blob_fetches().await))
+    let err = retrieve_and_handle_event_line(&format!("PUT {file_uri}"), homeserver, handler)
+        .await
+        .expect_err("a file with an unreadable source must be rejected");
+    Ok((err, client, file_uri))
+}
+
+/// A file's metadata and the user's own blob it names are both asked of the homeserver whose
+/// stream delivered the file's event: that is where the user's data was when the event was
+/// written, whatever homeserver their record names by now.
+#[tokio_shared_rt::test(shared)]
+async fn test_a_users_own_blob_is_asked_of_the_homeserver_that_delivered_the_file() -> Result<()> {
+    setup().await?;
+    let files = tempfile::TempDir::new()?;
+    let owner_id = random_pubky_id().to_string();
+    let homeserver = random_pubky_id();
+    let blob_uri = blob_uri_builder(owner_id.clone(), "0032SSN7Q4EVG".to_string());
+    let file = file_with_src(blob_uri.clone());
+
+    let (_, client, file_uri) =
+        handle_delivered_over_mock(&owner_id, &file, files.path(), &homeserver).await?;
+
+    let delivering = Some(homeserver.to_string());
+    assert_eq!(
+        client.fetched_from().await,
+        vec![(delivering.clone(), file_uri), (delivering, blob_uri)]
+    );
+    Ok(())
+}
+
+/// A blob of another user is not asked of the homeserver that delivered the file's event,
+/// which need not host that user: the fetch is left to the record its owner publishes.
+#[tokio_shared_rt::test(shared)]
+async fn test_another_users_blob_is_left_to_its_owners_record() -> Result<()> {
+    setup().await?;
+    let files = tempfile::TempDir::new()?;
+    let owner_id = random_pubky_id().to_string();
+    let homeserver = random_pubky_id();
+    let blob_uri = blob_uri_builder(random_pubky_id().to_string(), "0032SSN7Q4EVG".to_string());
+    let file = file_with_src(blob_uri.clone());
+
+    let (_, client, file_uri) =
+        handle_delivered_over_mock(&owner_id, &file, files.path(), &homeserver).await?;
+
+    assert_eq!(
+        client.fetched_from().await,
+        vec![(Some(homeserver.to_string()), file_uri), (None, blob_uri)]
+    );
+    Ok(())
 }
 
 /// A `src` that is a URL but no `pubky://` address was a retried `Generic` error. It is now

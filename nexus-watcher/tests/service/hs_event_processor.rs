@@ -1069,7 +1069,7 @@ async fn test_run_polls_and_fetches_through_the_client() -> Result<()> {
     };
     homeserver.put_to_index().await?;
     let hs_id = homeserver.id.clone();
-    let processor = processor_with_client(homeserver, event_handler.clone(), client, store);
+    let processor = processor_with_client(homeserver, event_handler.clone(), client.clone(), store);
 
     processor.run().await?;
 
@@ -1090,6 +1090,11 @@ async fn test_run_polls_and_fetches_through_the_client() -> Result<()> {
         "client-seam"
     );
     assert_eq!(cursor, 1);
+    assert_eq!(
+        client.fetched_from().await,
+        vec![(Some(hs_id.to_string()), profile_uri)],
+        "the resource should be asked of the homeserver whose stream delivered the event"
+    );
 
     Ok(())
 }

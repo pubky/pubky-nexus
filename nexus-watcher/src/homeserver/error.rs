@@ -10,7 +10,8 @@ use super::fetch::{format_error_body, MAX_ERROR_BODY};
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("{op:?} {hs}: {kind}")]
 pub struct HsError {
-    /// ID of the homeserver the call went to, or for a resource or blob, its owner's key.
+    /// ID of the homeserver the call went to, or for a blob left to its owner's record, the
+    /// owner's key.
     /// Not a [`PubkyId`], which also holds the decoded key and would make every error
     /// several times larger.
     pub hs: String,

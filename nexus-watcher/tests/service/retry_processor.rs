@@ -531,9 +531,9 @@ impl MappedUsersPost {
 }
 
 /// A user mapped to another homeserver than the one an entry was read from is read
-/// there, so the entry is removed and nothing is indexed. A PUT is refetched through the
-/// user's record, which names the new homeserver, and that homeserver's own stream
-/// delivers what it holds: the entry adds nothing.
+/// there, so the entry is removed and nothing is indexed. A PUT would be refetched from
+/// the homeserver the entry was read from, which the user has left: it could bring back
+/// what they deleted on the new one, whose own stream delivers what it holds.
 #[tokio_shared_rt::test(shared)]
 async fn test_retry_of_a_user_mapped_to_another_homeserver_is_removed_and_nothing_indexed(
 ) -> Result<()> {
